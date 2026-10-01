@@ -1,3 +1,4 @@
+import "./load-env";
 import {
   createSolanaRpc,
   address,
@@ -335,17 +336,15 @@ import {
   calculateAvailableFees,
   buildClaimRedemptionInstruction,
   buildClaimRedemptionInstructions,
+  buildAtomicRevealAndPickWinnersInstructions,
+  createSetComputeUnitLimitInstruction,
   HumaPoolAddresses,
   findAtaAddress,
   decodeAccountBase64Data,
   parseOptionalAddress,
 } from "../app/lib/bonds-sdk";
-
-// Switchboard On-Demand binary account layout constants
-const SB_RANDOMNESS_ACCOUNT_SIZE = 408;
-const SB_REQUEST_SLOT_OFFSET = 104;
-const SB_REVEAL_SLOT_OFFSET = 144;
-const SB_SEED_OFFSET = 152;
+import { createVrfProvider } from "../services/crank/vrf/randomness-provider";
+import { toPoolId, toDrawCycleId, toSlot } from "../services/crank/types";
 
 // ─── Help / Usage & Command Registry ─────────────────────────────────────────
 
@@ -419,7 +418,23 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     description:
       "Harvest yield from Huma protocol for the specified prize pool and commit it to the current draw cycle, freezing the pool for draw processing.",
     requiresSigner: true,
-    examples: ["npm run pb-cli harvest", "npm run pb-cli harvest -- --pool 1"],
+    options: [
+      {
+        flag: "--randomness <pubkey>",
+        description:
+          "Switchboard randomness account public key (default: from devnet-state/addresses.json or env)",
+      },
+      {
+        flag: "--randomness-account <pubkey>",
+        description: "Alias for --randomness",
+      },
+    ],
+    examples: [
+      "npm run pb-cli harvest",
+      "npm run pb-cli harvest -- --pool 1",
+      "npm run pb-cli harvest -- --pool 1 --randomness <RANDOMNESS_PUBKEY>",
+      "npm run pb-cli harvest -- --dry-run",
+    ],
   },
   "prepare-draw": {
     command: "prepare-draw",
@@ -920,11 +935,12 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       },
       {
         flag: "--new-randomness <pubkey>",
-        description: "New Switchboard randomness account address",
-        required: true,
+        description:
+          "New Switchboard randomness account address (optional; auto-provisioned if omitted)",
       },
     ],
     examples: [
+      "npm run pb-cli rebind-randomness -- --pool 1",
       "npm run pb-cli rebind-randomness -- --pool 1 --new-randomness <PUBKEY>",
     ],
   },
@@ -1381,52 +1397,66 @@ function loadEnvLocal(): Record<string, string> {
   return readEnvFile(path.resolve(process.cwd(), ".env.local"));
 }
 
-async function setAccount(
-  rpcUrl: string,
-  addr: string,
-  lamports: number,
-  dataHex: string,
-  owner: string,
-  executable: boolean
-) {
-  const res = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: Date.now(),
-      method: "surfnet_setAccount",
-      params: [
-        addr,
-        {
-          lamports,
-          data: dataHex,
-          owner,
-          executable,
-        },
-      ],
-    }),
-  });
-  const json = (await res.json()) as { error?: unknown };
-  if (json.error) {
-    throw new Error(
-      `RPC Error setting account ${addr}: ${safeStringify(json.error)}`
+// ─── Exported Action Handlers ────────────────────────────────────────────────
+
+export interface ResolveHarvestRandomnessParams {
+  readonly explicitAccount?: string | Address;
+  readonly stateAddresses?: Record<string, string | undefined>;
+  readonly poolId?: number;
+  readonly env?: Record<string, string | undefined>;
+}
+
+export function resolveHarvestRandomnessAccount({
+  explicitAccount,
+  stateAddresses,
+  poolId = 1,
+  env = process.env,
+}: ResolveHarvestRandomnessParams): Address | undefined {
+  const poolKey = `POOL_${poolId}_RANDOMNESS_ACCOUNT`;
+  const poolStateKey = `pool_${poolId}_randomnessAccount`;
+
+  const candidates = [
+    explicitAccount,
+    env[poolKey],
+    stateAddresses?.[poolStateKey],
+    poolId === 1 ? stateAddresses?.randomnessAccount : undefined,
+    stateAddresses?.NEXT_PUBLIC_RANDOMNESS_ACCOUNT,
+    env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT,
+  ];
+
+  const rawCandidate = candidates.find((c) =>
+    typeof c === "string" ? c.trim() !== "" : c !== undefined
+  );
+
+  if (!rawCandidate) {
+    return undefined;
+  }
+
+  const candidateStr =
+    typeof rawCandidate === "string" ? rawCandidate.trim() : rawCandidate;
+  try {
+    return address(candidateStr);
+  } catch {
+    throw new CliArgumentError(
+      `Invalid randomness account public key address: "${rawCandidate}".`
     );
   }
 }
-
-// ─── Exported Action Handlers ────────────────────────────────────────────────
 
 export interface ExecuteHarvestParams {
   poolId?: number;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  randomnessAccount?: string | Address;
+  dryRun?: boolean;
 }
 
 export async function executeHarvest({
   poolId = 1,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  randomnessAccount,
+  dryRun = false,
 }: ExecuteHarvestParams): Promise<{ drawCycleId: number }> {
   console.log(`Harvesting yield for pool ${poolId}...`);
   const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
@@ -1458,14 +1488,6 @@ export async function executeHarvest({
     );
   }
 
-  const env = loadEnvLocal();
-  const randomnessAccountStr = env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
-  if (!randomnessAccountStr) {
-    throw new Error(
-      `Missing NEXT_PUBLIC_RANDOMNESS_ACCOUNT in .env.local. Please run 'npm run ${isDevnet ? "devnet" : "localnet"} init' first.`
-    );
-  }
-
   const targetCycleId = poolState.currentDrawCycleId;
 
   if (poolState.isFrozenForDraw) {
@@ -1477,25 +1499,58 @@ export async function executeHarvest({
     return { drawCycleId: frozenCycleId };
   }
 
+  const resolvedRandomnessAccount = resolveHarvestRandomnessAccount({
+    explicitAccount: randomnessAccount,
+    stateAddresses,
+    poolId,
+  });
+
+  const vrfProvider = createVrfProvider(rpcUrl, {
+    signer,
+    randomnessAccount: resolvedRandomnessAccount,
+  });
+  const vrfBinding = await vrfProvider.prepareHarvestRandomness({
+    poolId: toPoolId(poolId),
+    cycleId: toDrawCycleId(targetCycleId),
+    randomnessAccount: resolvedRandomnessAccount,
+  });
+
+  if (dryRun) {
+    console.log(`[DRY RUN] Would execute harvest_yield_and_commit for Pool ${poolId}:
+  Target Draw Cycle ID: ${targetCycleId}
+  PST Mint: ${pstMintStr}
+  Huma Pool State: ${humaPoolStateStr}
+  Randomness Account: ${vrfBinding.randomnessAccount}
+  Compute Units: 350,000
+`);
+    return { drawCycleId: targetCycleId };
+  }
+
   console.log(`Pool Details:
   Current Draw Cycle ID: ${targetCycleId}
   Ticket Registry: ${poolState.ticketRegistry}
   PST Mint: ${pstMintStr}
   Huma Pool State: ${humaPoolStateStr}
-  Randomness Account: ${randomnessAccountStr}
+  Randomness Account: ${vrfBinding.randomnessAccount}
 `);
 
-  const ix = await buildHarvestYieldAndCommitInstruction({
+  const setCuIx = createSetComputeUnitLimitInstruction(350_000);
+  const harvestIx = await buildHarvestYieldAndCommitInstruction({
     crank: signer.address,
     poolId,
     ticketRegistry: address(poolState.ticketRegistry),
     currentDrawCycleId: targetCycleId,
     pstMint: address(pstMintStr),
     humaPoolState: address(humaPoolStateStr),
-    randomnessAccount: address(randomnessAccountStr),
+    randomnessAccount: address(vrfBinding.randomnessAccount),
   });
 
-  await sendTx(rpc, ix, signer);
+  const instructions = [setCuIx, ...vrfBinding.instructions, harvestIx];
+  const signers = vrfBinding.signers?.length
+    ? [signer, ...vrfBinding.signers]
+    : [signer];
+
+  await sendTx(rpc, instructions, signers);
   return { drawCycleId: targetCycleId };
 }
 
@@ -1705,111 +1760,38 @@ export async function executeReveal({
     });
   }
 
-  let seed = crypto.randomBytes(32);
-  if (seedHex) {
-    if (seedHex.length !== 64) {
-      throw new Error("Seed must be a 64-character (32-byte) hex string.");
-    }
-    seed = Buffer.from(seedHex, "hex");
-  }
-
-  console.log(`Using Random Seed (hex): ${seed.toString("hex")}`);
   console.log(`Targeting Draw Cycle ID: ${targetCycleId}`);
   const randomnessAccountStr = drawCycleState.randomnessAccount;
   console.log(`Extracted locked randomness account: ${randomnessAccountStr}`);
 
-  const ix = await buildRevealAndPickWinnersInstruction({
+  const vrfProvider = createVrfProvider(rpcUrl, { signer });
+  const currentSlot = await rpc.getSlot().send();
+  const revealResult = await vrfProvider.prepareReveal({
+    randomnessAccount: address(randomnessAccountStr),
+    committedSeedSlot: toSlot(drawCycleState.vrfSeedSlot),
+    currentSlot: toSlot(currentSlot),
+  });
+
+  if (revealResult.status !== "ready") {
+    throw new Error(
+      `VRF Reveal not ready (status: ${revealResult.status}): ${
+        (revealResult as { reason?: string }).reason ??
+        "Awaiting VRF resolution"
+      }`
+    );
+  }
+
+  const setCuIx = createSetComputeUnitLimitInstruction(800_000);
+  const revealInstructions = await buildAtomicRevealAndPickWinnersInstructions({
     crank: signer.address,
     poolId,
     currentDrawCycleId: targetCycleId,
     ticketRegistry: address(poolState.ticketRegistry),
     randomnessAccount: address(randomnessAccountStr),
+    switchboardRevealInstruction: revealResult.revealInstruction,
   });
 
-  const isLocalnet =
-    rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost");
-  if (isLocalnet) {
-    console.log("Localnet detected. Injecting mock resolved randomness...");
-
-    const currentSlot = await rpc.getSlot().send();
-    console.log(`Current slot: ${currentSlot}`);
-
-    const buffer = new Uint8Array(SB_RANDOMNESS_ACCOUNT_SIZE);
-    const view = new DataView(buffer.buffer);
-    buffer.set(SWITCHBOARD_RANDOMNESS_DISCRIMINATOR, 0);
-    buffer.set(new Uint8Array(seed), SB_SEED_OFFSET);
-
-    const sbProgramId = resolveSwitchboardProgramId();
-
-    const offsets = [1n, 2n, 0n, 3n];
-    let confirmed = false;
-    let lastError: unknown = null;
-
-    for (const offset of offsets) {
-      const currentSlot = await rpc.getSlot().send();
-      const baseSlot =
-        currentSlot >= drawCycleState.vrfSeedSlot
-          ? currentSlot
-          : drawCycleState.vrfSeedSlot;
-      const targetSlot = baseSlot + offset;
-
-      view.setBigUint64(SB_REQUEST_SLOT_OFFSET, baseSlot, true);
-      view.setBigUint64(SB_REVEAL_SLOT_OFFSET, targetSlot, true);
-
-      const dataHex = Buffer.from(buffer).toString("hex");
-
-      await setAccount(
-        rpcUrl,
-        randomnessAccountStr,
-        1_000_000_000,
-        dataHex,
-        sbProgramId,
-        false
-      );
-
-      console.log(
-        `Mock randomness account injected (seed_slot: ${baseSlot}, reveal_slot: ${targetSlot}). Submitting reveal transaction...`
-      );
-
-      try {
-        await sendTx(rpc, ix, signer);
-        confirmed = true;
-        break;
-      } catch (err: unknown) {
-        lastError = err;
-        const parsed = parseTransactionError(err);
-        const errStr = `${String(err)} ${safeStringify(err)} ${parsed.message}`;
-        if (
-          parsed.code === 6030 ||
-          parsed.code === 6031 ||
-          errStr.includes("RandomnessNotResolved") ||
-          errStr.includes("StaleRandomnessRequest") ||
-          errStr.includes("6030") ||
-          errStr.includes("6031") ||
-          errStr.includes("0x178e") ||
-          errStr.includes("0x178f")
-        ) {
-          console.log(
-            `Randomness resolution retry needed (attempt offset +${offset} resulted in ${parsed.title}). Retrying next slot offset...`
-          );
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          continue;
-        }
-        throw err;
-      }
-    }
-
-    if (!confirmed) {
-      throw (
-        lastError ||
-        new Error(
-          "Failed to confirm reveal transaction after all slot offset attempts."
-        )
-      );
-    }
-  } else {
-    await sendTx(rpc, ix, signer);
-  }
+  await sendTx(rpc, [setCuIx, ...revealInstructions], signer);
 }
 
 export interface ExecuteReinvestParams {
@@ -3876,7 +3858,7 @@ To execute this on-chain, re-run with --confirm.`);
 export interface ExecuteRebindRandomnessParams {
   poolId?: number;
   cycleId?: number;
-  newRandomnessAccount: string;
+  newRandomnessAccount?: string;
   rpcUrl?: string;
   signer: KeyPairSigner;
 }
@@ -3888,10 +3870,6 @@ export async function executeRebindRandomness({
   rpcUrl = "http://127.0.0.1:8899",
   signer,
 }: ExecuteRebindRandomnessParams) {
-  if (!newRandomnessAccount) {
-    throw new Error("Missing --new-randomness <pubkey> argument.");
-  }
-
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
 
@@ -3927,19 +3905,35 @@ export async function executeRebindRandomness({
   );
   const drawCycleState = parseDrawCycle(drawCycleBytes);
 
+  const vrfProvider = createVrfProvider(rpcUrl, { signer });
+  const vrfBinding = await vrfProvider.prepareRebindRandomness({
+    poolId: toPoolId(poolId),
+    cycleId: toDrawCycleId(targetCycleId),
+    staleRandomness: address(drawCycleState.randomnessAccount),
+  });
+
+  const targetNewRandomness = newRandomnessAccount
+    ? address(newRandomnessAccount)
+    : address(vrfBinding.randomnessAccount);
+
   console.log(
-    `Rebinding Expired Randomness for Pool ${poolId}, Cycle ${targetCycleId} (current: ${drawCycleState.randomnessAccount}) to ${newRandomnessAccount}...`
+    `Rebinding Expired Randomness for Pool ${poolId}, Cycle ${targetCycleId} (current: ${drawCycleState.randomnessAccount}) to ${targetNewRandomness}...`
   );
 
+  const setCuIx = createSetComputeUnitLimitInstruction(350_000);
   const ix = await buildCrankRebindExpiredRandomnessInstruction({
     crank: signer.address,
     poolId,
     cycleId: targetCycleId,
     currentRandomnessAccount: drawCycleState.randomnessAccount,
-    newRandomnessAccount: address(newRandomnessAccount),
+    newRandomnessAccount: targetNewRandomness,
   });
 
-  await sendTx(rpc, ix, signer);
+  const instructions = [setCuIx, ...vrfBinding.instructions, ix];
+  const signers = [signer, ...(vrfBinding.signers ?? [])];
+
+  await sendTx(rpc, instructions, signers);
+  console.log(`✓ Stale randomness successfully unbound and rebound to cycle.`);
 }
 
 function buildSystemCreateAccountData(
@@ -4457,12 +4451,12 @@ async function main() {
         if (!isNaN(val)) cycleId = val;
       }
       const newRandomnessAccount =
-        options["--new-randomness"] || positionals[1] || positionals[0];
-      if (!newRandomnessAccount) {
-        console.error("Error: Missing required option --new-randomness\n");
-        showCommandHelp("rebind-randomness");
-        process.exit(1);
-      }
+        options["--new-randomness"] ||
+        (positionals.length > 1
+          ? positionals[1]
+          : positionals.length > 0 && isNaN(parseInt(positionals[0], 10))
+            ? positionals[0]
+            : undefined);
       await executeRebindRandomness({
         poolId,
         cycleId,
@@ -4474,7 +4468,17 @@ async function main() {
     }
 
     case "harvest": {
-      await executeHarvest({ poolId, rpcUrl, signer: signer! });
+      const randomnessAccount =
+        options["--randomness"] || options["--randomness-account"];
+      const dryRun =
+        rawMultisigFlags.dryRun || options["--dry-run"] === "true";
+      await executeHarvest({
+        poolId,
+        rpcUrl,
+        signer: signer!,
+        randomnessAccount,
+        dryRun,
+      });
       break;
     }
 

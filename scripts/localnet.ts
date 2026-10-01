@@ -24,6 +24,7 @@ import {
   loadOrGenerateKeypair,
   createResilientRpc,
   fetchAccountInfo,
+  fetchAccountData,
   parseTokenAccountBalance,
   resolveSwitchboardProgramId,
   parseDeficitArgs,
@@ -59,6 +60,10 @@ import {
   TICKET_REGISTRY_DISCRIMINATOR,
   serializeTicketRegistry,
 } from "../app/lib/ticket-registry-helpers";
+import {
+  encodeMockSwitchboardRandomness,
+  setSurfnetAccount,
+} from "../services/crank/vrf/mock-switchboard";
 import { executeHarvest, executeReveal, executeReinvest } from "./pb-cli";
 import {
   ensurePostgresRunning,
@@ -395,30 +400,14 @@ async function setAccount(
   owner: string,
   executable: boolean
 ) {
-  const res = await fetch(RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: Date.now(),
-      method: "surfnet_setAccount",
-      params: [
-        addr,
-        {
-          lamports,
-          data: dataHex,
-          owner,
-          executable,
-        },
-      ],
-    }),
+  await setSurfnetAccount({
+    rpcUrl: RPC_URL,
+    address: addr,
+    lamports,
+    data: dataHex,
+    owner,
+    executable,
   });
-  const json = (await res.json()) as { error?: unknown };
-  if (json.error) {
-    throw new Error(
-      `RPC Error setting account ${addr}: ${safeStringify(json.error)}`
-    );
-  }
 }
 
 async function airdropSol(
@@ -514,12 +503,13 @@ function serializeHumaPoolState(): string {
   return Buffer.from(data).toString("hex");
 }
 
-const SB_RANDOMNESS_DISCRIMINATOR = [10, 66, 229, 135, 220, 239, 217, 114];
-const SB_RANDOMNESS_MIN_DATA_LEN = 408;
-
-function serializeMockRandomnessAccount(): string {
-  const data = new Uint8Array(SB_RANDOMNESS_MIN_DATA_LEN);
-  data.set(SB_RANDOMNESS_DISCRIMINATOR, 0);
+function serializeMockRandomnessAccount(authority?: string): string {
+  const data = encodeMockSwitchboardRandomness({
+    authority,
+    seedSlot: 0n,
+    revealSlot: 0n,
+    value: new Uint8Array(32),
+  });
   return Buffer.from(data).toString("hex");
 }
 
@@ -733,7 +723,9 @@ export async function injectBaseState(options?: {
   const sbProgramId = resolveSwitchboardProgramId();
   if (!accMap[1]) {
     console.log("Injecting Mock Switchboard Randomness account...");
-    const mockRandomnessData = serializeMockRandomnessAccount();
+    const mockRandomnessData = serializeMockRandomnessAccount(
+      randomnessSigner.address
+    );
     await setAccount(
       randomnessSigner.address,
       1_000_000_000,
@@ -1969,7 +1961,7 @@ async function main() {
       break;
     case "inject-programs":
     case "reinject": {
-      const adminSigner = await loadAdminSigner();
+      const adminSigner = await loadOrGenerateAdminKey();
       await ensureProgramsInjected(adminSigner.address);
       break;
     }
@@ -2176,7 +2168,7 @@ async function handleSettle(args: string[]) {
     process.exit(1);
   }
 
-  const count = parsed.count;
+  let count = parsed.count;
   const poolId = parsed.poolId;
 
   const isRpcActive = await checkRpcHealth(RPC_URL);
@@ -2193,11 +2185,17 @@ async function handleSettle(args: string[]) {
   console.log(
     `Fetching Huma Pool State account: ${addresses.humaPoolState}...`
   );
-  const rawBytes = await fetchAccountData(rpc, addresses.humaPoolState);
-  if (!rawBytes) {
+  const poolStateInfo = await fetchAccountInfo(rpc, addresses.humaPoolState);
+  if (!poolStateInfo || !poolStateInfo.value) {
     console.error(
       `Error: Huma Pool State account does not exist. Run 'npm run localnet init' first.`
     );
+    process.exit(1);
+  }
+
+  const rawBytes = decodeAccountBase64Data(poolStateInfo.value);
+  if (!rawBytes) {
+    console.error("Error: Huma Pool State account data is missing.");
     process.exit(1);
   }
 
@@ -2297,14 +2295,16 @@ async function handleSettle(args: string[]) {
   console.log(
     `Reading escrowed PST from huma_pool_mode_token: ${addresses.humaPoolModeToken}...`
   );
-  const modeTokenBytes = await fetchAccountData(
+  const modeTokenInfo = await fetchAccountInfo(
     rpc,
     addresses.humaPoolModeToken
   );
-
   let escrowedPst = 0n;
-  if (modeTokenBytes) {
-    escrowedPst = parseTokenAccountBalance(modeTokenBytes);
+  if (modeTokenInfo?.value) {
+    const modeTokenBytes = decodeAccountBase64Data(modeTokenInfo.value);
+    if (modeTokenBytes) {
+      escrowedPst = parseTokenAccountBalance(modeTokenBytes);
+    }
   }
 
   let usdcValue = 0n;
@@ -2315,9 +2315,14 @@ async function handleSettle(args: string[]) {
     const endRequestId = next + countBi - 1n;
 
     // 2. Read PST mint supply
-    const pstMintBytes = await fetchAccountData(rpc, addresses.pstMint);
-    if (!pstMintBytes) {
+    const pstMintInfo = await fetchAccountInfo(rpc, addresses.pstMint);
+    if (!pstMintInfo || !pstMintInfo.value) {
       console.error("Error: PST Mint account does not exist.");
+      process.exit(1);
+    }
+    const pstMintBytes = decodeAccountBase64Data(pstMintInfo.value);
+    if (!pstMintBytes) {
+      console.error("Error: PST Mint account data is missing.");
       process.exit(1);
     }
     const pstMintBuffer = Buffer.from(
@@ -2328,12 +2333,17 @@ async function handleSettle(args: string[]) {
     const pstSupply = pstMintBuffer.readBigUInt64LE(36);
 
     // 3. Read current total_assets from pool_state (re-read after queue update)
-    const updatedRawBytes = await fetchAccountData(
+    const updatedPoolStateInfo = await fetchAccountInfo(
       rpc,
       addresses.humaPoolState
     );
-    if (!updatedRawBytes) {
+    if (!updatedPoolStateInfo || !updatedPoolStateInfo.value) {
       console.error("Error: Huma Pool State account does not exist.");
+      process.exit(1);
+    }
+    const updatedRawBytes = decodeAccountBase64Data(updatedPoolStateInfo.value);
+    if (!updatedRawBytes) {
+      console.error("Error: Huma Pool State account data is missing.");
       process.exit(1);
     }
     const updatedRawData = Buffer.from(
@@ -2403,10 +2413,10 @@ async function handleSettle(args: string[]) {
 
     await setAccount(
       addresses.humaPoolState,
-      Number(updatedPoolStateInfo!.value!.lamports),
+      Number(updatedPoolStateInfo.value.lamports),
       updatedRawData.toString("hex"),
-      updatedPoolStateInfo!.value!.owner,
-      updatedPoolStateInfo!.value!.executable
+      updatedPoolStateInfo.value.owner,
+      updatedPoolStateInfo.value.executable
     );
 
     // 5. Burn proportional PST: decrement mint supply by pstToBurn
@@ -2423,9 +2433,15 @@ async function handleSettle(args: string[]) {
 
     // 6. Decrement huma_pool_mode_token balance by pstToBurn
     const remainingEscrowedPst = escrowedPst - pstToBurn;
+    const modeTokenRawBytes = decodeAccountBase64Data(modeTokenInfo!.value!);
+    if (!modeTokenRawBytes) {
+      console.error("Error: Mode token account data is missing.");
+      process.exit(1);
+    }
     const modeTokenBuffer2 = Buffer.from(
-      modeTokenInfo!.value!.data[0],
-      "base64"
+      modeTokenRawBytes.buffer,
+      modeTokenRawBytes.byteOffset,
+      modeTokenRawBytes.byteLength
     );
     modeTokenBuffer2.writeBigUInt64LE(remainingEscrowedPst, 64);
 

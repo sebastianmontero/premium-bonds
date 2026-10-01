@@ -13,7 +13,9 @@ import {
   SB_AUTHORITY_OFFSET,
   SB_REQUEST_SLOT_OFFSET,
   SB_REVEAL_SLOT_OFFSET,
+  SB_SEED_OFFSET,
   SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
+  encodeMockSwitchboardRandomness,
 } from "../vrf/randomness-provider";
 import { VRF_FRESHNESS_WINDOW_SLOTS } from "../constants";
 import { toPoolId, toDrawCycleId, toSlot } from "../types";
@@ -177,6 +179,19 @@ describe("Switchboard VRF Provider Unit Tests", () => {
       });
       assert.ok(p instanceof SwitchboardOnDemandProvider);
     });
+
+    it("should pass randomnessAccount to MockVrfProvider for local RPC URLs", async () => {
+      const mockAddr = address("11111111111111111111111111111111");
+      const p = createVrfProvider("http://127.0.0.1:8899", {
+        randomnessAccount: mockAddr,
+      });
+      assert.ok(p instanceof MockVrfProvider);
+      const binding = await p.prepareHarvestRandomness({
+        poolId: toPoolId(1),
+        cycleId: toDrawCycleId(1),
+      });
+      assert.strictEqual(binding.randomnessAccount, mockAddr);
+    });
   });
 
   describe("SwitchboardOnDemandProvider Fail-Fast & Authority Validation", () => {
@@ -235,6 +250,112 @@ describe("Switchboard VRF Provider Unit Tests", () => {
       assert.strictEqual(err.onChainAuthority, admin.address);
       assert.strictEqual(err.crankSigner, crank.address);
       assert.match(err.message, /Run 'npm run devnet:randomness'/);
+    });
+
+    it("should use defaultRandomnessAccount from options when resolving randomness", async () => {
+      const signer = await generateKeyPairSigner();
+      const customAddr = address("GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze");
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com",
+        {
+          signer,
+          randomnessAccount: customAddr,
+        }
+      );
+
+      const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      let requestedKey: web3.PublicKey | undefined;
+      web3.Connection.prototype.getAccountInfo = (async (pk: web3.PublicKey) => {
+        requestedKey = pk;
+        return null; // Return null so it fails on account existence, validating the address chosen
+      }) as typeof originalGetAccountInfo;
+
+      try {
+        await assert.rejects(
+          () =>
+            provider.prepareHarvestRandomness({
+              poolId: toPoolId(1),
+              cycleId: toDrawCycleId(1),
+            }),
+          /Randomness account GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze not found on-chain/
+        );
+        assert.strictEqual(requestedKey?.toBase58(), customAddr);
+      } finally {
+        web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
+      }
+    });
+
+    it("should prioritize params.randomnessAccount over defaultRandomnessAccount and env", async () => {
+      const signer = await generateKeyPairSigner();
+      const optionAddr = address("11111111111111111111111111111111");
+      const paramAddr = address("GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze");
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com",
+        {
+          signer,
+          randomnessAccount: optionAddr,
+        }
+      );
+
+      const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      let requestedKey: web3.PublicKey | undefined;
+      web3.Connection.prototype.getAccountInfo = (async (pk: web3.PublicKey) => {
+        requestedKey = pk;
+        return null;
+      }) as typeof originalGetAccountInfo;
+
+      try {
+        await assert.rejects(
+          () =>
+            provider.prepareHarvestRandomness({
+              poolId: toPoolId(1),
+              cycleId: toDrawCycleId(1),
+              randomnessAccount: paramAddr,
+            }),
+          /Randomness account GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze not found on-chain/
+        );
+        assert.strictEqual(requestedKey?.toBase58(), paramAddr);
+      } finally {
+        web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
+      }
+    });
+
+    it("should prioritize POOL_2_RANDOMNESS_ACCOUNT over defaultRandomnessAccount for pool 2", async () => {
+      const signer = await generateKeyPairSigner();
+      const defaultAddr = address("11111111111111111111111111111111");
+      const pool2Addr = "GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze";
+      const oldEnv = process.env.POOL_2_RANDOMNESS_ACCOUNT;
+      process.env.POOL_2_RANDOMNESS_ACCOUNT = pool2Addr;
+
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com",
+        {
+          signer,
+          randomnessAccount: defaultAddr,
+        }
+      );
+
+      const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      let requestedKey: web3.PublicKey | undefined;
+      web3.Connection.prototype.getAccountInfo = (async (pk: web3.PublicKey) => {
+        requestedKey = pk;
+        return null;
+      }) as typeof originalGetAccountInfo;
+
+      try {
+        await assert.rejects(
+          () =>
+            provider.prepareHarvestRandomness({
+              poolId: toPoolId(2),
+              cycleId: toDrawCycleId(1),
+            }),
+          /Randomness account GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze not found on-chain/
+        );
+        assert.strictEqual(requestedKey?.toBase58(), pool2Addr);
+      } finally {
+        process.env.POOL_2_RANDOMNESS_ACCOUNT = oldEnv;
+        web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
+      }
     });
 
     it("should reset programPromise on transient failure to self-heal", async () => {
@@ -336,6 +457,107 @@ describe("Switchboard VRF Provider Unit Tests", () => {
       } finally {
         web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
       }
+    });
+  });
+
+  describe("encodeMockSwitchboardRandomness helper", () => {
+    it("should produce a valid 408-byte Switchboard account buffer with discriminator", async () => {
+      const auth = await generateKeyPairSigner();
+      const seedValue = new Uint8Array(32);
+      seedValue.fill(42);
+
+      const encoded = encodeMockSwitchboardRandomness({
+        authority: auth.address,
+        seedSlot: 550n,
+        revealSlot: 552n,
+        value: seedValue,
+      });
+
+      assert.strictEqual(encoded.length, SB_RANDOMNESS_ACCOUNT_SIZE);
+      const parsed = parseSwitchboardRandomnessHeader(encoded);
+      assert.notStrictEqual(parsed, null);
+      assert.strictEqual(parsed?.authority, auth.address);
+      assert.strictEqual(parsed?.seedSlot, toSlot(550n));
+      assert.strictEqual(parsed?.revealSlot, toSlot(552n));
+
+      // Check seed value slice
+      const valueSlice = encoded.subarray(SB_SEED_OFFSET, SB_SEED_OFFSET + 32);
+      assert.deepStrictEqual(Array.from(valueSlice), Array.from(seedValue));
+    });
+
+    it("should reject randomness values that are not 32 bytes", () => {
+      assert.throws(
+        () =>
+          encodeMockSwitchboardRandomness({
+            value: new Uint8Array(16),
+          }),
+        /Invalid randomness value length: expected 32 bytes/
+      );
+    });
+  });
+
+  describe("MockVrfProvider", () => {
+    it("should allocate static mockAddress when configured", async () => {
+      const mockAddr = address("11111111111111111111111111111111");
+      const provider = new MockVrfProvider(mockAddr);
+      const binding = await provider.prepareHarvestRandomness({
+        poolId: toPoolId(1),
+        cycleId: toDrawCycleId(1),
+      });
+      assert.strictEqual(binding.randomnessAccount, mockAddr);
+      assert.strictEqual(binding.instructions.length, 0);
+    });
+
+    it("should prioritize params.randomnessAccount over constructor mockAddress and env", async () => {
+      const mockAddr = address("11111111111111111111111111111111");
+      const paramAddr = address("GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze");
+      const provider = new MockVrfProvider(mockAddr);
+      const binding = await provider.prepareHarvestRandomness({
+        poolId: toPoolId(1),
+        cycleId: toDrawCycleId(1),
+        randomnessAccount: paramAddr,
+      });
+      assert.strictEqual(binding.randomnessAccount, paramAddr);
+    });
+
+    it("should prioritize POOL_2_RANDOMNESS_ACCOUNT over mockAddress in MockVrfProvider", async () => {
+      const mockAddr = address("11111111111111111111111111111111");
+      const pool2Addr = "GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze";
+      const oldEnv = process.env.POOL_2_RANDOMNESS_ACCOUNT;
+      process.env.POOL_2_RANDOMNESS_ACCOUNT = pool2Addr;
+
+      try {
+        const provider = new MockVrfProvider(mockAddr);
+        const binding = await provider.prepareHarvestRandomness({
+          poolId: toPoolId(2),
+          cycleId: toDrawCycleId(1),
+        });
+        assert.strictEqual(binding.randomnessAccount, pool2Addr);
+      } finally {
+        process.env.POOL_2_RANDOMNESS_ACCOUNT = oldEnv;
+      }
+    });
+
+    it("should generate fresh signer on prepareRebindRandomness", async () => {
+      const provider = new MockVrfProvider();
+      const binding = await provider.prepareRebindRandomness({
+        poolId: toPoolId(1),
+        cycleId: toDrawCycleId(1),
+        staleRandomness: address("11111111111111111111111111111111"),
+      });
+      assert.ok(binding.randomnessAccount);
+      assert.ok(binding.signers && binding.signers.length > 0);
+      assert.strictEqual(binding.signers[0].address, binding.randomnessAccount);
+    });
+
+    it("should return ready status on prepareReveal", async () => {
+      const provider = new MockVrfProvider();
+      const result = await provider.prepareReveal({
+        randomnessAccount: address("11111111111111111111111111111111"),
+        committedSeedSlot: toSlot(100n),
+        currentSlot: toSlot(105n),
+      });
+      assert.strictEqual(result.status, "ready");
     });
   });
 });

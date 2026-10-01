@@ -8,6 +8,7 @@ import {
   resolveTargetCycleId,
   validateVoidDrawEligibility,
   validateForceUnlockEligibility,
+  resolveHarvestRandomnessAccount,
 } from "./pb-cli";
 import { PayoutRegistryStatus } from "../app/lib/bonds-sdk";
 
@@ -385,6 +386,108 @@ describe("pb-cli lifecycle & validation", () => {
           err.code === "DRAW_NOT_AWAITING_RANDOMNESS" &&
           err.message.includes(
             "Draw cycle 5 is in status 'PreparingTickets'. Only draws in 'AwaitingRandomness' can be force unlocked."
+          )
+      );
+    });
+  });
+
+  describe("resolveHarvestRandomnessAccount", () => {
+    const defaultAddr = "3id2GxC6pd6ZAJcM2QsCu6efjNbZ8jXi66JdYZNi78KS";
+    const explicitAddr = "C3RyBny4y9Hs2JCYuecZZ7KosULS5efv7os4JpKB23HP";
+    const pool2EnvAddr = "EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7";
+    const pool1StateAddr = "GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze";
+    const globalStateAddr = "11111111111111111111111111111111";
+
+    it("should prioritize explicit CLI argument over env and stateAddresses", () => {
+      const resolved = resolveHarvestRandomnessAccount({
+        explicitAccount: explicitAddr,
+        poolId: 1,
+        stateAddresses: { randomnessAccount: defaultAddr },
+        env: { POOL_1_RANDOMNESS_ACCOUNT: pool1StateAddr },
+      });
+      assert.equal(resolved, explicitAddr);
+    });
+
+    it("should prioritize POOL_2_RANDOMNESS_ACCOUNT over generic addresses.json:randomnessAccount for Pool 2", () => {
+      const resolved = resolveHarvestRandomnessAccount({
+        poolId: 2,
+        stateAddresses: { randomnessAccount: defaultAddr },
+        env: { POOL_2_RANDOMNESS_ACCOUNT: pool2EnvAddr },
+      });
+      assert.equal(resolved, pool2EnvAddr);
+    });
+
+    it("should prioritize pool_1_randomnessAccount over generic addresses.json:randomnessAccount", () => {
+      const resolved = resolveHarvestRandomnessAccount({
+        poolId: 1,
+        stateAddresses: {
+          pool_1_randomnessAccount: pool1StateAddr,
+          randomnessAccount: defaultAddr,
+        },
+        env: {},
+      });
+      assert.equal(resolved, pool1StateAddr);
+    });
+
+    it("should resolve addresses.json:randomnessAccount for pool 1 when no pool-specific override exists", () => {
+      const resolved = resolveHarvestRandomnessAccount({
+        poolId: 1,
+        stateAddresses: { randomnessAccount: defaultAddr },
+        env: {},
+      });
+      assert.equal(resolved, defaultAddr);
+    });
+
+    it("should fall back to state NEXT_PUBLIC_RANDOMNESS_ACCOUNT when pool-specific candidates are missing", () => {
+      const resolved = resolveHarvestRandomnessAccount({
+        poolId: 2,
+        stateAddresses: { NEXT_PUBLIC_RANDOMNESS_ACCOUNT: globalStateAddr },
+        env: {},
+      });
+      assert.equal(resolved, globalStateAddr);
+    });
+
+    it("should fall back to env NEXT_PUBLIC_RANDOMNESS_ACCOUNT", () => {
+      const resolved = resolveHarvestRandomnessAccount({
+        poolId: 2,
+        stateAddresses: {},
+        env: { NEXT_PUBLIC_RANDOMNESS_ACCOUNT: globalStateAddr },
+      });
+      assert.equal(resolved, globalStateAddr);
+    });
+
+    it("should ignore empty and whitespace-only strings and fall through to next candidate", () => {
+      const resolved = resolveHarvestRandomnessAccount({
+        explicitAccount: "   ",
+        poolId: 1,
+        stateAddresses: { randomnessAccount: defaultAddr },
+        env: { POOL_1_RANDOMNESS_ACCOUNT: "" },
+      });
+      assert.equal(resolved, defaultAddr);
+    });
+
+    it("should return undefined when no candidates are provided", () => {
+      const resolved = resolveHarvestRandomnessAccount({
+        poolId: 2,
+        stateAddresses: {},
+        env: {},
+      });
+      assert.equal(resolved, undefined);
+    });
+
+    it("should throw CliArgumentError on invalid base58 address string", () => {
+      assert.throws(
+        () =>
+          resolveHarvestRandomnessAccount({
+            explicitAccount: "invalid-base-58!",
+            poolId: 1,
+            stateAddresses: {},
+            env: {},
+          }),
+        (err: unknown) =>
+          err instanceof CliArgumentError &&
+          err.message.includes(
+            'Invalid randomness account public key address: "invalid-base-58!".'
           )
       );
     });

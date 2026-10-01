@@ -10,25 +10,45 @@ import {
   generateKeyPairSigner,
   createKeyPairSignerFromBytes,
   getBase58Decoder,
+  createSolanaRpc,
 } from "@solana/kit";
 import { PoolId, DrawCycleId, Slot, toSlot } from "../types";
 import { VRF_FRESHNESS_WINDOW_SLOTS } from "../constants";
+import { parseOptionalAddress } from "../../../app/lib/bonds-sdk";
+import {
+  SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+  SWITCHBOARD_ON_DEMAND_MAINNET_PID,
+  SB_RANDOMNESS_ACCOUNT_SIZE,
+  SB_AUTHORITY_OFFSET,
+  SB_REQUEST_SLOT_OFFSET,
+  SB_REVEAL_SLOT_OFFSET,
+  SB_SEED_OFFSET,
+  SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
+  encodeMockSwitchboardRandomness,
+  setSurfnetAccount,
+  MockRandomnessInjectionError,
+  MockSwitchboardRandomnessConfig,
+  SurfnetSetAccountParams,
+} from "./mock-switchboard";
 
-export const SWITCHBOARD_ON_DEMAND_DEVNET_PID =
-  "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2" as const;
-export const SWITCHBOARD_ON_DEMAND_MAINNET_PID =
-  "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv" as const;
+export {
+  SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+  SWITCHBOARD_ON_DEMAND_MAINNET_PID,
+  SB_RANDOMNESS_ACCOUNT_SIZE,
+  SB_AUTHORITY_OFFSET,
+  SB_REQUEST_SLOT_OFFSET,
+  SB_REVEAL_SLOT_OFFSET,
+  SB_SEED_OFFSET,
+  SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
+  encodeMockSwitchboardRandomness,
+  setSurfnetAccount,
+  MockRandomnessInjectionError,
+  type MockSwitchboardRandomnessConfig,
+  type SurfnetSetAccountParams,
+};
+
 export const DEVNET_SB_QUEUE =
   "EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7" as const;
-
-export const SB_RANDOMNESS_ACCOUNT_SIZE = 408;
-export const SB_AUTHORITY_OFFSET = 8;
-export const SB_REQUEST_SLOT_OFFSET = 104;
-export const SB_REVEAL_SLOT_OFFSET = 144;
-export const SB_SEED_OFFSET = 152;
-export const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR = [
-  10, 66, 229, 135, 220, 239, 217, 114,
-] as const;
 
 export interface SwitchboardRandomnessHeader {
   readonly authority: Address;
@@ -123,6 +143,7 @@ export interface VrfBinding {
 export interface PrepareHarvestRandomnessParams {
   readonly poolId: PoolId;
   readonly cycleId: DrawCycleId;
+  readonly randomnessAccount?: Address;
 }
 
 export interface PrepareRebindRandomnessParams {
@@ -175,6 +196,7 @@ export interface IVrfProvider {
 export interface VrfProviderOptions {
   readonly queueAddress?: Address;
   readonly signer?: KeyPairSigner;
+  readonly randomnessAccount?: Address;
 }
 
 export class MockVrfProvider implements IVrfProvider {
@@ -182,43 +204,65 @@ export class MockVrfProvider implements IVrfProvider {
 
   constructor(
     private readonly mockAddress?: Address,
-    private readonly rpcUrl?: string
+    private readonly rpcUrl?: string,
+    private readonly signer?: KeyPairSigner
   ) {}
 
   async prepareHarvestRandomness(
     params: PrepareHarvestRandomnessParams
   ): Promise<VrfBinding> {
-    if (this.mockAddress) {
-      return {
-        randomnessAccount: this.mockAddress,
-        instructions: [],
-        computeUnitsRequired: 35_000,
-      };
+    const poolEnvKey = `POOL_${params.poolId}_RANDOMNESS_ACCOUNT`;
+    let targetAddress: Address;
+
+    if (params.randomnessAccount) {
+      targetAddress = params.randomnessAccount;
+      this.poolRandomness.set(params.poolId, targetAddress);
+    } else if (this.poolRandomness.has(params.poolId)) {
+      targetAddress = this.poolRandomness.get(params.poolId)!;
+    } else if (parseOptionalAddress(process.env[poolEnvKey])) {
+      targetAddress = parseOptionalAddress(process.env[poolEnvKey])!;
+      this.poolRandomness.set(params.poolId, targetAddress);
+    } else if (this.mockAddress) {
+      targetAddress = this.mockAddress;
+      this.poolRandomness.set(params.poolId, targetAddress);
+    } else if (parseOptionalAddress(process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)) {
+      targetAddress = parseOptionalAddress(process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)!;
+      this.poolRandomness.set(params.poolId, targetAddress);
+    } else if (this.signer) {
+      targetAddress = this.signer.address;
+      this.poolRandomness.set(params.poolId, targetAddress);
+    } else {
+      const freshSigner = await generateKeyPairSigner();
+      targetAddress = freshSigner.address;
+      this.poolRandomness.set(params.poolId, targetAddress);
     }
-    const registered = this.poolRandomness.get(params.poolId);
-    if (registered) {
-      return {
-        randomnessAccount: registered,
-        instructions: [],
-        computeUnitsRequired: 35_000,
-      };
+
+    if (this.rpcUrl) {
+      try {
+        const rpc = createSolanaRpc(this.rpcUrl);
+        const currentSlot = await rpc.getSlot().send();
+        const effectiveSlot = currentSlot === 0n ? 1n : currentSlot;
+        const data = encodeMockSwitchboardRandomness({
+          authority: this.signer ? this.signer.address : undefined,
+          seedSlot: effectiveSlot,
+          revealSlot: 0n,
+          value: new Uint8Array(32),
+        });
+        await setSurfnetAccount({
+          rpcUrl: this.rpcUrl,
+          address: targetAddress,
+          data,
+        });
+      } catch (err: unknown) {
+        if (err instanceof MockRandomnessInjectionError) {
+          throw err;
+        }
+      }
     }
-    const envAccount = process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
-    if (envAccount) {
-      const addr = address(envAccount);
-      this.poolRandomness.set(params.poolId, addr);
-      return {
-        randomnessAccount: addr,
-        instructions: [],
-        computeUnitsRequired: 35_000,
-      };
-    }
-    const freshSigner = await generateKeyPairSigner();
-    this.poolRandomness.set(params.poolId, freshSigner.address);
+
     return {
-      randomnessAccount: freshSigner.address,
+      randomnessAccount: targetAddress,
       instructions: [],
-      signers: [freshSigner],
       computeUnitsRequired: 35_000,
     };
   }
@@ -228,6 +272,30 @@ export class MockVrfProvider implements IVrfProvider {
   ): Promise<VrfBinding> {
     const freshSigner = await generateKeyPairSigner();
     this.poolRandomness.set(params.poolId, freshSigner.address);
+
+    if (this.rpcUrl) {
+      try {
+        const rpc = createSolanaRpc(this.rpcUrl);
+        const currentSlot = await rpc.getSlot().send();
+        const effectiveSlot = currentSlot === 0n ? 1n : currentSlot;
+        const data = encodeMockSwitchboardRandomness({
+          authority: this.signer ? this.signer.address : undefined,
+          seedSlot: effectiveSlot,
+          revealSlot: 0n,
+          value: new Uint8Array(32),
+        });
+        await setSurfnetAccount({
+          rpcUrl: this.rpcUrl,
+          address: freshSigner.address,
+          data,
+        });
+      } catch (err: unknown) {
+        if (err instanceof MockRandomnessInjectionError) {
+          throw err;
+        }
+      }
+    }
+
     return {
       randomnessAccount: freshSigner.address,
       instructions: [],
@@ -244,50 +312,25 @@ export class MockVrfProvider implements IVrfProvider {
         this.rpcUrl.includes("surfpool"))
     ) {
       try {
-        const buffer = new Uint8Array(SB_RANDOMNESS_ACCOUNT_SIZE);
-        buffer.set(SWITCHBOARD_RANDOMNESS_DISCRIMINATOR, 0);
-        const view = new DataView(buffer.buffer);
-        view.setBigUint64(
-          SB_REQUEST_SLOT_OFFSET,
-          BigInt(params.committedSeedSlot),
-          true
-        );
-        view.setBigUint64(
-          SB_REVEAL_SLOT_OFFSET,
-          BigInt(params.committedSeedSlot) + 1n,
-          true
-        );
+        const rpc = createSolanaRpc(this.rpcUrl);
+        const currentSlot = await rpc.getSlot().send();
+        const committedSlot = BigInt(params.committedSeedSlot);
+        const revealSlot =
+          currentSlot >= committedSlot ? currentSlot : committedSlot;
         const seed = new Uint8Array(32);
-        for (let i = 0; i < 32; i++) {
-          seed[i] = Math.floor(Math.random() * 256);
-        }
-        buffer.set(seed, SB_SEED_OFFSET);
+        crypto.getRandomValues(seed);
 
-        const dataHex = Buffer.from(buffer).toString("hex");
-        const sbProgramId =
-          process.env.SB_ENV === "mainnet" ||
-          process.env.NEXT_PUBLIC_ENVIRONMENT === "mainnet"
-            ? SWITCHBOARD_ON_DEMAND_MAINNET_PID
-            : SWITCHBOARD_ON_DEMAND_DEVNET_PID;
+        const data = encodeMockSwitchboardRandomness({
+          authority: this.signer ? this.signer.address : undefined,
+          seedSlot: committedSlot,
+          revealSlot,
+          value: seed,
+        });
 
-        await fetch(this.rpcUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "surfnet_setAccount",
-            params: [
-              params.randomnessAccount,
-              {
-                lamports: 1_000_000_000,
-                data: dataHex,
-                owner: sbProgramId,
-                executable: false,
-              },
-            ],
-          }),
-          signal: AbortSignal.timeout(3000),
+        await setSurfnetAccount({
+          rpcUrl: this.rpcUrl,
+          address: params.randomnessAccount,
+          data,
         });
       } catch {
         // Non-blocking in mock/unit environments
@@ -303,6 +346,7 @@ type SwitchboardProgram = Awaited<
 
 export class SwitchboardOnDemandProvider implements IVrfProvider {
   private readonly activePoolRandomness = new Map<PoolId, Address>();
+  private readonly defaultRandomnessAccount?: Address;
   private readonly queueAddress: web3.PublicKey;
   private readonly programId: web3.PublicKey;
   private readonly signer?: KeyPairSigner;
@@ -326,6 +370,7 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
         DEVNET_SB_QUEUE
     );
     this.signer = options?.signer;
+    this.defaultRandomnessAccount = options?.randomnessAccount;
   }
 
   private async getProgram(): Promise<SwitchboardProgram> {
@@ -357,13 +402,11 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
 
     const poolEnvKey = `POOL_${params.poolId}_RANDOMNESS_ACCOUNT`;
     const existing =
+      params.randomnessAccount ||
       this.activePoolRandomness.get(params.poolId) ||
-      (process.env[poolEnvKey]
-        ? address(process.env[poolEnvKey]!)
-        : undefined) ||
-      (process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT
-        ? address(process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)
-        : undefined);
+      parseOptionalAddress(process.env[poolEnvKey]) ||
+      this.defaultRandomnessAccount ||
+      parseOptionalAddress(process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT);
 
     if (!existing) {
       throw new Error(
@@ -558,7 +601,11 @@ export function createVrfProvider(
     rpcUrl.includes("localhost") ||
     rpcUrl.includes("surfpool");
   if (isLocal) {
-    return new MockVrfProvider(undefined, rpcUrl);
+    return new MockVrfProvider(
+      options?.randomnessAccount,
+      rpcUrl,
+      options?.signer
+    );
   }
   return new SwitchboardOnDemandProvider(rpcUrl, options);
 }

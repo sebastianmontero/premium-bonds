@@ -44,6 +44,8 @@ import {
   type HumaPoolAddresses,
 } from "../app/lib/bonds-sdk";
 import { buildBuyBondsInstruction } from "../app/lib/bonds-instruction-factory";
+import { createVrfProvider } from "../services/crank/vrf/randomness-provider";
+import { toPoolId, toDrawCycleId } from "../services/crank/types";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -145,6 +147,7 @@ export interface SeedUsersOptions {
   readonly atomic?: boolean; // default: true
   readonly matureTickets?: boolean; // default: false
   readonly accounts?: Partial<SeedingProtocolAccounts>;
+  readonly rpcUrl?: string;
   readonly onProgress?: (event: SeedUserProgressEvent) => void;
 }
 
@@ -159,6 +162,7 @@ export interface MatureTicketsOptions {
   readonly adminSigner: KeyPairSigner;
   readonly poolId?: number; // default: 1
   readonly accounts?: Partial<SeedingProtocolAccounts>;
+  readonly rpcUrl?: string;
 }
 
 export interface SeedUsersCliOptions {
@@ -622,16 +626,52 @@ export async function advanceCycleToMatureTickets(
   }
 
   if (
-    !accounts.randomnessAccount ||
-    accounts.randomnessAccount === options.adminSigner.address ||
-    accounts.randomnessAccount === parsedPool.feeWallet ||
-    accounts.randomnessAccount === SYSTEM_PROGRAM_ID
+    accounts.randomnessAccount &&
+    (accounts.randomnessAccount === options.adminSigner.address ||
+      accounts.randomnessAccount === parsedPool.feeWallet ||
+      accounts.randomnessAccount === SYSTEM_PROGRAM_ID)
   ) {
     throw new Error(
       "InvalidRandomnessAccount: Valid Switchboard randomness account is required to advance cycle."
     );
   }
 
+  const resolvedRandomness = accounts.randomnessAccount
+    ? address(accounts.randomnessAccount)
+    : undefined;
+
+  const vrfProvider = createVrfProvider(
+    options.rpcUrl ??
+      process.env.NEXT_PUBLIC_RPC_URL ??
+      "http://127.0.0.1:8899",
+    {
+      signer: options.adminSigner,
+      randomnessAccount: resolvedRandomness,
+    }
+  );
+
+  const vrfBinding = await vrfProvider.prepareHarvestRandomness({
+    poolId: toPoolId(poolId),
+    cycleId: toDrawCycleId(parsedPool.currentDrawCycleId),
+    randomnessAccount: resolvedRandomness,
+  });
+
+  const randomnessAccount = accounts.randomnessAccount
+    ? address(accounts.randomnessAccount)
+    : address(vrfBinding.randomnessAccount);
+
+  if (
+    !randomnessAccount ||
+    randomnessAccount === options.adminSigner.address ||
+    randomnessAccount === parsedPool.feeWallet ||
+    randomnessAccount === SYSTEM_PROGRAM_ID
+  ) {
+    throw new Error(
+      "InvalidRandomnessAccount: Valid Switchboard randomness account is required to advance cycle."
+    );
+  }
+
+  const setCuIx = createSetComputeUnitLimitInstruction(350_000);
   const advanceIx = await buildHarvestYieldAndCommitInstruction({
     crank: options.adminSigner.address,
     poolId,
@@ -639,10 +679,13 @@ export async function advanceCycleToMatureTickets(
     currentDrawCycleId: parsedPool.currentDrawCycleId,
     pstMint,
     humaPoolState: accounts.humaAddresses.poolState,
-    randomnessAccount: accounts.randomnessAccount,
+    randomnessAccount,
   });
 
-  const txSignature = await sendTx(options.rpc, advanceIx, options.adminSigner);
+  const instructions = [setCuIx, ...vrfBinding.instructions, advanceIx];
+  const signers = [options.adminSigner, ...(vrfBinding.signers ?? [])];
+
+  const txSignature = await sendTx(options.rpc, instructions, signers);
   return txSignature;
 }
 
@@ -766,6 +809,7 @@ export async function seedUsers(
       adminSigner: options.adminSigner,
       poolId,
       accounts: resolvedAccounts,
+      rpcUrl: options.rpcUrl,
     });
   }
 
