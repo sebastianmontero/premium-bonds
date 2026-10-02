@@ -390,7 +390,7 @@ async function handleDeploy(args: string[]) {
   await syncKeypairs();
 
   console.log("Compiling contracts...");
-  execFileSync("anchor", ["build"], {
+  execFileSync("anchor", ["build", "--ignore-keys"], {
     cwd: path.resolve(__dirname, "..", "anchor"),
     stdio: "inherit",
     env: { ...process.env, NO_DNA: "1" },
@@ -898,7 +898,7 @@ async function handleInit(args: string[]) {
       admin: adminSigner,
       poolId,
       bondPrice: 1_000_000n, // 1 USDC
-      stakeCycleDurationHrs: 6n,
+      stakeCycleDurationHrs: 1n,
       feeBasisPoints: 100, // 1%
       minYieldThreshold: 0n,
       maxYieldBasisPoints: 0,
