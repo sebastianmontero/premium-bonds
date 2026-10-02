@@ -1335,3 +1335,14 @@ fn test_claim_redemption_fails_when_lender_state_is_readonly() {
     let res = send_user_tx(&mut ctx.svm, &user_a, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintMut);
 }
+
+#[test]
+fn test_claim_redemption_account_count() {
+    let ctx = setup_e2e();
+    assert_eq!(
+        ClaimRedemptionBuilder::new(&ctx).build_metas().len(),
+        18,
+        "ClaimRedemption must have exactly 18 account metas after system_program removal"
+    );
+}
+

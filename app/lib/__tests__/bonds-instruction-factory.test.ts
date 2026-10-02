@@ -292,10 +292,16 @@ test("bonds-instruction-factory: builds claim redemption instruction", async () 
 
   assert.ok(ix, "Claim redemption instruction must be created");
   assert.ok(ix.accounts, "Claim redemption accounts must be defined");
+  const EXPECTED_CLAIM_ACCOUNTS_COUNT = 18;
   assert.equal(
     ix.accounts.length,
-    19,
-    "Claim redemption instruction must contain 19 accounts"
+    EXPECTED_CLAIM_ACCOUNTS_COUNT,
+    `Claim redemption instruction must contain exactly ${EXPECTED_CLAIM_ACCOUNTS_COUNT} accounts`
+  );
+  assert.strictEqual(
+    ix.accounts.some((acc) => acc.address === SYSTEM_PROGRAM_ID),
+    false,
+    "Claim redemption instruction must not include system_program account"
   );
   assert.equal(
     ix.accounts[0].address,
@@ -325,8 +331,13 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for self",
   assert.ok(ix.accounts, "Instruction accounts must be defined");
   assert.equal(
     ix.accounts.length,
-    9,
-    "Reinvest winnings instruction must contain 9 accounts"
+    8,
+    "Reinvest winnings instruction must contain 8 accounts"
+  );
+  assert.strictEqual(
+    ix.accounts.some((acc) => acc.address === SYSTEM_PROGRAM_ID),
+    false,
+    "Reinvest winnings instruction must not contain system_program"
   );
   assert.equal(
     ix.accounts[0].address,
@@ -356,7 +367,12 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for third-
 
   assert.ok(ix, "Reinvest winnings instruction for crank must be created");
   assert.ok(ix.accounts, "Accounts array must be defined");
-  assert.equal(ix.accounts.length, 9, "Instruction must contain 9 accounts");
+  assert.equal(ix.accounts.length, 8, "Instruction must contain 8 accounts");
+  assert.strictEqual(
+    ix.accounts.some((acc) => acc.address === SYSTEM_PROGRAM_ID),
+    false,
+    "Instruction must not contain system_program"
+  );
   assert.equal(
     ix.accounts[0].address,
     dummyCrank,
@@ -553,7 +569,16 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWith
     "FeeWithdrawal should produce exactly 1 instruction (claim only)"
   );
   const claimIx = ixs[0];
-  assert.equal(claimIx.accounts?.length, 19);
+  assert.equal(
+    claimIx.accounts?.length,
+    18,
+    "Fee withdrawal claim instruction must contain 18 accounts"
+  );
+  assert.strictEqual(
+    claimIx.accounts?.some((acc) => acc.address === SYSTEM_PROGRAM_ID),
+    false,
+    "Fee withdrawal claim instruction must not contain system_program"
+  );
   // beneficiaryTokenAccount is at account index 6
   assert.equal(
     claimIx.accounts?.[6].address,

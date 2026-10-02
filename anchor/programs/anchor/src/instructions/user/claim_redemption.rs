@@ -127,9 +127,6 @@ pub struct ClaimRedemption<'info> {
     /// The SPL Token program interface for underlying tokens.
     pub token_program: Interface<'info, TokenInterface>,
 
-    /// Solana System Program.
-    pub system_program: Program<'info, System>,
-
     /// CHECK: The event authority PDA for CPI event emission.
     #[account(seeds = [b"__event_authority"], bump)]
     pub event_authority: UncheckedAccount<'info>,

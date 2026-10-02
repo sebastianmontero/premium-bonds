@@ -1405,3 +1405,14 @@ fn test_reinvest_exact_timelock_boundaries() {
         );
     }
 }
+
+#[test]
+fn test_reinvest_winnings_account_count() {
+    let ctx = setup_e2e();
+    assert_eq!(
+        ReinvestWinningsBuilder::new(&ctx).build_metas().len(),
+        8,
+        "ReinvestWinnings must have exactly 8 account metas after system_program removal"
+    );
+}
+

@@ -76,9 +76,6 @@ pub struct ReinvestWinnings<'info> {
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
-    /// The Solana System Program.
-    pub system_program: Program<'info, System>,
-
     /// CHECK: The event authority PDA for CPI event emission.
     #[account(seeds = [b"__event_authority"], bump)]
     pub event_authority: UncheckedAccount<'info>,
