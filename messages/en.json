@@ -537,7 +537,8 @@
     "copy": "Copy",
     "copied": "Copied",
     "close": "Close",
-    "perBondSuffix": "{amount} / bond"
+    "perBondSuffix": "{amount} / bond",
+    "reinvestedAnnouncement": "Prize successfully reinvested into {bonds, plural, =1 {1 bond} other {# bonds}} with {dust} remaining winnings."
   },
   "Redemptions": {
     "title": "Pending Redemptions",

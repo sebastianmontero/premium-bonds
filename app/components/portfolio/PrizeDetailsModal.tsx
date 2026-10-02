@@ -9,7 +9,7 @@ import {
 } from "@/app/lib/formatters";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { useClipboard } from "@/app/hooks/useClipboard";
-import { resolvePrizeBreakdown } from "@/app/lib/draw-helpers";
+import { resolvePrizeBreakdown, getWinnerKey } from "@/app/lib/draw-helpers";
 import { PrizeHeroCard } from "@/app/components/draws/PrizeHeroCard";
 import { PrizeReinvestmentBreakdown } from "@/app/components/draws/PrizeReinvestmentBreakdown";
 import { PrizeVerificationProofs } from "@/app/components/draws/PrizeVerificationProofs";
@@ -23,13 +23,12 @@ export interface PrizeDetailsModalProps {
   onClose: () => void;
   tokenDecimals: number;
   tokenSymbol: string;
-  ticketPrice?: number;
   bondPrice?: number;
   payoutTimelockSeconds?: number;
   unclaimedDust?: number;
   pool?: { isFrozenForDraw?: boolean; status?: string } | null;
   isFrozenForDraw?: boolean;
-  onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
+  onCrankPrize: (entry: PrizeHistoryEntry) => void;
   crankingCycles?: Record<string, boolean>;
 }
 
@@ -39,13 +38,12 @@ export default function PrizeDetailsModal({
   onClose,
   tokenDecimals,
   tokenSymbol,
-  ticketPrice,
   bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
   unclaimedDust,
   pool,
   isFrozenForDraw,
-  onSimulateCrank,
+  onCrankPrize,
   crankingCycles = {},
 }: PrizeDetailsModalProps) {
   const { copied: isShareCopied, copy: copyShare } = useClipboard({
@@ -56,7 +54,6 @@ export default function PrizeDetailsModal({
   const tLedger = useTranslations("Ledger");
   const format = useFormatter();
 
-  const effectiveBondPrice = ticketPrice ?? bondPrice;
   const effectivePool =
     pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
 
@@ -68,15 +65,21 @@ export default function PrizeDetailsModal({
 
   const isVoided = (entry?.status as string) === "voided";
   const isCranking = Boolean(
-    entry && crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+    entry && crankingCycles[getWinnerKey(entry.drawCycleId, entry.winnerIndex)]
   );
+
+  const prevStatusRef = useRef(entry?.status);
 
   // Focus retention: When status transitions to reinvested and the crank button unmounts, retain focus inside modal
   useEffect(() => {
     if (!isOpen || !entry) return;
-    if (entry.status === "reinvested") {
+    if (
+      prevStatusRef.current === "processing" &&
+      entry.status === "reinvested"
+    ) {
       closeButtonRef.current?.focus();
     }
+    prevStatusRef.current = entry.status;
   }, [isOpen, entry]);
 
   if (!isOpen || !entry) return null;
@@ -120,7 +123,7 @@ export default function PrizeDetailsModal({
     bondsBought: entry.bondsBought,
     usedPriorDust: entry.usedPriorDust,
     dustAccumulated: entry.dustAccumulated,
-    bondPrice: effectiveBondPrice,
+    bondPrice,
     unclaimedDust: unclaimedDust ?? 0,
     isClosed:
       (effectivePool as { status?: string } | null)?.status === "Closed",
@@ -195,15 +198,26 @@ export default function PrizeDetailsModal({
               isClaimingPaused={effectivePool?.isFrozenForDraw}
               isVoided={isVoided}
               isCranking={isCranking}
-              onCrank={() =>
-                onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
-              }
+              onCrank={() => onCrankPrize(entry)}
               size="md"
             />
           </div>
         </div>
       }
     >
+      {/* Screen Reader Live Region for Crank Reinvestment Confirmation */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {entry.status === "reinvested"
+          ? t("reinvestedAnnouncement", {
+              bonds: breakdown.bondsBought,
+              dust: formatCurrency(breakdown.remainingDust, {
+                decimals: tokenDecimals,
+                tokenSymbol,
+              }),
+            })
+          : ""}
+      </div>
+
       {/* Hero Prize Summary Card */}
       <PrizeHeroCard
         tierIndex={entry.tierIndex}
@@ -247,7 +261,7 @@ export default function PrizeDetailsModal({
           config={{
             tokenDecimals,
             tokenSymbol,
-            bondPrice: effectiveBondPrice,
+            bondPrice,
           }}
           isProcessed={entry.status === "reinvested"}
           isVoided={isVoided}

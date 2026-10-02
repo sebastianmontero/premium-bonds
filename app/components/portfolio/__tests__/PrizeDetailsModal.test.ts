@@ -54,7 +54,8 @@ describe("PrizeDetailsModal Component Suite", () => {
         onClose: () => {},
         tokenDecimals: 6,
         tokenSymbol: "USDC",
-        onSimulateCrank: () => {},
+        bondPrice: 5_000_000,
+        onCrankPrize: () => {},
       })
     );
     assert.strictEqual(htmlClosed, "");
@@ -66,7 +67,8 @@ describe("PrizeDetailsModal Component Suite", () => {
         onClose: () => {},
         tokenDecimals: 6,
         tokenSymbol: "USDC",
-        onSimulateCrank: () => {},
+        bondPrice: 5_000_000,
+        onCrankPrize: () => {},
       })
     );
     assert.strictEqual(htmlNull, "");
@@ -80,7 +82,8 @@ describe("PrizeDetailsModal Component Suite", () => {
         onClose: () => {},
         tokenDecimals: 6,
         tokenSymbol: "USDC",
-        onSimulateCrank: () => {},
+        bondPrice: 5_000_000,
+        onCrankPrize: () => {},
       })
     );
 
@@ -122,6 +125,16 @@ describe("PrizeDetailsModal Component Suite", () => {
     // Footer actions
     assert.ok(html.includes("Share Win"), "Should render Share Win in footer");
     assert.ok(html.includes("Close"), "Should render Close button in footer");
+
+    // Screen reader live region
+    assert.ok(
+      html.includes('role="status" aria-live="polite" class="sr-only"'),
+      "Should render polite status live region"
+    );
+    assert.ok(
+      html.includes("Prize successfully reinvested into 4 bonds"),
+      "Should announce reinvestment details in screen reader region"
+    );
   });
 
   it("should render crank action button when entry is processing and timelock is unlocked", () => {
@@ -138,8 +151,9 @@ describe("PrizeDetailsModal Component Suite", () => {
         onClose: () => {},
         tokenDecimals: 6,
         tokenSymbol: "USDC",
+        bondPrice: 5_000_000,
         payoutTimelockSeconds: 300,
-        onSimulateCrank: () => {},
+        onCrankPrize: () => {},
       })
     );
 
@@ -162,7 +176,8 @@ describe("PrizeDetailsModal Component Suite", () => {
         onClose: () => {},
         tokenDecimals: 6,
         tokenSymbol: "USDC",
-        onSimulateCrank: () => {},
+        bondPrice: 5_000_000,
+        onCrankPrize: () => {},
       })
     );
 

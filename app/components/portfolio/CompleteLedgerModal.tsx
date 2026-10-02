@@ -15,6 +15,7 @@ import { TierBadge } from "@/app/components/common/TierBadge";
 import {
   getPayoutTimelockState,
   getEffectivePrizeDust,
+  getWinnerKey,
 } from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { PaginationControls } from "./PaginationControls";
@@ -28,7 +29,6 @@ import { RemainingWinningsBadge } from "@/app/components/common/RemainingWinning
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
 import { useUserPrizeLedger } from "@/app/hooks/useUserPrizeLedger";
-import { useCrankPrize } from "@/app/hooks/mutations/useCrankPrize";
 import { AdaptiveModal } from "@/app/components/common/AdaptiveModal";
 import { SearchInput } from "@/app/components/common/SearchInput";
 
@@ -41,8 +41,6 @@ export interface CompleteLedgerModalProps {
   tokenDecimals?: number;
   tokenSymbol?: string;
   bondPrice?: number;
-  /** @deprecated Use `bondPrice` */
-  ticketPrice?: number;
   payoutTimelockSeconds?: number;
   unclaimedDust?: number;
   pool?:
@@ -50,7 +48,7 @@ export interface CompleteLedgerModalProps {
     | { isFrozenForDraw?: boolean; prizeTiers?: PoolInfo["prizeTiers"] }
     | null;
   isFrozenForDraw?: boolean;
-  onSimulateCrank?: (drawCycleId: number, winnerIndex: number) => void;
+  onCrankPrize?: (entry: PrizeHistoryEntry) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
   crankingCycles?: Record<string, boolean>;
   isLoading?: boolean;
@@ -66,12 +64,11 @@ export default function CompleteLedgerModal({
   config,
   tokenDecimals = 6,
   tokenSymbol = "USDC",
-  bondPrice,
-  ticketPrice = 5_000_000,
+  bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
   pool,
   isFrozenForDraw,
-  onSimulateCrank,
+  onCrankPrize,
   onViewDetails,
   crankingCycles = {},
   isLoading: initialLoading = false,
@@ -83,7 +80,7 @@ export default function CompleteLedgerModal({
   const { now } = useClusterTime({ tick: true });
   const effectiveDecimals = config?.tokenDecimals ?? tokenDecimals;
   const effectiveSymbol = config?.tokenSymbol ?? tokenSymbol;
-  const effectiveBondPrice = config?.bondPrice ?? bondPrice ?? ticketPrice;
+  const effectiveBondPrice = config?.bondPrice ?? bondPrice;
   const effectiveTimelockSeconds =
     config?.payoutTimelockSeconds ?? payoutTimelockSeconds;
 
@@ -124,8 +121,6 @@ export default function CompleteLedgerModal({
     search: debouncedSearchTerm,
     enabled: isOpen && Boolean(userAddress),
   });
-
-  const crankPrizeMutation = useCrankPrize(poolId);
 
   // Effective entries: server entries when userAddress is present, else client-side filtered fallback entries
   const displayEntries = userAddress ? serverEntries : fallbackEntries;
@@ -179,19 +174,8 @@ export default function CompleteLedgerModal({
     setCurrentPage(1);
   };
 
-  const handleCrank = async (entry: PrizeHistoryEntry) => {
-    if (onSimulateCrank) {
-      onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
-      return;
-    }
-    try {
-      await crankPrizeMutation.mutateAsync({
-        entry,
-        bondPrice: effectiveBondPrice,
-      });
-    } catch {
-      // Error handled by mutation runner
-    }
+  const handleCrank = (entry: PrizeHistoryEntry) => {
+    onCrankPrize?.(entry);
   };
 
   return (
@@ -442,13 +426,8 @@ export default function CompleteLedgerModal({
               {displayEntries.map((entry) => {
                 const isCranking =
                   !!crankingCycles[
-                    `${entry.drawCycleId}-${entry.winnerIndex}`
-                  ] ||
-                  (crankPrizeMutation.isPending &&
-                    crankPrizeMutation.variables?.entry.drawCycleId ===
-                      entry.drawCycleId &&
-                    crankPrizeMutation.variables?.entry.winnerIndex ===
-                      entry.winnerIndex);
+                    getWinnerKey(entry.drawCycleId, entry.winnerIndex)
+                  ];
 
                 const entryTimelock = getPayoutTimelockState(
                   entry.revealedAt,
@@ -733,13 +712,8 @@ export default function CompleteLedgerModal({
                   {displayEntries.map((entry) => {
                     const isCranking =
                       !!crankingCycles[
-                        `${entry.drawCycleId}-${entry.winnerIndex}`
-                      ] ||
-                      (crankPrizeMutation.isPending &&
-                        crankPrizeMutation.variables?.entry.drawCycleId ===
-                          entry.drawCycleId &&
-                        crankPrizeMutation.variables?.entry.winnerIndex ===
-                          entry.winnerIndex);
+                        getWinnerKey(entry.drawCycleId, entry.winnerIndex)
+                      ];
 
                     const entryTimelock = getPayoutTimelockState(
                       entry.revealedAt,
@@ -750,8 +724,7 @@ export default function CompleteLedgerModal({
                       entry.status === "processing" &&
                       entryTimelock.isTimelocked;
                     const hasCrankAction =
-                      entry.status === "processing" &&
-                      (!!onSimulateCrank || !!crankPrizeMutation);
+                      entry.status === "processing" && !!onCrankPrize;
 
                     return (
                       <tr

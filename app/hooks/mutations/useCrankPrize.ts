@@ -8,12 +8,14 @@ import {
 import { bondsKeys, type PoolId } from "@/app/lib/query-keys";
 import { useBondsContext } from "@/app/components/providers/BondsProvider";
 import { useWalletConnection } from "@solana/react-hooks";
+import type { Address } from "@solana/kit";
 import {
   calculateReinvestmentBreakdown,
   patchOptimisticPrizeInCache,
   isPoolClosed,
   INDEXER_PROPAGATION_GRACE_PERIOD_MS,
   type UserPrizeLedgerCacheData,
+  type ReinvestmentBreakdown,
 } from "@/app/lib/draw-helpers";
 import { addOptimisticActivity } from "@/app/lib/optimistic-activity-store";
 import { createOptimisticReinvestActivity } from "@/app/lib/activity-helpers";
@@ -22,18 +24,22 @@ import type { UserBondPosition } from "@/app/hooks/queries/useUserBondPosition";
 
 export interface CrankPrizeVariables {
   entry: PrizeHistoryEntry;
-  bondPrice: number;
+  bondPrice?: number;
   decimals?: number;
   onSigning?: () => void;
 }
 
+export type LedgerQuerySnapshot = [
+  QueryKey,
+  UserPrizeLedgerCacheData | undefined,
+];
+
 export interface CrankPrizeContext {
-  previousLedgerSnapshots: Array<
-    [QueryKey, UserPrizeLedgerCacheData | undefined]
-  >;
+  userAddress: Address | string;
+  previousLedgerSnapshots: LedgerQuerySnapshot[];
   previousHistorySnapshot: PrizeHistoryEntry[] | undefined;
   previousPosition: UserBondPosition | undefined;
-  breakdown: ReturnType<typeof calculateReinvestmentBreakdown>;
+  breakdown: ReinvestmentBreakdown;
   bondPrice: number;
 }
 
@@ -44,7 +50,7 @@ export function useCrankPrize(poolId: PoolId = 1) {
   const userAddress = wallet?.account.address.toString();
 
   return useMutation<string, Error, CrankPrizeVariables, CrankPrizeContext>({
-    onMutate: async ({ entry, bondPrice }) => {
+    onMutate: async ({ entry, bondPrice: overrideBondPrice }) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (pool?.status === "Paused") throw new Error("Pool is paused");
       if (pool?.isFrozenForDraw)
@@ -74,10 +80,12 @@ export function useCrankPrize(poolId: PoolId = 1) {
 
       // 3. Domain calculations
       const isClosed = isPoolClosed(pool);
+      const effectiveBondPrice =
+        overrideBondPrice ?? pool?.bondPrice ?? 5_000_000;
       const breakdown = calculateReinvestmentBreakdown(
         entry.amount,
         Number(previousPosition?.unclaimedWinnings ?? 0n),
-        bondPrice,
+        effectiveBondPrice,
         isClosed ? 0 : undefined
       );
 
@@ -96,7 +104,7 @@ export function useCrankPrize(poolId: PoolId = 1) {
         if (!old) return old;
         const reinvestedCost =
           BigInt(Math.trunc(breakdown.bondsBought)) *
-          BigInt(Math.trunc(bondPrice));
+          BigInt(Math.trunc(effectiveBondPrice));
         return {
           ...old,
           unclaimedWinnings: BigInt(Math.trunc(breakdown.remainingDust)),
@@ -106,11 +114,12 @@ export function useCrankPrize(poolId: PoolId = 1) {
       });
 
       return {
+        userAddress,
         previousLedgerSnapshots,
         previousHistorySnapshot,
         previousPosition,
         breakdown,
-        bondPrice,
+        bondPrice: effectiveBondPrice,
       };
     },
     mutationFn: async ({ entry, onSigning }) => {
@@ -125,56 +134,71 @@ export function useCrankPrize(poolId: PoolId = 1) {
       );
     },
     onError: (_err, _vars, context) => {
+      const targetUserAddress = context?.userAddress;
+      if (!targetUserAddress) return;
+
       // Deterministic rollback across all snapshotted exact query keys
       if (context?.previousLedgerSnapshots) {
         for (const [key, data] of context.previousLedgerSnapshots) {
           queryClient.setQueryData(key, data);
         }
       }
-      if (context?.previousHistorySnapshot && userAddress) {
+      if (context?.previousHistorySnapshot) {
         queryClient.setQueryData(
-          bondsKeys.userPrizeHistory(poolId, userAddress),
+          bondsKeys.userPrizeHistory(poolId, targetUserAddress),
           context.previousHistorySnapshot
         );
       }
-      if (context?.previousPosition && userAddress) {
+      if (context?.previousPosition) {
         queryClient.setQueryData(
-          bondsKeys.userPosition(poolId, userAddress),
+          bondsKeys.userPosition(poolId, targetUserAddress),
           context.previousPosition
         );
       }
     },
     onSuccess: (txSignature, { entry, decimals }, context) => {
-      if (!userAddress) return;
+      const targetUserAddress = context?.userAddress;
+      if (!targetUserAddress) return;
 
-      // Append to shared optimistic activity store
+      // Update query cache with confirmed txSignature and reinvested state
       if (context?.breakdown) {
+        patchOptimisticPrizeInCache({
+          queryClient,
+          poolId,
+          userAddress: targetUserAddress,
+          drawCycleId: entry.drawCycleId,
+          winnerIndex: entry.winnerIndex,
+          breakdown: context.breakdown,
+          txSignature,
+        });
+
+        // Append to shared optimistic activity store
         addOptimisticActivity(
-          userAddress,
+          targetUserAddress,
           createOptimisticReinvestActivity({
             entry,
             breakdown: context.breakdown,
             txSignature,
-            decimals,
+            decimals: decimals ?? pool?.tokenDecimals ?? 6,
           })
         );
       }
 
       refetch();
       queryClient.invalidateQueries({
-        queryKey: bondsKeys.userPosition(poolId, userAddress),
+        queryKey: bondsKeys.userPosition(poolId, targetUserAddress),
       });
 
       // Trailing invalidation for off-chain indexer queries to avoid clobbering optimistic state
       setTimeout(() => {
         queryClient.invalidateQueries({
-          queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
+          queryKey: bondsKeys.userPrizeLedgerRoot(poolId, targetUserAddress),
         });
         queryClient.invalidateQueries({
-          queryKey: bondsKeys.userPrizeHistory(poolId, userAddress),
+          queryKey: bondsKeys.userPrizeHistory(poolId, targetUserAddress),
         });
         queryClient.invalidateQueries({
-          queryKey: bondsKeys.activityFeed(poolId, userAddress),
+          queryKey: bondsKeys.activityFeed(poolId, targetUserAddress),
         });
       }, INDEXER_PROPAGATION_GRACE_PERIOD_MS);
     },

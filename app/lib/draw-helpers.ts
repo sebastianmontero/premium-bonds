@@ -806,6 +806,64 @@ export function findPrizeEntryInCache(
   return undefined;
 }
 
+export interface ResolveActivePrizeEntryParams {
+  queryClient: QueryClient;
+  poolId: PoolId;
+  userAddress?: string;
+  entry?: PrizeHistoryEntry | null;
+  drawCycleId?: number;
+  winnerIndex?: number;
+  activeHistory?: PrizeHistoryEntry[];
+}
+
+/**
+ * Reactive Single Source of Truth resolution for the currently selected or target prize entry.
+ * Checks in-memory active list, then query cache, falling back to initial snapshot if coordinates match.
+ */
+export function resolveActivePrizeEntry({
+  queryClient,
+  poolId,
+  userAddress,
+  entry,
+  drawCycleId,
+  winnerIndex,
+  activeHistory,
+}: ResolveActivePrizeEntryParams): PrizeHistoryEntry | null {
+  if (!userAddress) return null;
+
+  const targetCycleId = drawCycleId ?? entry?.drawCycleId;
+  const targetWinnerIdx = winnerIndex ?? entry?.winnerIndex;
+
+  if (targetCycleId === undefined || targetWinnerIdx === undefined) return null;
+
+  // 1. Direct match in currently active history array (reactive to useDrawHistory)
+  const activeMatch = activeHistory?.find(
+    (p) => p.drawCycleId === targetCycleId && p.winnerIndex === targetWinnerIdx
+  );
+  if (activeMatch) return activeMatch;
+
+  // 2. Traversal of query cache (e.g. paginated CompleteLedgerModal queries)
+  const cacheMatch = findPrizeEntryInCache(
+    queryClient,
+    poolId,
+    userAddress,
+    targetCycleId,
+    targetWinnerIdx
+  );
+  if (cacheMatch) return cacheMatch;
+
+  // 3. Fallback to entry snapshot only if coordinate key matches
+  if (
+    entry &&
+    entry.drawCycleId === targetCycleId &&
+    entry.winnerIndex === targetWinnerIdx
+  ) {
+    return entry;
+  }
+
+  return null;
+}
+
 /**
  * Centrally and type-safely patches both unpaginated (top-50) and paginated prize query caches in TanStack Query.
  */

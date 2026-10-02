@@ -537,7 +537,8 @@
     "copy": "Copiar",
     "copied": "Copiado",
     "close": "Cerrar",
-    "perBondSuffix": "{amount} / bono"
+    "perBondSuffix": "{amount} / bono",
+    "reinvestedAnnouncement": "Premio reinvertido exitosamente en {bonds, plural, =1 {1 bono} other {# bonos}} con {dust} de ganancias restantes."
   },
   "Redemptions": {
     "title": "Redenciones Pendientes",

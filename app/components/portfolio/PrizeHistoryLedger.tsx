@@ -12,6 +12,7 @@ import {
   getClaimWinningsCapability,
   sortPrizeHistoryEntries,
   getEffectivePrizeDust,
+  getWinnerKey,
 } from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
@@ -23,19 +24,17 @@ import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipCo
 import type { PrizeHistoryEntry } from "@/app/types";
 import { useTranslations, useFormatter } from "next-intl";
 
-interface PrizeHistoryLedgerProps {
+export interface PrizeHistoryLedgerProps {
   entries: PrizeHistoryEntry[];
   tokenDecimals: number;
   tokenSymbol: string;
   bondPrice?: number;
-  /** @deprecated Use `bondPrice` */
-  ticketPrice?: number;
   payoutTimelockSeconds?: number;
   unclaimedTotal?: number;
   pool?: { isFrozenForDraw?: boolean } | null;
   isFrozenForDraw?: boolean;
   onClaim?: () => void;
-  onSimulateCrank?: (drawCycleId: number, winnerIndex: number) => void;
+  onCrankPrize?: (entry: PrizeHistoryEntry) => void;
   onViewDetails?: (entry: PrizeHistoryEntry) => void;
   onViewCompleteLedger?: () => void;
   crankingCycles?: Record<string, boolean>;
@@ -46,14 +45,13 @@ export function PrizeHistoryLedger({
   entries,
   tokenDecimals,
   tokenSymbol,
-  bondPrice,
-  ticketPrice = 5_000_000,
+  bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
   unclaimedTotal = 0,
   pool,
   isFrozenForDraw,
   onClaim,
-  onSimulateCrank,
+  onCrankPrize,
   onViewDetails,
   onViewCompleteLedger,
   crankingCycles = {},
@@ -70,7 +68,7 @@ export function PrizeHistoryLedger({
     unclaimedAmount: unclaimedTotal,
   });
 
-  const effectiveBondPrice = bondPrice ?? ticketPrice;
+  const effectiveBondPrice = bondPrice;
 
   const sortedEntries = useMemo(
     () => sortPrizeHistoryEntries(entries),
@@ -293,7 +291,9 @@ export function PrizeHistoryLedger({
           <div className="xl:hidden space-y-3">
             {sortedEntries.slice(0, 5).map((entry) => {
               const isCranking =
-                !!crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`];
+                !!crankingCycles[
+                  getWinnerKey(entry.drawCycleId, entry.winnerIndex)
+                ];
               const entryTimelock = getPayoutTimelockState(
                 entry.revealedAt,
                 payoutTimelockSeconds,
@@ -505,15 +505,12 @@ export function PrizeHistoryLedger({
                         </InteractiveTooltip>
                       ) : (
                         entry.status === "processing" &&
-                        onSimulateCrank && (
+                        onCrankPrize && (
                           <button
                             disabled={isCranking}
                             onClick={(e) => {
                               e.stopPropagation();
-                              onSimulateCrank(
-                                entry.drawCycleId,
-                                entry.winnerIndex
-                              );
+                              onCrankPrize(entry);
                             }}
                             className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
                               isCranking
@@ -604,7 +601,7 @@ export function PrizeHistoryLedger({
                 {sortedEntries.slice(0, 5).map((entry) => {
                   const isCranking =
                     !!crankingCycles[
-                      `${entry.drawCycleId}-${entry.winnerIndex}`
+                      getWinnerKey(entry.drawCycleId, entry.winnerIndex)
                     ];
                   const entryTimelock = getPayoutTimelockState(
                     entry.revealedAt,
@@ -614,7 +611,7 @@ export function PrizeHistoryLedger({
                   const isEntryTimelocked =
                     entry.status === "processing" && entryTimelock.isTimelocked;
                   const hasCrankAction =
-                    entry.status === "processing" && !!onSimulateCrank;
+                    entry.status === "processing" && !!onCrankPrize;
 
                   return (
                     <tr
@@ -817,10 +814,7 @@ export function PrizeHistoryLedger({
                                 disabled={isCranking}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  onSimulateCrank(
-                                    entry.drawCycleId,
-                                    entry.winnerIndex
-                                  );
+                                  onCrankPrize?.(entry);
                                 }}
                                 className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
                                   isCranking

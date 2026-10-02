@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
@@ -9,7 +9,7 @@ import { usePrizePool } from "@/app/hooks/queries/usePrizePool";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
 import { bondsKeys } from "@/app/lib/query-keys";
-import { findPrizeEntryInCache } from "@/app/lib/draw-helpers";
+import { resolveActivePrizeEntry, getWinnerKey } from "@/app/lib/draw-helpers";
 import { mapDtoToPrizeHistoryEntry } from "@/app/lib/indexer-mappers";
 import { createOptimisticActivity } from "@/app/lib/activity-helpers";
 import { useCrankPrize } from "@/app/hooks/mutations/useCrankPrize";
@@ -68,7 +68,6 @@ export default function DashboardPage() {
 
   const poolTokenSymbol = activePool?.tokenSymbol ?? "USDC";
   const poolTokenDecimals = activePool?.tokenDecimals ?? 6;
-  const poolBondPrice = activePool?.bondPrice ?? 5_000_000;
   const poolId = activePool?.poolId ?? 1;
 
   const queryClient = useQueryClient();
@@ -122,9 +121,10 @@ export default function DashboardPage() {
     string | null
   >(null);
 
-  /** Composite key for crankingCycles to disambiguate entries in the same draw cycle */
-  const crankKey = (drawCycleId: number, winnerIndex: number) =>
-    `${drawCycleId}-${winnerIndex}`;
+  // Clear open modal selection when wallet switches or disconnects to prevent cross-account leaks
+  useEffect(() => {
+    setSelectedPrizeEntry(null);
+  }, [userAddress, isConnected]);
 
   // Prefetch first page of prize ledger on hover/trigger
   const prefetchPrizeLedger = useCallback(() => {
@@ -221,19 +221,14 @@ export default function DashboardPage() {
     [isConnected, onChainPrizeHistory]
   );
 
-  // Multi-scope reactive derivation of the currently selected prize entry
-  const activeSelectedPrizeEntry = useMemo(() => {
-    if (!selectedPrizeEntry) return null;
-    return (
-      findPrizeEntryInCache(
-        queryClient,
-        poolId,
-        userAddress,
-        selectedPrizeEntry.drawCycleId,
-        selectedPrizeEntry.winnerIndex
-      ) ?? selectedPrizeEntry
-    );
-  }, [selectedPrizeEntry, userAddress, poolId, queryClient]);
+  // Pure render-time SSoT derivation via cohesive domain helper
+  const activeSelectedPrizeEntry = resolveActivePrizeEntry({
+    queryClient,
+    poolId,
+    userAddress: isConnected ? userAddress : undefined,
+    entry: selectedPrizeEntry,
+    activeHistory: activePrizeHistory,
+  });
 
   const activeActivityFeed: ActivityEntry[] = isConnected
     ? activityEntries
@@ -300,23 +295,17 @@ export default function DashboardPage() {
 
   // Handlers for Prize Crank Reinvestment & Dust Claiming
   const handleCrankPrize = useCallback(
-    async (drawCycleId: number, winnerIndex: number) => {
-      // Multi-cache resolution
-      const entry =
-        findPrizeEntryInCache(
-          queryClient,
-          poolId,
-          userAddress,
-          drawCycleId,
-          winnerIndex
-        ) ??
-        (selectedPrizeEntry?.drawCycleId === drawCycleId &&
-        selectedPrizeEntry?.winnerIndex === winnerIndex
-          ? selectedPrizeEntry
-          : undefined);
+    async (knownEntry: PrizeHistoryEntry) => {
+      const entry = resolveActivePrizeEntry({
+        queryClient,
+        poolId,
+        userAddress,
+        entry: knownEntry,
+        activeHistory: activePrizeHistory,
+      });
 
       if (!entry || entry.status === "reinvested") return;
-      const key = crankKey(drawCycleId, winnerIndex);
+      const key = getWinnerKey(entry.drawCycleId, entry.winnerIndex);
       if (crankingCycles[key]) return;
 
       setCrankingCycles((prev) => ({ ...prev, [key]: true }));
@@ -328,8 +317,6 @@ export default function DashboardPage() {
           await runActionTx(async ({ onSigning }) => {
             return await crankMutation.mutateAsync({
               entry,
-              bondPrice: poolBondPrice,
-              decimals: poolTokenDecimals,
               onSigning,
             });
           });
@@ -344,13 +331,11 @@ export default function DashboardPage() {
       queryClient,
       poolId,
       userAddress,
-      selectedPrizeEntry,
+      activePrizeHistory,
       crankingCycles,
       isConnected,
       runActionTx,
       crankMutation,
-      poolBondPrice,
-      poolTokenDecimals,
       setActionModalTitle,
       setActionSuccessMsg,
       tDashboard,
@@ -617,7 +602,7 @@ export default function DashboardPage() {
         unclaimedTotal={activeUnclaimedWinnings}
         pool={activePool}
         onClaim={handleClaimNonReinvestedWinnings}
-        onSimulateCrank={handleCrankPrize}
+        onCrankPrize={handleCrankPrize}
         onViewDetails={(entry) => setSelectedPrizeEntry(entry)}
         onViewCompleteLedger={() => {
           prefetchPrizeLedger();
@@ -670,7 +655,10 @@ export default function DashboardPage() {
       <PrizeDetailsModal
         key={
           activeSelectedPrizeEntry
-            ? `prize-details-${activeSelectedPrizeEntry.drawCycleId}-${activeSelectedPrizeEntry.winnerIndex}`
+            ? `prize-details-${getWinnerKey(
+                activeSelectedPrizeEntry.drawCycleId,
+                activeSelectedPrizeEntry.winnerIndex
+              )}`
             : "prize-details-none"
         }
         entry={activeSelectedPrizeEntry}
@@ -678,12 +666,11 @@ export default function DashboardPage() {
         onClose={() => setSelectedPrizeEntry(null)}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
-        ticketPrice={activePool.bondPrice}
         bondPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         unclaimedDust={activeUnclaimedWinnings}
         pool={activePool}
-        onSimulateCrank={handleCrankPrize}
+        onCrankPrize={handleCrankPrize}
         crankingCycles={crankingCycles}
       />
 
@@ -700,7 +687,7 @@ export default function DashboardPage() {
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         unclaimedDust={activeUnclaimedWinnings}
         pool={activePool}
-        onSimulateCrank={handleCrankPrize}
+        onCrankPrize={handleCrankPrize}
         onViewDetails={(entry) => setSelectedPrizeEntry(entry)}
         crankingCycles={crankingCycles}
         isLoading={isInitialLoading || (isConnected && isDrawHistoryLoading)}
