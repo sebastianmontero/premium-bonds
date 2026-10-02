@@ -380,6 +380,7 @@ fn test_v4_protocol_pending_redemptions_conservation() {
     assert_eq!(pool_mid.total_pending_redemptions, 5_000_000);
 
     // Settle and claim redemption
+    inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, 5_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
@@ -416,6 +417,7 @@ fn test_v5_pending_redemption_closure_100_percent_refund() {
     let pending_rent = pending_acc.lamports;
 
     // Claim redemption
+    inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, 5_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());

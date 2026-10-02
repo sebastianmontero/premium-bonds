@@ -51,6 +51,7 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
     );
 
     let alice_signer = clone_keypair(&h.user);
+    let huma_lender_state = h.huma_lender_state;
 
     send_e2e_sell_bonds_for_user(
         &mut h.ctx,
@@ -58,7 +59,7 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
         0,
         40,
         Pubkey::default(),
-        dummy,
+        huma_lender_state,
         huma_pool_mode_token,
     )
     .expect("SellBonds must succeed");
@@ -75,6 +76,7 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
 
     // Settle Huma redemption request
     let huma_pool_state = h.huma_pool_state;
+    inject_lender_state(&mut h.svm, huma_lender_state, 40_000_000);
     settle_huma_redemption(&mut h.svm, huma_pool_state, 1);
 
     // 3. Complete Redemption Settlement via ClaimRedemption
@@ -85,7 +87,7 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
         alice_usdc,
         0,
         Pubkey::default(),
-        dummy,
+        huma_lender_state,
     )
     .expect("ClaimRedemption must succeed");
 

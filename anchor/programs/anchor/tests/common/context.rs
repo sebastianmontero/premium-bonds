@@ -194,6 +194,7 @@ pub struct E2eContext {
     pub huma_pool_authority: Pubkey,
     pub huma_pool_underlying_token: Pubkey,
     pub huma_pool_mode_token: Pubkey,
+    pub huma_lender_state: Pubkey,
     pub pool_id: u32,
     pub fee_wallet: Pubkey,
 }
@@ -298,6 +299,10 @@ pub fn setup_e2e() -> E2eContext {
         0,
     );
 
+    // 10c. Create huma_lender_state
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut svm, huma_lender_state, 0);
+
     E2eContext {
         svm,
         admin,
@@ -311,6 +316,7 @@ pub fn setup_e2e() -> E2eContext {
         huma_pool_authority,
         huma_pool_underlying_token: huma_pool_underlying,
         huma_pool_mode_token,
+        huma_lender_state,
         pool_id: 1,
         fee_wallet,
     }
@@ -463,6 +469,9 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
     send_initialize_huma_lender(&mut svm, &admin, ix_init_lender)
         .expect("Initialize Huma Lender must succeed");
 
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut svm, huma_lender_state, 0);
+
     let alice_usdc = Keypair::new().pubkey();
     inject_token_account(&mut svm, alice_usdc, usdc_mint, alice.pubkey(), 200_000_000);
     let bob_usdc = Keypair::new().pubkey();
@@ -481,6 +490,7 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
             huma_pool_authority,
             huma_pool_underlying_token,
             huma_pool_mode_token,
+            huma_lender_state,
             user_usdc_account: alice_usdc,
             pool_id,
             fee_wallet,

@@ -45,6 +45,77 @@ declare_id!("4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg");
 /// Seed used to derive the pool authority PDA.
 pub const POOL_AUTHORITY_SEED: &[u8] = b"pool_authority";
 
+pub const LENDER_STATE_OWED_OFFSET: usize = 8;
+pub const LENDER_STATE_MIN_LEN: usize = 16;
+
+/// Reads the owed USDC balance from a Huma lender_state account.
+#[inline]
+pub fn read_lender_owed(lender_state_info: &AccountInfo) -> Result<u64> {
+    let data = lender_state_info.try_borrow_data()?;
+    require!(
+        data.len() >= LENDER_STATE_MIN_LEN,
+        MockHumaError::InvalidLenderStateData
+    );
+    let bytes: [u8; 8] = data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN]
+        .try_into()
+        .map_err(|_| error!(MockHumaError::InvalidLenderStateData))?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+/// Accumulates owed USDC to a Huma lender_state account.
+#[inline]
+pub fn accumulate_lender_owed(lender_state_info: &AccountInfo, delta: u64) -> Result<u64> {
+    let mut data = lender_state_info.try_borrow_mut_data()?;
+    require!(
+        data.len() >= LENDER_STATE_MIN_LEN,
+        MockHumaError::InvalidLenderStateData
+    );
+    let current = u64::from_le_bytes(
+        data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN]
+            .try_into()
+            .map_err(|_| error!(MockHumaError::InvalidLenderStateData))?,
+    );
+    let new_owed = current
+        .checked_add(delta)
+        .ok_or(error!(MockHumaError::MathOverflow))?;
+    data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN].copy_from_slice(&new_owed.to_le_bytes());
+    Ok(new_owed)
+}
+
+/// Deducts disbursed USDC from a Huma lender_state account.
+#[inline]
+pub fn deduct_lender_owed(lender_state_info: &AccountInfo, amount: u64) -> Result<u64> {
+    let mut data = lender_state_info.try_borrow_mut_data()?;
+    require!(
+        data.len() >= LENDER_STATE_MIN_LEN,
+        MockHumaError::InvalidLenderStateData
+    );
+    let current = u64::from_le_bytes(
+        data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN]
+            .try_into()
+            .map_err(|_| error!(MockHumaError::InvalidLenderStateData))?,
+    );
+    let remaining = current.saturating_sub(amount);
+    data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN].copy_from_slice(&remaining.to_le_bytes());
+    Ok(remaining)
+}
+
+/// Calculates the exact USDC value of a given amount of PST shares using floor division.
+pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) -> Result<u64> {
+    if pst_amount == 0 || total_assets == 0 {
+        return Ok(0);
+    }
+    if pst_supply == 0 {
+        return Ok(pst_amount);
+    }
+    let value = (pst_amount as u128)
+        .checked_mul(total_assets)
+        .ok_or(error!(MockHumaError::MathOverflow))?
+        .checked_div(pst_supply as u128)
+        .ok_or(error!(MockHumaError::MathOverflow))?;
+    value.try_into().map_err(|_| error!(MockHumaError::MathOverflow))
+}
+
 // ─── Trigger Pubkeys ─────────────────────────────────────────────────────────
 
 pub const FAIL_DEPOSIT_PUBKEY: Pubkey = Pubkey::new_from_array([1; 32]);
@@ -162,13 +233,13 @@ pub mod mock_huma {
 
     /// Mock `disburse`: transfers USDC from pool → lender.
     ///
-    /// The amount is read from `lender_state[8..16]` (the "owed" field), but
+    /// The amount is read from `lender_state` (the "owed" field) via `read_lender_owed`,
     /// capped to the available `pool_underlying_token` balance so that
     /// sequential disburse calls against a shared funding pool never fail
     /// with SPL-Token InsufficientFunds.
     ///
     /// After each transfer, `lender_state` is decremented by the disbursed
-    /// amount so that subsequent calls see the reduced remaining balance.
+    /// amount via `deduct_lender_owed` so that subsequent calls see the reduced remaining balance.
     pub fn disburse(ctx: Context<MockDisburse>) -> Result<()> {
         if ctx.accounts.huma_config.key() == FAIL_DISBURSE_PUBKEY {
             msg!("MockHuma: simulated disburse failure triggered");
@@ -177,20 +248,13 @@ pub mod mock_huma {
 
         let available = ctx.accounts.pool_underlying_token.amount;
 
-        // Read the owed amount from lender_state.
-        let owed = {
-            let data = ctx.accounts.lender_state.try_borrow_data()?;
-            if data.len() >= 16 {
-                u64::from_le_bytes(data[8..16].try_into().unwrap())
-            } else {
-                available // fallback
-            }
-        };
+        // Read the owed amount from lender_state using accessor.
+        let owed = read_lender_owed(&ctx.accounts.lender_state.to_account_info())?;
 
         // Cap to available balance so sequential disburse calls don't over-draw.
         let amount = owed.min(available);
 
-        if amount > 0 && amount != 500_000 {
+        if amount > 0 {
             // Transfer USDC: pool_underlying_token → lender_underlying_token
             let pool_state_key = ctx.accounts.pool_state.key();
             let (_, bump) = Pubkey::find_program_address(
@@ -216,33 +280,33 @@ pub mod mock_huma {
             )?;
 
             // Decrement lender_state owed amount so next disburse sees the remainder.
-            {
-                let mut data = ctx.accounts.lender_state.try_borrow_mut_data()?;
-                if data.len() >= 16 {
-                    let remaining = owed.saturating_sub(amount);
-                    data[8..16].copy_from_slice(&remaining.to_le_bytes());
-                }
-            }
+            let remaining = deduct_lender_owed(&ctx.accounts.lender_state.to_account_info(), amount)?;
 
             msg!(
                 "MockHuma: disbursed {} USDC to lender (remaining owed: {})",
                 amount,
-                owed.saturating_sub(amount)
+                remaining
             );
         } else {
-            msg!("MockHuma: disburse 0 or insufficient (500_000), nothing to transfer");
+            msg!("MockHuma: disburse 0 or insufficient, nothing to transfer");
         }
 
         Ok(())
     }
 
-    /// Mock `create_lender_accounts_v2`: no-op, just returns Ok.
+    /// Mock `create_lender_accounts_v2`: initializes lender state owed field to 0.
     pub fn create_lender_accounts_v2(ctx: Context<MockCreateLenderAccounts>) -> Result<()> {
         if ctx.accounts.huma_config.key() == FAIL_CREATE_LENDER_PUBKEY {
             msg!("MockHuma: simulated create lender failure triggered");
             return err!(MockHumaError::SimulatedCreateLenderFailure);
         }
-        msg!("MockHuma: create_lender_accounts_v2 (no-op)");
+        let lender_state_info = ctx.accounts.lender_state.to_account_info();
+        if let Ok(mut data) = lender_state_info.try_borrow_mut_data() {
+            if data.len() >= LENDER_STATE_MIN_LEN {
+                data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN].fill(0);
+            }
+        }
+        msg!("MockHuma: create_lender_accounts_v2");
         Ok(())
     }
 
@@ -429,22 +493,23 @@ pub mod mock_huma {
             let pst_supply = ctx.accounts.mode_mint.supply;
             let total_assets = u128::from_le_bytes(data[30..46].try_into().unwrap());
 
-            let usdc_value = if pst_supply > 0 && total_assets > 0 {
-                (escrowed_pst as u128)
-                    .checked_mul(total_assets)
-                    .ok_or(error!(MockHumaError::MathOverflow))?
-                    .checked_add(pst_supply as u128)
-                    .ok_or(error!(MockHumaError::MathOverflow))?
-                    .checked_sub(1)
-                    .ok_or(error!(MockHumaError::MathOverflow))?
-                    .checked_div(pst_supply as u128)
-                    .ok_or(error!(MockHumaError::MathOverflow))?
+            let pst_to_burn = if count_to_settle == pending_count {
+                escrowed_pst
             } else {
-                escrowed_pst as u128
+                ((escrowed_pst as u128)
+                    .checked_mul(count_to_settle as u128)
+                    .ok_or(error!(MockHumaError::MathOverflow))?
+                    .checked_div(pending_count as u128)
+                    .ok_or(error!(MockHumaError::MathOverflow))?) as u64
             };
+            require!(pst_to_burn <= pst_supply, MockHumaError::MathOverflow);
 
-            let new_total_assets = total_assets.saturating_sub(usdc_value);
-            data[30..46].copy_from_slice(&new_total_assets.to_le_bytes());
+            let usdc_value = pst_shares_to_usdc(pst_to_burn, pst_supply, total_assets)?;
+
+            // Release borrow on pool_state before calling update_pool_total_assets
+            drop(data);
+
+            update_pool_total_assets(&pool_state_info, -(usdc_value as i128))?;
 
             // Burn the PST tokens
             let pool_state_key = ctx.accounts.pool_state.key();
@@ -466,20 +531,18 @@ pub mod mock_huma {
                     },
                     signer_seeds,
                 ),
-                escrowed_pst,
+                pst_to_burn,
             )?;
 
-            msg!(
-                "MockHuma: Settled {} requests, burned {} PST (worth {} USDC). New total assets: {}",
-                count_to_settle, escrowed_pst, usdc_value, new_total_assets
-            );
-        }
+            // Accumulate usdc_value into lender_state
+            accumulate_lender_owed(&ctx.accounts.lender_state.to_account_info(), usdc_value)?;
 
-        // Set Huma Lender State owed amount to a large amount (1M USDC) to support disbursal
-        drop(data); // drop data mut borrow before borrowing lender_state
-        let mut lender_state_data = ctx.accounts.lender_state.try_borrow_mut_data()?;
-        if lender_state_data.len() >= 16 {
-            lender_state_data[8..16].copy_from_slice(&1_000_000_000_000u64.to_le_bytes());
+            msg!(
+                "MockHuma: Settled {} requests, burned {} PST (worth {} USDC).",
+                count_to_settle, pst_to_burn, usdc_value
+            );
+        } else {
+            drop(data);
         }
 
         Ok(())
@@ -775,4 +838,6 @@ pub enum MockHumaError {
     InvalidAccountOwner,
     #[msg("MockHuma: Pool state account data is too short (expected at least 46 bytes)")]
     InvalidPoolStateData,
+    #[msg("MockHuma: Lender state account data is too short (expected at least 16 bytes)")]
+    InvalidLenderStateData,
 }
