@@ -1,27 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/app/lib/db";
+import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
 import {
   PrizeLedgerFilterSchema,
+  type BaseIndexerRouteDeps,
   type PaginatedWinnersResponse,
 } from "@/app/types/indexer-contracts";
+import {
+  respondSuccess,
+  respondFallback,
+  respondValidationError,
+} from "@/app/lib/indexer-response";
 import { fetchPaginatedWinners } from "./queries";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  req: NextRequest
-): Promise<NextResponse<PaginatedWinnersResponse>> {
-  if (!isDatabaseConfigured) {
-    return NextResponse.json(
-      {
-        success: false,
-        fallbackRequired: true,
-        error: "Database not configured",
-      },
-      { status: 200 }
-    );
-  }
+export interface WinnersRouteDeps extends BaseIndexerRouteDeps {
+  fetchWinners?: typeof fetchPaginatedWinners;
+}
 
+export async function handleGetWinners(
+  req: NextRequest,
+  deps: WinnersRouteDeps = {}
+): Promise<NextResponse<PaginatedWinnersResponse>> {
   const { searchParams } = req.nextUrl;
   const rawParams = {
     user: searchParams.get("user") || undefined,
@@ -36,44 +37,35 @@ export async function GET(
 
   const parsed = PrizeLedgerFilterSchema.safeParse(rawParams);
   if (!parsed.success) {
-    return NextResponse.json(
-      {
-        success: false,
-        fallbackRequired: true,
-        error: parsed.error.issues.map((i) => i.message).join(", "),
-      },
-      { status: 400 }
-    );
+    return respondValidationError(parsed.error);
+  }
+
+  const isConfigured = deps.isConfigured ?? isDatabaseConfigured;
+  if (!isConfigured) {
+    return respondFallback("Database not configured");
   }
 
   try {
-    const result = await fetchPaginatedWinners(parsed.data);
+    const fetchWinnersFn = deps.fetchWinners ?? fetchPaginatedWinners;
+    const result = await fetchWinnersFn(parsed.data);
 
-    return NextResponse.json(
-      {
-        success: true,
-        data: result.data,
-        meta: result.meta,
-        aggregates: result.aggregates,
-        fallbackRequired: false,
-      },
-      {
-        headers: {
-          "Cache-Control": parsed.data.user
-            ? "private, no-cache, no-store, must-revalidate"
-            : "public, s-maxage=10, stale-while-revalidate=30",
-        },
-      }
-    );
+    const headers = parsed.data.user
+      ? NO_CACHE_HEADERS
+      : { "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30" };
+
+    return respondSuccess(result.data, {
+      meta: result.meta,
+      aggregates: result.aggregates,
+      headers,
+    });
   } catch (err: unknown) {
     console.error("[API Winners Error]:", err);
-    return NextResponse.json(
-      {
-        success: false,
-        fallbackRequired: true,
-        error: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500 }
-    );
+    return respondFallback(err);
   }
+}
+
+export async function GET(
+  req: NextRequest
+): Promise<NextResponse<PaginatedWinnersResponse>> {
+  return handleGetWinners(req);
 }

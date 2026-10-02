@@ -5,14 +5,19 @@ import {
   poolSnapshots,
   userPortfolioStats,
 } from "./db/schema";
-import type { DrawHistoryStats, DrawStatusName } from "../types";
+import type {
+  DrawHistoryStats,
+  DrawStatusName,
+  PrizeHistoryEntry,
+  RecentWinner,
+  PendingRedemptionStatus,
+  PendingRedemption,
+} from "../types";
 import { isTerminalDrawStatus } from "./draw-helpers";
 
 export { isTerminalDrawStatus };
 
-export type ApiResponse<T> =
-  | { success: true; data: T; fallbackRequired: false }
-  | { success: false; data?: never; fallbackRequired: true; error: string };
+export type { ApiResponse } from "@/app/types/indexer-contracts";
 
 export interface PrizeHistoryEntryDto {
   poolId: number;
@@ -63,7 +68,7 @@ export function parseNumericBaseUnits(
 
 export function mapDtoToPrizeHistoryEntry(
   dto: PrizeHistoryEntryDto
-): import("../types").PrizeHistoryEntry {
+): PrizeHistoryEntry {
   const bondsBoughtNum = parseNumericBaseUnits(dto.bondsBought);
   const dustAccumulatedNum = parseNumericBaseUnits(dto.dustAccumulated);
   const amountNum = parseNumericBaseUnits(dto.amountOwed);
@@ -92,7 +97,7 @@ export function mapDtoToPrizeHistoryEntry(
 export function mapDtoToRecentWinner(
   dto: PrizeHistoryEntryDto,
   tokenSymbol: string = "USDC"
-): import("../types").RecentWinner {
+): RecentWinner {
   return {
     address: dto.winnerAddress,
     amount: parseNumericBaseUnits(dto.amountOwed),
@@ -139,13 +144,13 @@ export function toPendingRedemptionDto(
 
 export function isPendingRedemptionStatus(
   status: string
-): status is import("../types").PendingRedemptionStatus {
+): status is PendingRedemptionStatus {
   return status === "ready" || status === "settling";
 }
 
 export function mapDtoToPendingRedemption(
   dto: PendingRedemptionDto
-): import("../types").PendingRedemption | null {
+): PendingRedemption | null {
   if (!isPendingRedemptionStatus(dto.status)) {
     return null;
   }
@@ -154,9 +159,7 @@ export function mapDtoToPendingRedemption(
     amount: Number(dto.amountUsdc),
     status: dto.status,
     requestedAt: new Date(dto.requestedAt * 1000).toISOString(),
-    type:
-      (dto.redemptionType as import("../types").PendingRedemption["type"]) ||
-      "bond_sale",
+    type: (dto.redemptionType as PendingRedemption["type"]) || "bond_sale",
     pstSharesLocked: dto.pstSharesLocked ?? undefined,
     humaRequestId: dto.humaRequestId ?? undefined,
   };

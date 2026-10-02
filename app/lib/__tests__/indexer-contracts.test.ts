@@ -6,9 +6,15 @@ import {
   PrizeLedgerFilterSchema,
   ActivityLedgerFilterSchema,
   DrawExplorerFilterSchema,
+  RedemptionLedgerFilterSchema,
   type ApiSuccessResponse,
   type ApiErrorResponse,
 } from "../../types/indexer-contracts";
+import {
+  respondSuccess,
+  respondFallback,
+  respondValidationError,
+} from "../indexer-response";
 
 describe("Indexer Contracts & Keyset Cursor Suite", () => {
   describe("encodeKeysetCursor and decodeKeysetCursor", () => {
@@ -172,9 +178,52 @@ describe("Indexer Contracts & Keyset Cursor Suite", () => {
         assert.strictEqual(parsed.pageSize, 25);
       });
     });
+
+    describe("RedemptionLedgerFilterSchema", () => {
+      it("should parse valid redemption filters with defaults", () => {
+        const parsed = RedemptionLedgerFilterSchema.parse({
+          user: "5xYz1234MockAddress5678901234567890",
+        });
+        assert.strictEqual(parsed.user, "5xYz1234MockAddress5678901234567890");
+        assert.strictEqual(parsed.poolId, 1);
+        assert.strictEqual(parsed.status, "pending");
+        assert.strictEqual(parsed.limit, 50);
+      });
+
+      it("should accept valid status enum variants", () => {
+        for (const status of [
+          "pending",
+          "settling",
+          "ready",
+          "claimed",
+          "all",
+        ] as const) {
+          const parsed = RedemptionLedgerFilterSchema.parse({
+            user: "5xYz1234MockAddress5678901234567890",
+            status,
+          });
+          assert.strictEqual(parsed.status, status);
+        }
+      });
+
+      it("should reject invalid user address length", () => {
+        assert.throws(() =>
+          RedemptionLedgerFilterSchema.parse({ user: "too-short" })
+        );
+      });
+
+      it("should reject limit exceeding 100", () => {
+        assert.throws(() =>
+          RedemptionLedgerFilterSchema.parse({
+            user: "5xYz1234MockAddress5678901234567890",
+            limit: 200,
+          })
+        );
+      });
+    });
   });
 
-  describe("API Response Envelopes", () => {
+  describe("API Response Envelopes & Response Builders", () => {
     it("should conform to ApiSuccessResponse discriminated envelope", () => {
       const response: ApiSuccessResponse<
         Array<{ id: number; name: string }>,
@@ -205,6 +254,49 @@ describe("Indexer Contracts & Keyset Cursor Suite", () => {
       assert.strictEqual(errorResponse.success, false);
       assert.strictEqual(errorResponse.fallbackRequired, true);
       assert.strictEqual(errorResponse.error, "Cursor signature expired");
+    });
+
+    it("respondSuccess should produce a 200 JSON response with correct envelope", async () => {
+      const res = respondSuccess({ count: 42 }, { meta: { page: 1 } });
+      assert.strictEqual(res.status, 200);
+      const body = (await res.json()) as Record<string, unknown>;
+      assert.strictEqual(body.success, true);
+      assert.strictEqual(body.fallbackRequired, false);
+      assert.deepStrictEqual(body.data, { count: 42 });
+      assert.deepStrictEqual(body.meta, { page: 1 });
+    });
+
+    it("respondFallback should produce a fallback payload with error message", async () => {
+      const res = respondFallback(new Error("DB Down"), 200);
+      assert.strictEqual(res.status, 200);
+      const body = (await res.json()) as Record<string, unknown>;
+      assert.strictEqual(body.success, false);
+      assert.strictEqual(body.fallbackRequired, true);
+      assert.strictEqual(body.error, "DB Down");
+    });
+
+    it("respondValidationError should produce a 400 error response from string or ZodError", async () => {
+      const resStr = respondValidationError("Invalid param");
+      assert.strictEqual(resStr.status, 400);
+      const bodyStr = (await resStr.json()) as Record<string, unknown>;
+      assert.strictEqual(bodyStr.success, false);
+      assert.strictEqual(bodyStr.fallbackRequired, true);
+      assert.strictEqual(bodyStr.error, "Invalid param");
+
+      const zodResult = RedemptionLedgerFilterSchema.safeParse({
+        user: "short",
+      });
+      assert.strictEqual(zodResult.success, false);
+      if (!zodResult.success) {
+        const resZod = respondValidationError(zodResult.error);
+        assert.strictEqual(resZod.status, 400);
+        const bodyZod = (await resZod.json()) as Record<string, unknown>;
+        assert.strictEqual(bodyZod.success, false);
+        assert.strictEqual(bodyZod.fallbackRequired, true);
+        assert.ok(
+          typeof bodyZod.error === "string" && bodyZod.error.length > 0
+        );
+      }
     });
   });
 });

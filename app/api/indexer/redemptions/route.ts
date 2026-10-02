@@ -1,78 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/app/lib/db";
 import {
-  ApiResponse,
-  PendingRedemptionDto,
-  toPendingRedemptionDto,
-} from "@/app/lib/indexer-mappers";
-import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
+  RedemptionLedgerFilterSchema,
+  type BaseIndexerRouteDeps,
+  type PendingRedemptionsResponse,
+} from "@/app/types/indexer-contracts";
+import {
+  respondSuccess,
+  respondFallback,
+  respondValidationError,
+} from "@/app/lib/indexer-response";
 import { fetchPendingRedemptions } from "./queries";
 
 export const dynamic = "force-dynamic";
 
-const VALID_STATUSES = new Set([
-  "pending",
-  "settling",
-  "ready",
-  "claimed",
-  "all",
-]);
+export interface RedemptionsRouteDeps extends BaseIndexerRouteDeps {
+  fetchRedemptions?: typeof fetchPendingRedemptions;
+}
 
-export async function GET(
-  req: NextRequest
-): Promise<NextResponse<ApiResponse<PendingRedemptionDto[]>>> {
-  if (!isDatabaseConfigured) {
-    return NextResponse.json(
-      {
-        success: false,
-        fallbackRequired: true,
-        error: "Database not configured",
-      },
-      { headers: NO_CACHE_HEADERS, status: 200 }
-    );
+export async function handleGetRedemptions(
+  req: NextRequest,
+  deps: RedemptionsRouteDeps = {}
+): Promise<NextResponse<PendingRedemptionsResponse>> {
+  const { searchParams } = req.nextUrl;
+  const rawParams = {
+    user: searchParams.get("user") || undefined,
+    poolId: searchParams.get("poolId") || 1,
+    status: searchParams.get("status") || "pending",
+    limit: searchParams.get("limit") || 50,
+  };
+
+  const parsed = RedemptionLedgerFilterSchema.safeParse(rawParams);
+  if (!parsed.success) {
+    return respondValidationError(parsed.error);
   }
 
-  const { searchParams } = req.nextUrl;
-  const user = searchParams.get("user");
-  const poolId = Number(searchParams.get("poolId") || 1);
-  const rawStatus = searchParams.get("status") || "pending";
-  const statusParam = VALID_STATUSES.has(rawStatus) ? rawStatus : "pending";
-  const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
-
-  if (!user) {
-    return NextResponse.json(
-      {
-        success: false,
-        fallbackRequired: true,
-        error: "Missing 'user' parameter",
-      },
-      { headers: NO_CACHE_HEADERS, status: 400 }
-    );
+  const isConfigured = deps.isConfigured ?? isDatabaseConfigured;
+  if (!isConfigured) {
+    return respondFallback("Database not configured");
   }
 
   try {
-    const rows = await fetchPendingRedemptions({
-      user,
-      poolId,
-      status: statusParam,
-      limit,
-    });
+    const fetchRedemptionsFn = deps.fetchRedemptions ?? fetchPendingRedemptions;
+    const data = await fetchRedemptionsFn(parsed.data);
 
-    const data = rows.map(toPendingRedemptionDto);
-
-    return NextResponse.json(
-      { success: true, data, fallbackRequired: false },
-      { headers: NO_CACHE_HEADERS }
-    );
+    return respondSuccess(data);
   } catch (err: unknown) {
     console.warn("[API Redemptions Error - Falling Back to RPC]:", err);
-    return NextResponse.json(
-      {
-        success: false,
-        fallbackRequired: true,
-        error: err instanceof Error ? err.message : String(err),
-      },
-      { headers: NO_CACHE_HEADERS, status: 200 }
-    );
+    return respondFallback(err);
   }
+}
+
+export async function GET(
+  req: NextRequest
+): Promise<NextResponse<PendingRedemptionsResponse>> {
+  return handleGetRedemptions(req);
 }

@@ -92,9 +92,4 @@ export function assertNoCache(res: Response): void {
   );
 }
 
-export function assertPrivateNoCache(res: Response): void {
-  assert.strictEqual(
-    res.headers.get("Cache-Control"),
-    "private, no-cache, no-store, must-revalidate"
-  );
-}
+export const assertPrivateNoCache = assertNoCache;

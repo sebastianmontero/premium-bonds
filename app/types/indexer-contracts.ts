@@ -1,9 +1,15 @@
 import { z } from "zod";
+import { VALID_DRAW_STATUS_FILTERS } from "@/app/lib/draw-helpers";
 import type { ActivityEntry, DrawHistoryStats } from "@/app/types";
 import type {
   DrawCycleSummaryDto,
+  PendingRedemptionDto,
   PrizeHistoryEntryDto,
 } from "@/app/lib/indexer-mappers";
+
+export interface BaseIndexerRouteDeps {
+  isConfigured?: boolean;
+}
 
 /**
  * Branded Keyset Cursor for Activity Feed
@@ -103,8 +109,6 @@ export const ActivityLedgerFilterSchema = z.object({
 
 export type ActivityLedgerFilters = z.infer<typeof ActivityLedgerFilterSchema>;
 
-import { VALID_DRAW_STATUS_FILTERS } from "@/app/lib/draw-helpers";
-
 export const DrawExplorerFilterSchema = z.object({
   poolId: z.coerce.number().int().positive().default(1),
   page: z.coerce.number().int().min(1).default(1),
@@ -113,6 +117,19 @@ export const DrawExplorerFilterSchema = z.object({
   search: z.string().trim().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
+
+export const RedemptionLedgerFilterSchema = z.object({
+  user: z.string().trim().min(32).max(44),
+  poolId: z.coerce.number().int().positive().default(1),
+  status: z
+    .enum(["pending", "settling", "ready", "claimed", "all"])
+    .default("pending"),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type RedemptionLedgerFilters = z.infer<
+  typeof RedemptionLedgerFilterSchema
+>;
 
 export type DrawExplorerFilters = z.infer<typeof DrawExplorerFilterSchema>;
 
@@ -177,3 +194,5 @@ export type PaginatedDrawsResponse = ApiResponse<
   PaginationMeta,
   DrawHistoryStats
 >;
+
+export type PendingRedemptionsResponse = ApiResponse<PendingRedemptionDto[]>;
