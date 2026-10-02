@@ -23,11 +23,11 @@ add_env() {
 echo "Setting up Preview Environment (Devnet)..."
 add_env NEXT_PUBLIC_ENVIRONMENT "devnet" preview
 add_env NEXT_PUBLIC_SOLANA_RPC_URL "https://api.devnet.solana.com" preview
-add_env NEXT_PUBLIC_PROGRAM_ID "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" preview
+add_env NEXT_PUBLIC_PROGRAM_ID "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" preview
 
 echo "Setting up Production Environment (Mainnet)..."
 add_env NEXT_PUBLIC_ENVIRONMENT "mainnet-beta" production
-add_env NEXT_PUBLIC_PROGRAM_ID "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" production
+add_env NEXT_PUBLIC_PROGRAM_ID "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" production
 
 if [ -z "$HELIUS_API_KEY" ]; then
   read -p "Enter your Helius Mainnet API Key (or press Enter to set a placeholder): " HELIUS_KEY
@@ -43,6 +43,6 @@ add_env NEXT_PUBLIC_SOLANA_RPC_URL "https://mainnet.helius-rpc.com/?api-key=${HE
 echo "Setting up Development Environment (Devnet)..."
 add_env NEXT_PUBLIC_ENVIRONMENT "devnet" development
 add_env NEXT_PUBLIC_SOLANA_RPC_URL "https://api.devnet.solana.com" development
-add_env NEXT_PUBLIC_PROGRAM_ID "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" development
+add_env NEXT_PUBLIC_PROGRAM_ID "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" development
 
 echo "=== Vercel Environment Setup Complete ==="

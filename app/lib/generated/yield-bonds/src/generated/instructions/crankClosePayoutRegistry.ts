@@ -69,7 +69,7 @@ export type CrankClosePayoutRegistryInstruction<
   TAccountPayoutRegistry extends string | AccountMeta<string> = string,
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
-    "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
+    "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -218,7 +218,7 @@ export async function getCrankClosePayoutRegistryInstructionAsync<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
+      "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" as Address<"4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -310,7 +310,7 @@ export function getCrankClosePayoutRegistryInstruction<
   // Resolve default values.
   if (!accounts.program.value) {
     accounts.program.value =
-      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
+      "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" as Address<"4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");

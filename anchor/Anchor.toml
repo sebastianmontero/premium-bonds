@@ -6,14 +6,14 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-anchor = "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos"
-mock_huma = "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg"
+anchor = "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG"
+mock_huma = "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz"
 mock_kamino = "GVkUHNohGv2AqewpZnciXhjwt3diSsLuDAKp1Q1bH1GA"
 mock_switchboard = "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
 
 [programs.devnet]
-anchor = "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos"
-mock_huma = "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg"
+anchor = "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG"
+mock_huma = "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz"
 mock_kamino = "GVkUHNohGv2AqewpZnciXhjwt3diSsLuDAKp1Q1bH1GA"
 
 [provider]

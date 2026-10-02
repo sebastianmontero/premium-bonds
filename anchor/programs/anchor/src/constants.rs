@@ -69,7 +69,7 @@ pub const HUMA_PROGRAM_ID: Pubkey =
 /// Huma Finance Program ID on localnet / devnet.
 #[cfg(not(feature = "mainnet"))]
 pub const HUMA_PROGRAM_ID: Pubkey =
-    solana_program::pubkey!("4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg");
+    solana_program::pubkey!("ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz");
 
 // ─── Switchboard On-Demand Program IDs & Discriminators ──────────────────────
 

@@ -13,13 +13,13 @@ export const CANONICAL_KEYPAIRS: readonly ProgramKeypairConfig[] = [
   {
     name: "anchor",
     filename: "anchor-keypair.json",
-    expectedAddress: address("3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos"),
+    expectedAddress: address("4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG"),
     envVar: "DEVNET_ANCHOR_KEYPAIR",
   },
   {
     name: "mock_huma",
     filename: "mock_huma-keypair.json",
-    expectedAddress: address("4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg"),
+    expectedAddress: address("ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz"),
     envVar: "DEVNET_MOCK_HUMA_KEYPAIR",
   },
   {
@@ -88,11 +88,19 @@ export async function syncKeypairs(): Promise<void> {
       console.log(
         `✓ [sync-keys] Synced ${config.name} (${config.expectedAddress}) -> target/deploy/`
       );
-    } catch {
-      console.log(
-        `ℹ [sync-keys] ${config.name} keypair not found in anchor/keys/ or ${config.envVar}. ` +
-          `Skipping (not required for local tests or codegen).`
-      );
+    } catch (err: unknown) {
+      const error = err as Error;
+      if (error?.message?.includes("missing at")) {
+        console.log(
+          `ℹ [sync-keys] ${config.name} keypair not found in anchor/keys/ or ${config.envVar}. ` +
+            `Skipping (not required for local tests or codegen).`
+        );
+      } else {
+        console.error(
+          `❌ [sync-keys] Key verification failure for ${config.name}: ${error.message}`
+        );
+        throw error;
+      }
     }
   }
 }

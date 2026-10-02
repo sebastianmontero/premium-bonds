@@ -868,7 +868,7 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
         const payer = await generateKeyPairSigner();
         const newAccount = await generateKeyPairSigner();
         const ownerProgramId = address(
-          "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg"
+          "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz"
         );
         const lamports = 1_000_000n;
         const space = 64n;
@@ -950,7 +950,7 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
         const payer = await generateKeyPairSigner();
         const lenderStateSigner = await generateKeyPairSigner();
         const humaProgramId = address(
-          "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg"
+          "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz"
         );
 
         let getAccountInfoCalled = false;

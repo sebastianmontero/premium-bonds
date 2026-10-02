@@ -182,7 +182,7 @@ import {
 } from "../pdas";
 
 export const ANCHOR_PROGRAM_ADDRESS =
-  "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
+  "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" as Address<"4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG">;
 
 export enum AnchorAccount {
   DrawCycle,
@@ -607,7 +607,7 @@ export function identifyAnchorInstruction(
 }
 
 export type ParsedAnchorInstruction<
-  TProgram extends string = "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
+  TProgram extends string = "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG",
 > =
   | ({
       instructionType: AnchorInstruction.AcceptAdmin;

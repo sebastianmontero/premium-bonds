@@ -22,7 +22,7 @@ export async function findPoolVaultAccountPda(
   config: { programAddress?: Address | undefined } = {}
 ): Promise<ProgramDerivedAddress> {
   const {
-    programAddress = "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">,
+    programAddress = "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" as Address<"4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG">,
   } = config;
   return await getProgramDerivedAddress({
     programAddress,

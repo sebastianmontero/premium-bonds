@@ -66,7 +66,7 @@ export type SellBondsInstruction<
   TAccountPoolPstVault extends string | AccountMeta<string> = string,
   TAccountPendingRedemption extends string | AccountMeta<string> = string,
   TAccountHumaProgram extends string | AccountMeta<string> =
-    "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
+    "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz",
   TAccountHumaConfig extends string | AccountMeta<string> = string,
   TAccountHumaPoolConfig extends string | AccountMeta<string> = string,
   TAccountHumaPoolState extends string | AccountMeta<string> = string,
@@ -83,7 +83,7 @@ export type SellBondsInstruction<
     "11111111111111111111111111111111",
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
-    "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
+    "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -422,7 +422,7 @@ export async function getSellBondsInstructionAsync<
   // Resolve default values.
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
-      "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg" as Address<"4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg">;
+      "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz" as Address<"ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz">;
   }
   if (!accounts.tokenProgram.value) {
     accounts.tokenProgram.value =
@@ -437,7 +437,7 @@ export async function getSellBondsInstructionAsync<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
+      "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" as Address<"4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -718,7 +718,7 @@ export function getSellBondsInstruction<
   // Resolve default values.
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
-      "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg" as Address<"4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg">;
+      "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz" as Address<"ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz">;
   }
   if (!accounts.tokenProgram.value) {
     accounts.tokenProgram.value =
@@ -730,7 +730,7 @@ export function getSellBondsInstruction<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
+      "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" as Address<"4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");

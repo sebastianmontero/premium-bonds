@@ -11,21 +11,27 @@ test("program-parity: bonds-sdk exports match Codama generated canonical address
     ANCHOR_PROGRAM_ADDRESS,
     "PROGRAM_ID must strictly equal Codama ANCHOR_PROGRAM_ADDRESS"
   );
-  assert.strictEqual(
-    PROGRAM_ID,
-    "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
-    "PROGRAM_ID must match canonical YieldBonds address"
-  );
 
   assert.strictEqual(
     HUMA_PROGRAM_ID,
     MOCK_HUMA_PROGRAM_ADDRESS,
     "HUMA_PROGRAM_ID must strictly equal Codama MOCK_HUMA_PROGRAM_ADDRESS"
   );
+
+  const anchorConfig = CANONICAL_KEYPAIRS.find((k) => k.name === "anchor");
+  assert.ok(anchorConfig, "anchor must exist in CANONICAL_KEYPAIRS");
   assert.strictEqual(
+    anchorConfig.expectedAddress,
+    PROGRAM_ID,
+    "anchor canonical address in sync-keys must match PROGRAM_ID"
+  );
+
+  const humaConfig = CANONICAL_KEYPAIRS.find((k) => k.name === "mock_huma");
+  assert.ok(humaConfig, "mock_huma must exist in CANONICAL_KEYPAIRS");
+  assert.strictEqual(
+    humaConfig.expectedAddress,
     HUMA_PROGRAM_ID,
-    "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
-    "HUMA_PROGRAM_ID must match canonical Mock Huma address"
+    "mock_huma canonical address in sync-keys must match HUMA_PROGRAM_ID"
   );
 
   const kaminoConfig = CANONICAL_KEYPAIRS.find((k) => k.name === "mock_kamino");

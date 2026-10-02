@@ -70,7 +70,7 @@ describe("TxExecutor Unit Tests", () => {
     // Matching in logs
     assert.strictEqual(
       isBenignConcurrencyRace({}, [
-        "Program 3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos invoke [1]",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
         "Program log: AnchorError Error Code: AlreadyClaimed. Error Number: 6008.",
       ]),
       true

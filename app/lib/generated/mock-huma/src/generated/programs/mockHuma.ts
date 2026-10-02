@@ -75,7 +75,7 @@ import {
 } from "../instructions";
 
 export const MOCK_HUMA_PROGRAM_ADDRESS =
-  "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg" as Address<"4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg">;
+  "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz" as Address<"ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz">;
 
 export enum MockHumaInstruction {
   AddRedemptionRequestV2,
@@ -199,7 +199,7 @@ export function identifyMockHumaInstruction(
 }
 
 export type ParsedMockHumaInstruction<
-  TProgram extends string = "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
+  TProgram extends string = "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz",
 > =
   | ({
       instructionType: MockHumaInstruction.AddRedemptionRequestV2;

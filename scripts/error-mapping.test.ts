@@ -368,9 +368,9 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
           InstructionError: [0n, { Custom: 6011n }],
         },
         [
-          "Program 3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos invoke [1]",
+          "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
           "Program log: AnchorError caused by account: crank. Error Code: UnauthorizedCrank. Error Number: 6011. Error Message: Caller is not authorized to execute crank instructions.",
-          "Program 3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos failed: custom program error: 0x177b",
+          "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG failed: custom program error: 0x177b",
         ]
       );
       assert.strictEqual(parsedSim.code, 6011);

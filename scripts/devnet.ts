@@ -119,50 +119,13 @@ export interface ProgramDeployConfig extends ProgramKeypairConfig {
   readonly soPath: string;
 }
 
-const DEVNET_PROGRAM_CONFIGS: readonly ProgramDeployConfig[] = [
-  {
-    name: "mock_huma",
-    filename: "mock_huma-keypair.json",
-    expectedAddress: HUMA_PROGRAM_ID,
-    envVar: "DEVNET_MOCK_HUMA_KEYPAIR",
-    soPath: path.resolve(
-      __dirname,
-      "..",
-      "anchor",
-      "target",
-      "deploy",
-      "mock_huma.so"
-    ),
-  },
-  {
-    name: "mock_kamino",
-    filename: "mock_kamino-keypair.json",
-    expectedAddress: address("GVkUHNohGv2AqewpZnciXhjwt3diSsLuDAKp1Q1bH1GA"),
-    envVar: "DEVNET_MOCK_KAMINO_KEYPAIR",
-    soPath: path.resolve(
-      __dirname,
-      "..",
-      "anchor",
-      "target",
-      "deploy",
-      "mock_kamino.so"
-    ),
-  },
-  {
-    name: "anchor",
-    filename: "anchor-keypair.json",
-    expectedAddress: PROGRAM_ID,
-    envVar: "DEVNET_ANCHOR_KEYPAIR",
-    soPath: path.resolve(
-      __dirname,
-      "..",
-      "anchor",
-      "target",
-      "deploy",
-      "anchor.so"
-    ),
-  },
-];
+const DEPLOY_DIR = path.resolve(__dirname, "..", "anchor", "target", "deploy");
+
+const DEVNET_PROGRAM_CONFIGS: readonly ProgramDeployConfig[] =
+  CANONICAL_KEYPAIRS.map((config) => ({
+    ...config,
+    soPath: path.resolve(DEPLOY_DIR, `${config.name}.so`),
+  }));
 
 function generateRandomAddress(): string {
   const keyPair = crypto.generateKeyPairSync("ed25519");
