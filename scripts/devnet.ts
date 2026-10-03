@@ -585,10 +585,10 @@ async function handleInit(args: string[]) {
     STATE_DIR,
     "huma-pool-state-key.json"
   );
-  let humaPoolStateSigner = await loadOrGenerateKeypair(
-    humaPoolStateKeyPath,
-    { overwriteIfInvalid: true, label: "Huma Pool State" }
-  );
+  let humaPoolStateSigner = await loadOrGenerateKeypair(humaPoolStateKeyPath, {
+    overwriteIfInvalid: true,
+    label: "Huma Pool State",
+  });
 
   console.log(`Huma Pool State address: ${humaPoolStateSigner.address}`);
 

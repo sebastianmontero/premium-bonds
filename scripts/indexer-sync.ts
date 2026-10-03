@@ -1,8 +1,16 @@
 import "./load-env";
-import fs from "node:fs";
-import path from "node:path";
 import { createSolanaRpc } from "@solana/kit";
-import { db, isDatabaseConfigured, closeDatabase } from "../app/lib/db";
+import {
+  resolveSolanaRpcUrl,
+  resolveNetwork,
+  type SolanaNetworkCluster,
+} from "../app/lib/network";
+import {
+  db,
+  isDatabaseConfigured as defaultIsDatabaseConfigured,
+  closeDatabase,
+  DatabaseNotConfiguredError,
+} from "../app/lib/db";
 import { indexerCursor } from "../app/lib/db/schema";
 import { parseEventsFromTxMeta } from "../app/lib/anchor-events";
 import {
@@ -14,8 +22,51 @@ import { SettlementMonitorService } from "../app/lib/indexer/settlement-monitor"
 import { eq } from "drizzle-orm";
 import { PROGRAM_ID } from "../app/lib/bonds-sdk";
 
-const RPC_URL = resolveSolanaRpcUrl();
-const NETWORK = getNetworkInfo().cluster;
+export interface SyncHistoricalTransactionsOptions {
+  backfill?: boolean;
+  maxTransactions?: number;
+  rpcUrl?: string;
+  network?: SolanaNetworkCluster | string;
+  rpc?: ReturnType<typeof createSolanaRpc>;
+  isDatabaseConfigured?: boolean;
+  db?: typeof db;
+  humaPoolStateAddress?: string;
+}
+
+export interface SyncHistoricalTransactionsResult {
+  success: boolean;
+  totalIngested: number;
+  contiguousWatermark: string | null;
+}
+
+export function parseIndexerSyncArgs(
+  args: string[] = process.argv.slice(2)
+): SyncHistoricalTransactionsOptions {
+  const isBackfill = args.includes("--backfill");
+  let maxTransactions: number | undefined;
+  let rpcUrl: string | undefined;
+  let network: SolanaNetworkCluster | string | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    if (
+      (args[i] === "--max" || args[i] === "--max-transactions") &&
+      args[i + 1]
+    ) {
+      maxTransactions = parseInt(args[++i], 10);
+    } else if (args[i] === "--rpc" && args[i + 1]) {
+      rpcUrl = args[++i];
+    } else if (args[i] === "--network" && args[i + 1]) {
+      network = args[++i];
+    }
+  }
+
+  return {
+    backfill: isBackfill,
+    maxTransactions,
+    rpcUrl,
+    network,
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchTransactionWithRetry(
@@ -54,25 +105,37 @@ async function fetchTransactionWithRetry(
 }
 
 export async function syncHistoricalTransactions(
-  options: { backfill?: boolean; maxTransactions?: number } = {}
-) {
-  if (!isDatabaseConfigured) {
-    console.error("[Indexer Sync Fatal]: DATABASE_URL is not configured.");
-    process.exit(1);
+  options: SyncHistoricalTransactionsOptions = {}
+): Promise<SyncHistoricalTransactionsResult> {
+  const isDbConfigured =
+    options.isDatabaseConfigured !== undefined
+      ? options.isDatabaseConfigured
+      : defaultIsDatabaseConfigured;
+
+  if (!isDbConfigured) {
+    throw new DatabaseNotConfiguredError();
   }
 
-  const rpc = createSolanaRpc(RPC_URL);
+  const dbClient = options.db || db;
+  const rpcUrl = options.rpcUrl || resolveSolanaRpcUrl();
+  const network =
+    options.network ||
+    resolveNetwork(
+      process.env.NEXT_PUBLIC_ENVIRONMENT || process.env.NEXT_PUBLIC_NETWORK,
+      rpcUrl
+    ).cluster;
+  const rpc = options.rpc || createSolanaRpc(rpcUrl);
   const hydrator = new PayoutHydratorService(rpc);
   const settlementMonitor = new SettlementMonitorService();
 
   console.log(
-    `[Indexer Sync] Network: ${NETWORK} | RPC: ${RPC_URL} | Program: ${PROGRAM_ID}`
+    `[Indexer Sync] Network: ${network} | RPC: ${rpcUrl} | Program: ${PROGRAM_ID}`
   );
 
-  const [cursorRow] = await db
+  const [cursorRow] = await dbClient
     .select()
     .from(indexerCursor)
-    .where(eq(indexerCursor.network, NETWORK))
+    .where(eq(indexerCursor.network, network))
     .limit(1);
 
   const untilSig = options.backfill
@@ -165,7 +228,7 @@ export async function syncHistoricalTransactions(
             blockTime: Number(
               item.s.blockTime || Math.floor(Date.now() / 1000)
             ),
-            network: NETWORK,
+            network: network,
           },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           events: parseEventsFromTxMeta(item.tx.meta as any),
@@ -218,10 +281,10 @@ export async function syncHistoricalTransactions(
     !syncEncounteredErrors &&
     (reachedTargetWatermark || !untilSig)
   ) {
-    await db
+    await dbClient
       .insert(indexerCursor)
       .values({
-        network: NETWORK,
+        network: network,
         contiguousSignature: newestSignatureScanned,
         contiguousSlot: newestSlotScanned,
         lastBlockTime: newestBlockTime,
@@ -266,7 +329,9 @@ export async function syncHistoricalTransactions(
   // Run settlement monitor for self-healing reconciliation of Huma pool redemptions
   try {
     const humaPoolStateAddress =
-      process.env.NEXT_PUBLIC_HUMA_POOL_STATE || process.env.HUMA_POOL_STATE;
+      options.humaPoolStateAddress ||
+      process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
+      process.env.HUMA_POOL_STATE;
     if (humaPoolStateAddress) {
       const result = await settlementMonitor.syncHumaPoolSettlements(
         rpc,
@@ -286,14 +351,23 @@ export async function syncHistoricalTransactions(
   console.log(
     `[Indexer Sync Complete]: Total events ingested = ${totalIngested}`
   );
+
+  return {
+    success: !syncEncounteredErrors,
+    totalIngested,
+    contiguousWatermark:
+      newestSignatureScanned && !options.backfill && !syncEncounteredErrors
+        ? newestSignatureScanned
+        : cursorRow?.contiguousSignature || null,
+  };
 }
 
 if (require.main === module) {
-  const isBackfill = process.argv.includes("--backfill");
-  syncHistoricalTransactions({ backfill: isBackfill })
-    .then(async () => {
+  const options = parseIndexerSyncArgs(process.argv.slice(2));
+  syncHistoricalTransactions(options)
+    .then(async (result) => {
       await closeDatabase();
-      process.exit(0);
+      process.exit(result.success ? 0 : 1);
     })
     .catch(async (err) => {
       console.error("[Indexer Sync Fatal]:", err);
