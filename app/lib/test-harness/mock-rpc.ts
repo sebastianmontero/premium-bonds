@@ -25,6 +25,12 @@ export class MockRpcBuilder {
   >();
   private accountCallIndices = new Map<string, number>();
 
+  private programAccounts = new Map<
+    string,
+    Array<{ pubkey: Address; account: MockAccountRecord }>
+  >();
+  private programErrors = new Map<string, Error>();
+
   withAccount(
     pubkey: Address | string,
     data: Uint8Array | null,
@@ -35,6 +41,19 @@ export class MockRpcBuilder {
       pubkey.toString(),
       data ? { data, owner, lamports, executable: false } : null
     );
+    return this;
+  }
+
+  withProgramAccounts(
+    programId: Address | string,
+    accounts: Array<{ pubkey: Address; account: MockAccountRecord }>
+  ): this {
+    this.programAccounts.set(programId.toString(), accounts);
+    return this;
+  }
+
+  withProgramAccountsError(programId: Address | string, error: Error): this {
+    this.programErrors.set(programId.toString(), error);
     return this;
   }
 
@@ -171,6 +190,32 @@ export class MockRpcBuilder {
 
       getBlockTime: () => ({
         send: async () => Number(this.currentBlockTime),
+      }),
+
+      getProgramAccounts: (
+        programId: Address | string,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        config?: { filters?: unknown[]; encoding?: string }
+      ) => ({
+        send: async () => {
+          const key = programId.toString();
+          if (this.programErrors.has(key)) {
+            throw this.programErrors.get(key)!;
+          }
+          const list = this.programAccounts.get(key) ?? [];
+          return list.map(({ pubkey, account }) => ({
+            pubkey,
+            account: {
+              executable: account.executable ?? false,
+              lamports: account.lamports ?? 1_000_000n,
+              owner: account.owner ?? (programId as Address),
+              space: BigInt(account.data?.byteLength ?? 0),
+              data: account.data
+                ? [base64Decoder.decode(account.data), "base64" as const]
+                : null,
+            },
+          }));
+        },
       }),
     };
   }

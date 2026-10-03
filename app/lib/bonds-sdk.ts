@@ -970,6 +970,12 @@ export function getPendingRedemptionFilters(
   return filters;
 }
 
+export function compareBigInt(a: bigint, b: bigint): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
 export interface PendingRedemptionCandidate {
   redemptionId: bigint;
   user: Address;
@@ -978,69 +984,85 @@ export interface PendingRedemptionCandidate {
 }
 
 export interface FetchPendingRedemptionCandidatesParams {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rpc: any;
+  rpc: SolanaRpc;
   poolId: number;
   humaPoolState?: Address | string;
+  nextRequestId?: bigint;
+}
+
+export async function fetchHumaQueueNextRequestId(
+  rpc: SolanaRpc,
+  humaPoolAddr: Address
+): Promise<bigint | null> {
+  const humaAcc = await rpc
+    .getAccountInfo(humaPoolAddr, { encoding: "base64" })
+    .send();
+
+  if (!humaAcc || !humaAcc.value) {
+    console.warn(
+      `[fetchHumaQueueNextRequestId] Huma pool state account not found at ${humaPoolAddr}`
+    );
+    return null;
+  }
+
+  const humaBytes = decodeAccountBase64Data(humaAcc.value);
+  if (!humaBytes) {
+    console.warn(
+      `[fetchHumaQueueNextRequestId] Failed to decode Huma pool state data at ${humaPoolAddr}`
+    );
+    return null;
+  }
+
+  const humaInfo = parseMockHumaPoolState(humaBytes);
+  if (humaInfo.isTruncated) {
+    console.warn(
+      `[fetchHumaQueueNextRequestId] Truncated Huma pool state account data at ${humaPoolAddr} (${humaBytes.byteLength} bytes)`
+    );
+    return null;
+  }
+
+  return humaInfo.nextRequestId;
 }
 
 export async function fetchPendingRedemptionCandidates(
   params: FetchPendingRedemptionCandidatesParams
 ): Promise<PendingRedemptionCandidate[]> {
   const { rpc, poolId } = params;
-  const humaPoolAddr =
-    parseOptionalAddress(params.humaPoolState) ?? HUMA_POOL_STATE;
-  if (!humaPoolAddr) {
-    return [];
-  }
 
-  let nextRequestId = 0n;
-  try {
-    const humaAcc = await rpc
-      .getAccountInfo(humaPoolAddr, { encoding: "base64" })
-      .send();
-    if (humaAcc && humaAcc.value) {
-      const humaBytes = decodeAccountBase64Data(humaAcc.value);
-      if (humaBytes) {
-        const humaInfo = parseMockHumaPoolState(humaBytes);
-        nextRequestId = humaInfo.nextRequestId;
-      }
+  let nextRequestId: bigint;
+
+  if (params.nextRequestId !== undefined) {
+    nextRequestId = params.nextRequestId;
+  } else {
+    const humaPoolAddr =
+      parseOptionalAddress(params.humaPoolState) ?? HUMA_POOL_STATE;
+    if (!humaPoolAddr) {
+      return [];
     }
-  } catch (err) {
-    console.warn(
-      `[fetchPendingRedemptionCandidates] Failed to fetch Huma pool state at ${humaPoolAddr}:`,
-      err
-    );
-    return [];
+
+    const fetchedNextId = await fetchHumaQueueNextRequestId(rpc, humaPoolAddr);
+    if (fetchedNextId === null) {
+      return [];
+    }
+    nextRequestId = fetchedNextId;
   }
 
   if (nextRequestId === 0n) {
-    console.warn(
-      `[fetchPendingRedemptionCandidates] Huma queue state is unreachable or nextRequestId is 0. Returning 0 candidates.`
-    );
+    // 0n is the 0-indexed initial queue state; no redemption requests can satisfy humaRequestId < 0n.
     return [];
   }
 
   const filters = getPendingRedemptionFilters({ poolId });
-  let accounts: readonly {
-    account: { data?: [string, string] | string | Uint8Array | null };
-    pubkey: Address;
-  }[] = [];
-  try {
-    const res = await rpc
-      .getProgramAccounts(PROGRAM_ID, {
-        encoding: "base64",
-        filters,
-      })
-      .send();
-    if (Array.isArray(res)) {
-      accounts = res;
-    }
-  } catch {
-    return [];
-  }
+  const res = await rpc
+    .getProgramAccounts(PROGRAM_ID, {
+      encoding: "base64",
+      filters,
+    })
+    .send();
 
+  const accounts = Array.isArray(res) ? res : [];
   const candidates: PendingRedemptionCandidate[] = [];
+
   for (const acc of accounts) {
     const dataBytes = decodeAccountBase64Data(acc.account);
     if (!dataBytes) continue;
@@ -1059,16 +1081,12 @@ export async function fetchPendingRedemptionCandidates(
     }
   }
 
-  candidates.sort((a, b) => {
-    if (a.humaRequestId !== b.humaRequestId) {
-      return a.humaRequestId < b.humaRequestId ? -1 : 1;
-    }
-    return a.redemptionId < b.redemptionId
-      ? -1
-      : a.redemptionId > b.redemptionId
-        ? 1
-        : 0;
-  });
+  candidates.sort(
+    (a, b) =>
+      compareBigInt(a.humaRequestId, b.humaRequestId) ||
+      compareBigInt(a.redemptionId, b.redemptionId)
+  );
+
   return candidates;
 }
 
@@ -1230,6 +1248,7 @@ export interface MockHumaPoolStateInfo {
   nextRequestId: bigint;
   lastRequestId: bigint;
   pendingRequests: bigint;
+  isTruncated?: boolean;
 }
 
 export function parseMockHumaPoolState(
@@ -1243,6 +1262,7 @@ export function parseMockHumaPoolState(
       nextRequestId: 0n,
       lastRequestId: 0n,
       pendingRequests: 0n,
+      isTruncated: true,
     };
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -1265,23 +1285,32 @@ export function parseMockHumaPoolState(
       nextRequestId: 0n,
       lastRequestId: 0n,
       pendingRequests: 0n,
+      isTruncated: true,
     };
   }
 
   const numConfigKeys = view.getUint32(modeConfigKeysOffset, true);
   const redemptionOffset = modeConfigKeysOffset + 4 + numConfigKeys * 32;
 
-  let nextRequestId = 0n;
-  let lastRequestId = 0n;
-  if (data.byteLength >= redemptionOffset + 32) {
-    const nextLow = view.getBigUint64(redemptionOffset, true);
-    const nextHigh = view.getBigUint64(redemptionOffset + 8, true);
-    nextRequestId = (nextHigh << 64n) | nextLow;
-
-    const lastLow = view.getBigUint64(redemptionOffset + 16, true);
-    const lastHigh = view.getBigUint64(redemptionOffset + 24, true);
-    lastRequestId = (lastHigh << 64n) | lastLow;
+  if (data.byteLength < redemptionOffset + 32) {
+    return {
+      numModes,
+      totalAssets,
+      numConfigKeys,
+      nextRequestId: 0n,
+      lastRequestId: 0n,
+      pendingRequests: 0n,
+      isTruncated: true,
+    };
   }
+
+  const nextLow = view.getBigUint64(redemptionOffset, true);
+  const nextHigh = view.getBigUint64(redemptionOffset + 8, true);
+  const nextRequestId = (nextHigh << 64n) | nextLow;
+
+  const lastLow = view.getBigUint64(redemptionOffset + 16, true);
+  const lastHigh = view.getBigUint64(redemptionOffset + 24, true);
+  const lastRequestId = (lastHigh << 64n) | lastLow;
 
   const pendingRequests =
     lastRequestId >= nextRequestId ? lastRequestId - nextRequestId : 0n;

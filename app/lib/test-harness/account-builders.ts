@@ -11,8 +11,14 @@ import {
   getDrawCycleEncoder,
   DRAW_CYCLE_DISCRIMINATOR,
 } from "../generated/yield-bonds/src/generated/accounts/drawCycle";
+import {
+  PendingRedemptionArgs,
+  getPendingRedemptionEncoder,
+  PENDING_REDEMPTION_DISCRIMINATOR,
+} from "../generated/yield-bonds/src/generated/accounts/pendingRedemption";
 import { PoolStatus } from "../generated/yield-bonds/src/generated/types/poolStatus";
 import { DrawStatus } from "../generated/yield-bonds/src/generated/types/drawStatus";
+import { RedemptionType } from "../generated/yield-bonds/src/generated/types/redemptionType";
 import {
   serializeTicketRegistry,
   SerializeTicketRegistryOptions,
@@ -37,8 +43,10 @@ export {
   DRAW_CYCLE_DISCRIMINATOR,
   TICKET_REGISTRY_DISCRIMINATOR,
   PAYOUT_REGISTRY_DISCRIMINATOR,
+  PENDING_REDEMPTION_DISCRIMINATOR,
   PoolStatus,
   DrawStatus,
+  RedemptionType,
 };
 
 export type {
@@ -46,6 +54,7 @@ export type {
   PrizePoolArgs,
   DrawCycle,
   DrawCycleArgs,
+  PendingRedemptionArgs,
   PayoutRegistry,
   TicketRegistry,
   ExtendedPayoutRegistry,
@@ -331,4 +340,27 @@ export function buildMockTokenAccountBytes(
   view.setBigUint64(64, amount, true);
   data[72] = 1; // Initialized byte
   return data;
+}
+
+export function buildMockPendingRedemptionEncoded(
+  overrides: Partial<PendingRedemptionArgs> = {}
+): Uint8Array {
+  const encoder = getPendingRedemptionEncoder();
+  return new Uint8Array(
+    encoder.encode({
+      humaRequestId: 1n,
+      redemptionId: 1n,
+      amount: 1_000_000n,
+      pstSharesLocked: 1_000_000n,
+      requestedAt: 1700000000n,
+      user: TEST_ADDRESSES.USER,
+      poolId: 1,
+      bump: 255,
+      version: 1,
+      redemptionType: RedemptionType.BondSale,
+      padding: new Uint8Array(1),
+      reserved: new Uint8Array(64),
+      ...overrides,
+    })
+  );
 }
