@@ -6,6 +6,7 @@ import {
   KeyPairSigner,
   Instruction,
   createKeyPairSignerFromBytes,
+  getBase58Decoder,
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
@@ -60,6 +61,20 @@ export const DEFAULT_SAVE_KEYS_PATH = DEVNET_USERS_PATH;
 
 // ─── Types & Interfaces ──────────────────────────────────────────────────────
 
+export interface SeededUserKeyEntry {
+  readonly address: Address | string;
+  readonly secretKey: readonly number[] | Uint8Array;
+  readonly secretKeyBase58?: string;
+  readonly ticketsBought: number;
+}
+
+export interface StoredUserKeyRecord {
+  readonly address: string;
+  readonly secretKey: readonly number[];
+  readonly secretKeyBase58: string;
+  readonly ticketsBought: number;
+}
+
 export type SeedUserStage =
   | "generating_keypair"
   | "funding"
@@ -74,6 +89,7 @@ export interface SeedUserProgressEvent {
   readonly stage: SeedUserStage;
   readonly userAddress?: Address;
   readonly userSecretKeyBytes?: Uint8Array;
+  readonly userSecretKeyBase58?: string;
   readonly ticketsBought?: number;
   readonly txSignature?: string;
 }
@@ -117,6 +133,7 @@ export interface SeedUserOptions {
 export interface BaseSeededUser {
   readonly userSigner: KeyPairSigner;
   readonly userSecretKeyBytes?: Uint8Array;
+  readonly userSecretKeyBase58?: string;
   readonly userAddress: Address;
   readonly userUsdcAta: Address;
   readonly ticketsBought: number;
@@ -384,34 +401,62 @@ export async function resolveSeedingAccounts(
 }
 
 /**
+ * Pure transformation helper that normalizes a user key entry into the persisted JSON schema.
+ */
+export function formatStoredUserKeyRecord(
+  entry: SeededUserKeyEntry
+): StoredUserKeyRecord {
+  const secretKeyBytes =
+    entry.secretKey instanceof Uint8Array
+      ? entry.secretKey
+      : new Uint8Array(entry.secretKey);
+
+  const secretKeyBase58 =
+    entry.secretKeyBase58 ?? getBase58Decoder().decode(secretKeyBytes);
+
+  return {
+    address: entry.address.toString(),
+    secretKey: Array.from(secretKeyBytes),
+    secretKeyBase58,
+    ticketsBought: entry.ticketsBought,
+  };
+}
+
+/**
  * Appends a generated test user keypair securely to a JSON array file (mode 0o600).
  */
 export function appendKeypairToFile(
   filePath: string,
-  keyEntry: { address: string; secretKey: number[]; ticketsBought: number }
+  keyEntry: SeededUserKeyEntry
 ): void {
   const resolvedPath = path.resolve(filePath);
   fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
 
-  let existing: Array<{
-    address: string;
-    secretKey: number[];
-    ticketsBought: number;
-  }> = [];
+  let existing: StoredUserKeyRecord[] = [];
 
   if (fs.existsSync(resolvedPath)) {
     try {
       const content = fs.readFileSync(resolvedPath, "utf-8");
       const parsed = JSON.parse(content);
       if (Array.isArray(parsed)) {
-        existing = parsed;
+        existing = parsed.map((item) => {
+          if (
+            item &&
+            typeof item === "object" &&
+            item.address &&
+            item.secretKey
+          ) {
+            return formatStoredUserKeyRecord(item as SeededUserKeyEntry);
+          }
+          return item;
+        });
       }
     } catch {
       existing = [];
     }
   }
 
-  existing.push(keyEntry);
+  existing.push(formatStoredUserKeyRecord(keyEntry));
 
   const tempPath = `${resolvedPath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
   fs.writeFileSync(tempPath, JSON.stringify(existing, null, 2), {
@@ -455,6 +500,10 @@ export async function seedUser(options: SeedUserOptions): Promise<SeededUser> {
     userSecretKeyBytes = rawBytes;
     userSigner = await createKeyPairSignerFromBytes(rawBytes);
   }
+
+  const userSecretKeyBase58 = userSecretKeyBytes
+    ? getBase58Decoder().decode(userSecretKeyBytes)
+    : undefined;
 
   const accounts = await resolveSeedingAccounts(
     options.rpc,
@@ -520,6 +569,7 @@ export async function seedUser(options: SeedUserOptions): Promise<SeededUser> {
     return {
       userSigner,
       userSecretKeyBytes,
+      userSecretKeyBase58,
       userAddress: userSigner.address,
       userUsdcAta,
       ticketsBought: tickets,
@@ -560,6 +610,7 @@ export async function seedUser(options: SeedUserOptions): Promise<SeededUser> {
   return {
     userSigner,
     userSecretKeyBytes,
+    userSecretKeyBase58,
     userAddress: userSigner.address,
     userUsdcAta,
     ticketsBought: tickets,
@@ -788,6 +839,7 @@ export async function seedUsers(
       stage: "user_completed",
       userAddress: userResult.userAddress,
       userSecretKeyBytes: userResult.userSecretKeyBytes,
+      userSecretKeyBase58: userResult.userSecretKeyBase58,
       ticketsBought: userResult.ticketsBought,
       txSignature:
         userResult.mode === "atomic"
@@ -1086,7 +1138,8 @@ export async function runSeedUsersCli(args: string[]): Promise<void> {
           ) {
             appendKeypairToFile(opts.saveKeysPath, {
               address: event.userAddress,
-              secretKey: Array.from(event.userSecretKeyBytes),
+              secretKey: event.userSecretKeyBytes,
+              secretKeyBase58: event.userSecretKeyBase58,
               ticketsBought: event.ticketsBought ?? 0,
             });
             keysWrittenCount++;

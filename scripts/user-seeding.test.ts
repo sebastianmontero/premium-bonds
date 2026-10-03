@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { address, generateKeyPairSigner, AccountRole } from "@solana/kit";
+import {
+  address,
+  generateKeyPairSigner,
+  AccountRole,
+  getBase58Encoder,
+  getBase58Decoder,
+} from "@solana/kit";
 
 // Configure non-system dummy addresses for Huma accounts during unit tests
 process.env.HUMA_CONFIG = "EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW";
@@ -18,6 +24,7 @@ import {
   parseSeedUsersCliArgs,
   estimateSeedingCostLamports,
   buildFundInstructions,
+  formatStoredUserKeyRecord,
   appendKeypairToFile,
   resolveSeedingAccounts,
   seedUser,
@@ -319,20 +326,60 @@ describe("User Seeding Module Suite (scripts/user-seeding.test.ts)", () => {
     });
   });
 
+  describe("formatStoredUserKeyRecord", () => {
+    it("formats entry from Uint8Array and automatically derives secretKeyBase58", () => {
+      const secretKeyBytes = new Uint8Array(64).fill(7);
+      const expectedBase58 = getBase58Decoder().decode(secretKeyBytes);
+
+      const formatted = formatStoredUserKeyRecord({
+        address: "11111111111111111111111111111111",
+        secretKey: secretKeyBytes,
+        ticketsBought: 50,
+      });
+
+      assert.strictEqual(formatted.address, "11111111111111111111111111111111");
+      assert.deepStrictEqual(formatted.secretKey, Array(64).fill(7));
+      assert.strictEqual(formatted.secretKeyBase58, expectedBase58);
+      assert.strictEqual(formatted.ticketsBought, 50);
+    });
+
+    it("formats entry from number array and preserves explicitly supplied secretKeyBase58", () => {
+      const formatted = formatStoredUserKeyRecord({
+        address: address("EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW"),
+        secretKey: Array(64).fill(9),
+        secretKeyBase58: "custom_base58_string",
+        ticketsBought: 150,
+      });
+
+      assert.strictEqual(
+        formatted.address,
+        "EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW"
+      );
+      assert.deepStrictEqual(formatted.secretKey, Array(64).fill(9));
+      assert.strictEqual(formatted.secretKeyBase58, "custom_base58_string");
+      assert.strictEqual(formatted.ticketsBought, 150);
+    });
+  });
+
   describe("appendKeypairToFile", () => {
-    it("creates a new JSON file and appends key entries incrementally with 0o600 mode", () => {
+    it("creates a new JSON file and appends key entries with byte array, base58 string, and 0o600 mode", () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pb-test-keys-"));
       const filePath = path.join(tmpDir, "users.json");
 
       try {
+        const secretKey1 = new Uint8Array(64).fill(1);
+        const secretKey2 = new Uint8Array(64).fill(2);
+        const base58Key1 = getBase58Decoder().decode(secretKey1);
+        const base58Key2 = getBase58Decoder().decode(secretKey2);
+
         const dummyKey1 = {
           address: "11111111111111111111111111111111",
-          secretKey: Array(64).fill(1),
+          secretKey: secretKey1,
           ticketsBought: 100,
         };
         const dummyKey2 = {
           address: "22222222222222222222222222222222",
-          secretKey: Array(64).fill(2),
+          secretKey: secretKey2,
           ticketsBought: 200,
         };
 
@@ -344,16 +391,85 @@ describe("User Seeding Module Suite (scripts/user-seeding.test.ts)", () => {
 
         assert.strictEqual(Array.isArray(parsed), true);
         assert.strictEqual(parsed.length, 2);
+
+        // Record 1 verification
         assert.strictEqual(parsed[0].address, dummyKey1.address);
+        assert.deepStrictEqual(parsed[0].secretKey, Array(64).fill(1));
+        assert.strictEqual(parsed[0].secretKeyBase58, base58Key1);
         assert.strictEqual(parsed[0].ticketsBought, 100);
+
+        // Record 2 verification
         assert.strictEqual(parsed[1].address, dummyKey2.address);
+        assert.deepStrictEqual(parsed[1].secretKey, Array(64).fill(2));
+        assert.strictEqual(parsed[1].secretKeyBase58, base58Key2);
         assert.strictEqual(parsed[1].ticketsBought, 200);
+
+        // Bi-directional roundtrip test: base58 string decodes back to exact secret key bytes
+        const encoder = getBase58Encoder();
+        assert.deepStrictEqual(
+          encoder.encode(parsed[0].secretKeyBase58),
+          secretKey1
+        );
+        assert.deepStrictEqual(
+          encoder.encode(parsed[1].secretKeyBase58),
+          secretKey2
+        );
 
         const stats = fs.statSync(filePath);
         // On POSIX systems, verify permission bits (0o600)
         if (process.platform !== "win32") {
           assert.strictEqual(stats.mode & 0o777, 0o600);
         }
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("backfills secretKeyBase58 for legacy records when reading existing file from disk", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pb-test-legacy-"));
+      const filePath = path.join(tmpDir, "users.json");
+
+      try {
+        const legacyKey = {
+          address: "LegacyUserAddress1111111111111111111111111",
+          secretKey: Array(64).fill(5),
+          ticketsBought: 75,
+        };
+        // Pre-populate legacy format lacking secretKeyBase58
+        fs.writeFileSync(filePath, JSON.stringify([legacyKey], null, 2), {
+          mode: 0o600,
+        });
+
+        const newKey = {
+          address: "NewUserAddress22222222222222222222222222222",
+          secretKey: Array(64).fill(6),
+          ticketsBought: 125,
+        };
+
+        appendKeypairToFile(filePath, newKey);
+
+        const content = fs.readFileSync(filePath, "utf-8");
+        const parsed = JSON.parse(content);
+
+        assert.strictEqual(parsed.length, 2);
+
+        // Verify legacy record was backfilled with secretKeyBase58
+        const expectedLegacyBase58 = getBase58Decoder().decode(
+          new Uint8Array(64).fill(5)
+        );
+        assert.strictEqual(parsed[0].address, legacyKey.address);
+        assert.deepStrictEqual(parsed[0].secretKey, legacyKey.secretKey);
+        assert.strictEqual(parsed[0].secretKeyBase58, expectedLegacyBase58);
+        assert.strictEqual(parsed[0].ticketsBought, 75);
+
+        // Verify new record has secretKeyBase58
+        const expectedNewBase58 = getBase58Decoder().decode(
+          new Uint8Array(64).fill(6)
+        );
+        assert.strictEqual(parsed[1].address, newKey.address);
+        assert.deepStrictEqual(parsed[1].secretKey, Array(64).fill(6));
+        assert.strictEqual(parsed[1].secretKeyBase58, expectedNewBase58);
+        assert.strictEqual(parsed[1].ticketsBought, 125);
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
