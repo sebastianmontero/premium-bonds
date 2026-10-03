@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as web3 from "@solana/web3.js";
+import { BN } from "@coral-xyz/anchor";
+import * as sb from "@switchboard-xyz/on-demand";
 import { generateKeyPairSigner, address, getBase58Encoder } from "@solana/kit";
 import {
   parseSwitchboardRandomnessHeader,
@@ -9,6 +11,11 @@ import {
   MockVrfProvider,
   SwitchboardOnDemandProvider,
   SwitchboardAuthorityMismatchError,
+  parseGatewayUri,
+  resolveHealthyQueueOracle,
+  DEFAULT_GATEWAY_PROBE_TIMEOUT_MS,
+  DEFAULT_ORACLE_CACHE_TTL_MS,
+  type SwitchboardProgram,
   SB_RANDOMNESS_ACCOUNT_SIZE,
   SB_AUTHORITY_OFFSET,
   SB_REQUEST_SLOT_OFFSET,
@@ -634,6 +641,622 @@ describe("Switchboard VRF Provider Unit Tests", () => {
       assert.ok(ix.data);
       assert.strictEqual(ix.data.length, 9);
       assert.strictEqual(ix.data[8], 0); // None
+    });
+  });
+
+  describe("Oracle Resolution Constants", () => {
+    it("should export correct probe timeout and cache TTL constants", () => {
+      assert.strictEqual(DEFAULT_GATEWAY_PROBE_TIMEOUT_MS, 1500);
+      assert.strictEqual(DEFAULT_ORACLE_CACHE_TTL_MS, 60000);
+    });
+  });
+
+  describe("parseGatewayUri", () => {
+    it("should truncate null-terminated C-strings", () => {
+      const raw = Buffer.from("https://example.com/devnet\0trailing_junk_data");
+      assert.strictEqual(parseGatewayUri(raw), "https://example.com/devnet");
+    });
+
+    it("should preserve valid subpaths and strip trailing slashes", () => {
+      const uri1 = Buffer.from("https://oracle.switchboard.xyz/devnet/");
+      assert.strictEqual(
+        parseGatewayUri(uri1),
+        "https://oracle.switchboard.xyz/devnet"
+      );
+
+      const uri2 = Buffer.from(
+        "https://oracle.switchboard.xyz/nested/subpath///"
+      );
+      assert.strictEqual(
+        parseGatewayUri(uri2),
+        "https://oracle.switchboard.xyz/nested/subpath"
+      );
+
+      const uri3 = Buffer.from("https://oracle.switchboard.xyz/");
+      assert.strictEqual(
+        parseGatewayUri(uri3),
+        "https://oracle.switchboard.xyz"
+      );
+    });
+
+    it("should return null for empty, null, or undefined inputs", () => {
+      assert.strictEqual(parseGatewayUri(null), null);
+      assert.strictEqual(parseGatewayUri(undefined), null);
+      assert.strictEqual(parseGatewayUri(new Uint8Array(0)), null);
+      assert.strictEqual(parseGatewayUri(new Uint8Array(10)), null); // all zeros
+    });
+
+    it("should return null for non-http/https protocols or malformed URLs", () => {
+      const ftp = Buffer.from("ftp://example.com/gateway");
+      assert.strictEqual(parseGatewayUri(ftp), null);
+
+      const invalid = Buffer.from("not_a_valid_url");
+      assert.strictEqual(parseGatewayUri(invalid), null);
+    });
+  });
+
+  describe("resolveHealthyQueueOracle", () => {
+    function createMockOracleData(options?: {
+      gatewayUri?: string;
+      verificationStatus?: number;
+      validUntilSec?: number;
+      lastHeartbeatSec?: number;
+      isOnQueue?: boolean;
+    }) {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const uriStr =
+        options?.gatewayUri ?? "https://oracle1.switchboard.xyz/devnet";
+      const uriBuf = new Uint8Array(64);
+      const encoded = Buffer.from(uriStr, "utf-8");
+      uriBuf.set(encoded);
+
+      return {
+        gatewayUri: uriBuf,
+        enclave: {
+          verificationStatus: options?.verificationStatus ?? 4,
+          validUntil: new BN(options?.validUntilSec ?? nowSec + 3600),
+          quoteSigner: new Uint8Array(32),
+          mrEnclave: new Uint8Array(32),
+        },
+        isOnQueue: options?.isOnQueue ?? true,
+        lastHeartbeat: new BN(options?.lastHeartbeatSec ?? nowSec - 10),
+      };
+    }
+
+    function createMockQueueData(
+      oracleKeys: web3.PublicKey[],
+      nodeTimeoutSec = 300
+    ) {
+      return {
+        oracleKeys,
+        oracleKeysLen: oracleKeys.length,
+        nodeTimeout: new BN(nodeTimeoutSec),
+      };
+    }
+
+    it("should throw if no oracle keys are registered on queue", async () => {
+      const dummyProgram = {} as unknown as SwitchboardProgram;
+      const dummyQueueKey = web3.Keypair.generate().publicKey;
+
+      const origQueueLoadData = sb.Queue.prototype.loadData;
+      sb.Queue.prototype.loadData = (async () =>
+        createMockQueueData([])) as typeof origQueueLoadData;
+
+      try {
+        await assert.rejects(
+          () => resolveHealthyQueueOracle(dummyProgram, dummyQueueKey),
+          /No oracle keys registered on queue/
+        );
+      } finally {
+        sb.Queue.prototype.loadData = origQueueLoadData;
+      }
+    });
+
+    it("should throw if no readable oracle candidate accounts are found", async () => {
+      const dummyProgram = {} as unknown as SwitchboardProgram;
+      const dummyQueueKey = web3.Keypair.generate().publicKey;
+      const oracleKey = web3.Keypair.generate().publicKey;
+
+      const origQueueLoadData = sb.Queue.prototype.loadData;
+      const origOracleLoadMany = sb.Oracle.loadMany;
+      sb.Queue.prototype.loadData = (async () =>
+        createMockQueueData([oracleKey])) as typeof origQueueLoadData;
+      sb.Oracle.loadMany = (async () => [null]) as typeof origOracleLoadMany;
+
+      try {
+        await assert.rejects(
+          () => resolveHealthyQueueOracle(dummyProgram, dummyQueueKey),
+          /No readable oracle candidate accounts found on queue/
+        );
+      } finally {
+        sb.Queue.prototype.loadData = origQueueLoadData;
+        sb.Oracle.loadMany = origOracleLoadMany;
+      }
+    });
+
+    it("should select healthy oracle based on 200 health probe response and bound TTL", async () => {
+      const dummyProgram = {} as unknown as SwitchboardProgram;
+      const dummyQueueKey = web3.Keypair.generate().publicKey;
+      const oracle1 = web3.Keypair.generate().publicKey;
+      const oracle2 = web3.Keypair.generate().publicKey;
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const validUntilSec = nowSec + 45; // 45 seconds remaining quote validity
+
+      const origQueueLoadData = sb.Queue.prototype.loadData;
+      const origOracleLoadMany = sb.Oracle.loadMany;
+      sb.Queue.prototype.loadData = (async () =>
+        createMockQueueData(
+          [oracle1, oracle2],
+          300
+        )) as typeof origQueueLoadData;
+      sb.Oracle.loadMany = (async () => [
+        createMockOracleData({
+          gatewayUri: "https://oracle1.switchboard.xyz/devnet",
+          validUntilSec,
+          lastHeartbeatSec: nowSec - 5,
+        }),
+        createMockOracleData({
+          gatewayUri: "https://oracle2.switchboard.xyz/devnet",
+          validUntilSec: nowSec + 3600,
+          lastHeartbeatSec: nowSec - 5,
+        }),
+      ]) as unknown as typeof origOracleLoadMany;
+
+      // Mock fetch probe
+      const mockFetch: typeof fetch = (async (input: RequestInfo | URL) => {
+        const urlStr = input.toString();
+        if (urlStr.includes("oracle1.switchboard.xyz")) {
+          return new Response(
+            JSON.stringify({
+              oracles: [
+                {
+                  oracle_id: oracle1.toBase58(),
+                  queue: dummyQueueKey.toBase58(),
+                  oracle_config: {
+                    pull_oracle: oracle1.toBase58(),
+                    enable_pull_oracle: 1,
+                    version: "3.10.6",
+                  },
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      }) as unknown as typeof fetch;
+
+      try {
+        const { oracleKey, ttlMs } = await resolveHealthyQueueOracle(
+          dummyProgram,
+          dummyQueueKey,
+          { fetchFn: mockFetch }
+        );
+
+        assert.strictEqual(oracleKey.toBase58(), oracle1.toBase58());
+        // TTL should be dynamically bounded by quote validity <= 45s (<= 45000ms)
+        assert.ok(ttlMs <= 45_000, `TTL ${ttlMs} should be <= 45000ms`);
+        assert.ok(ttlMs >= 1_000, `TTL ${ttlMs} should be >= 1000ms`);
+      } finally {
+        sb.Queue.prototype.loadData = origQueueLoadData;
+        sb.Oracle.loadMany = origOracleLoadMany;
+      }
+    });
+
+    it("should gracefully handle malformed JSON responses and fallback to on-chain verified candidate", async () => {
+      const dummyProgram = {} as unknown as SwitchboardProgram;
+      const dummyQueueKey = web3.Keypair.generate().publicKey;
+      const oracle1 = web3.Keypair.generate().publicKey;
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const origQueueLoadData = sb.Queue.prototype.loadData;
+      const origOracleLoadMany = sb.Oracle.loadMany;
+      sb.Queue.prototype.loadData = (async () =>
+        createMockQueueData([oracle1], 300)) as typeof origQueueLoadData;
+      sb.Oracle.loadMany = (async () => [
+        createMockOracleData({
+          gatewayUri: "https://oracle1.switchboard.xyz/devnet",
+          validUntilSec: nowSec + 3600,
+          lastHeartbeatSec: nowSec - 5,
+        }),
+      ]) as unknown as typeof origOracleLoadMany;
+
+      // Mock fetch probe returning non-array oracles payload
+      const mockFetch: typeof fetch = (async () => {
+        return new Response(
+          JSON.stringify({ oracles: "invalid_string_not_array" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as unknown as typeof fetch;
+
+      try {
+        const { oracleKey, ttlMs } = await resolveHealthyQueueOracle(
+          dummyProgram,
+          dummyQueueKey,
+          { fetchFn: mockFetch }
+        );
+
+        // Falls back to verified on-chain candidate
+        assert.strictEqual(oracleKey.toBase58(), oracle1.toBase58());
+        assert.ok(ttlMs <= DEFAULT_ORACLE_CACHE_TTL_MS);
+      } finally {
+        sb.Queue.prototype.loadData = origQueueLoadData;
+        sb.Oracle.loadMany = origOracleLoadMany;
+      }
+    });
+
+    it("should skip null accounts in Oracle.loadMany and evaluate remaining valid candidates", async () => {
+      const dummyProgram = {} as unknown as SwitchboardProgram;
+      const dummyQueueKey = web3.Keypair.generate().publicKey;
+      const brokenOracleKey = web3.Keypair.generate().publicKey;
+      const healthyOracleKey = web3.Keypair.generate().publicKey;
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const origQueueLoadData = sb.Queue.prototype.loadData;
+      const origOracleLoadMany = sb.Oracle.loadMany;
+      sb.Queue.prototype.loadData = (async () =>
+        createMockQueueData(
+          [brokenOracleKey, healthyOracleKey],
+          300
+        )) as typeof origQueueLoadData;
+      sb.Oracle.loadMany = (async () => [
+        null, // first account fails to load/deserialize
+        createMockOracleData({
+          gatewayUri: "https://healthy.switchboard.xyz/devnet",
+          validUntilSec: nowSec + 3600,
+          lastHeartbeatSec: nowSec - 5,
+        }),
+      ]) as unknown as typeof origOracleLoadMany;
+
+      const mockFetch: typeof fetch = (async () => {
+        return new Response("Timeout", { status: 504 });
+      }) as unknown as typeof fetch;
+
+      try {
+        const { oracleKey } = await resolveHealthyQueueOracle(
+          dummyProgram,
+          dummyQueueKey,
+          { fetchFn: mockFetch }
+        );
+
+        assert.strictEqual(oracleKey.toBase58(), healthyOracleKey.toBase58());
+      } finally {
+        sb.Queue.prototype.loadData = origQueueLoadData;
+        sb.Oracle.loadMany = origOracleLoadMany;
+      }
+    });
+  });
+
+  describe("SwitchboardOnDemandProvider Oracle Caching, Deduplication & CommitIx placement", () => {
+    it("should pass resolved oracle to commitIx at account index 2 and cache the result", async () => {
+      const signer = await generateKeyPairSigner();
+      const randomnessAddr = address(
+        "GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze"
+      );
+      const fastMockFetch: typeof fetch = (async () =>
+        new Response("{}", { status: 404 })) as unknown as typeof fetch;
+
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com",
+        {
+          signer,
+          randomnessAccount: randomnessAddr,
+          fetchFn: fastMockFetch,
+          gatewayTimeoutMs: 10,
+        }
+      );
+
+      const oraclePubkey = web3.Keypair.generate().publicKey;
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      // Mock account info for randomness account
+      const rawHeader = createMockRandomnessBuffer({
+        authority: signer.address,
+        seedSlot: 0n,
+        revealSlot: 0n,
+      });
+
+      const origGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      const origGetSlot = web3.Connection.prototype.getSlot;
+      const origQueueLoadData = sb.Queue.prototype.loadData;
+      const origOracleLoadMany = sb.Oracle.loadMany;
+
+      let queueLoadDataCallCount = 0;
+      let commitIxOracleParam: web3.PublicKey | undefined;
+
+      web3.Connection.prototype.getAccountInfo = (async () => ({
+        data: Buffer.from(rawHeader),
+        executable: false,
+        lamports: 1000000,
+        owner: new web3.PublicKey(
+          "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+        ),
+      })) as typeof origGetAccountInfo;
+
+      web3.Connection.prototype.getSlot = (async () =>
+        500) as typeof origGetSlot;
+
+      sb.Queue.prototype.loadData = (async () => {
+        queueLoadDataCallCount++;
+        return {
+          oracleKeys: [oraclePubkey],
+          oracleKeysLen: 1,
+          nodeTimeout: new BN(300),
+        };
+      }) as typeof origQueueLoadData;
+
+      sb.Oracle.loadMany = (async () => [
+        {
+          gatewayUri: Buffer.from("https://oracle.switchboard.xyz/devnet"),
+          enclave: {
+            verificationStatus: 4,
+            validUntil: new BN(nowSec + 3600),
+            quoteSigner: new Uint8Array(32),
+            mrEnclave: new Uint8Array(32),
+          },
+          isOnQueue: true,
+          lastHeartbeat: new BN(nowSec - 10),
+        },
+      ]) as unknown as typeof origOracleLoadMany;
+
+      // Mock program randomness commitIx to capture oracle passed
+      const mockProgram = {
+        instruction: {
+          randomnessCommit: (
+            _args: unknown,
+            accounts: {
+              accounts: {
+                randomness: web3.PublicKey;
+                queue: web3.PublicKey;
+                oracle: web3.PublicKey;
+                recentSlothashes: web3.PublicKey;
+                authority: web3.PublicKey;
+              };
+            }
+          ) => {
+            commitIxOracleParam = accounts.accounts.oracle;
+            return {
+              programId: new web3.PublicKey(
+                "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+              ),
+              keys: [
+                {
+                  pubkey: accounts.accounts.randomness,
+                  isSigner: false,
+                  isWritable: true,
+                },
+                {
+                  pubkey: accounts.accounts.queue,
+                  isSigner: false,
+                  isWritable: false,
+                },
+                {
+                  pubkey: accounts.accounts.oracle,
+                  isSigner: false,
+                  isWritable: false,
+                },
+                {
+                  pubkey: accounts.accounts.recentSlothashes,
+                  isSigner: false,
+                  isWritable: false,
+                },
+                {
+                  pubkey: accounts.accounts.authority,
+                  isSigner: true,
+                  isWritable: true,
+                },
+              ],
+              data: Buffer.alloc(8),
+            };
+          },
+        },
+      } as unknown as SwitchboardProgram;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (provider as any).getProgram = async () => mockProgram;
+
+      try {
+        // First harvest call: resolves oracle via RPC
+        const binding1 = await provider.prepareHarvestRandomness({
+          poolId: toPoolId(1),
+          cycleId: toDrawCycleId(1),
+        });
+
+        assert.strictEqual(queueLoadDataCallCount, 1);
+        assert.ok(commitIxOracleParam);
+        assert.strictEqual(
+          commitIxOracleParam.toBase58(),
+          oraclePubkey.toBase58()
+        );
+        assert.strictEqual(binding1.instructions.length, 1);
+        const ix1Accounts = binding1.instructions[0]?.accounts;
+        assert.ok(ix1Accounts && ix1Accounts[2]);
+        assert.strictEqual(ix1Accounts[2].address, oraclePubkey.toBase58());
+
+        // Second harvest call: must hit cache and NOT call Queue.loadData again
+        const binding2 = await provider.prepareHarvestRandomness({
+          poolId: toPoolId(1),
+          cycleId: toDrawCycleId(2),
+        });
+
+        assert.strictEqual(
+          queueLoadDataCallCount,
+          1,
+          "Cache hit must prevent second queue loadData"
+        );
+        const ix2Accounts = binding2.instructions[0]?.accounts;
+        assert.ok(ix2Accounts && ix2Accounts[2]);
+        assert.strictEqual(ix2Accounts[2].address, oraclePubkey.toBase58());
+
+        // Invalidate cache: next call must trigger resolution
+        provider.invalidateOracleCache();
+        await provider.prepareHarvestRandomness({
+          poolId: toPoolId(1),
+          cycleId: toDrawCycleId(3),
+        });
+        assert.strictEqual(
+          queueLoadDataCallCount,
+          2,
+          "Invalidation must trigger fresh queue resolution"
+        );
+      } finally {
+        web3.Connection.prototype.getAccountInfo = origGetAccountInfo;
+        web3.Connection.prototype.getSlot = origGetSlot;
+        sb.Queue.prototype.loadData = origQueueLoadData;
+        sb.Oracle.loadMany = origOracleLoadMany;
+      }
+    });
+
+    it("should deduplicate in-flight oracle resolutions across concurrent calls", async () => {
+      const signer = await generateKeyPairSigner();
+      const fastMockFetch: typeof fetch = (async () =>
+        new Response("{}", { status: 404 })) as unknown as typeof fetch;
+
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com",
+        {
+          signer,
+          randomnessAccount: address(
+            "GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze"
+          ),
+          fetchFn: fastMockFetch,
+          gatewayTimeoutMs: 10,
+        }
+      );
+
+      const oraclePubkey = web3.Keypair.generate().publicKey;
+      let loadCount = 0;
+
+      const origQueueLoadData = sb.Queue.prototype.loadData;
+      const origOracleLoadMany = sb.Oracle.loadMany;
+      const origGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      const origGetSlot = web3.Connection.prototype.getSlot;
+
+      web3.Connection.prototype.getAccountInfo = (async () => ({
+        data: Buffer.from(
+          createMockRandomnessBuffer({
+            authority: signer.address,
+            seedSlot: 0n,
+            revealSlot: 0n,
+          })
+        ),
+        executable: false,
+        lamports: 1000000,
+        owner: new web3.PublicKey(
+          "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+        ),
+      })) as typeof origGetAccountInfo;
+
+      web3.Connection.prototype.getSlot = (async () =>
+        500) as typeof origGetSlot;
+
+      sb.Queue.prototype.loadData = (async () => {
+        loadCount++;
+        // Small delay to simulate async network roundtrip
+        await new Promise((r) => setTimeout(r, 20));
+        return {
+          oracleKeys: [oraclePubkey],
+          oracleKeysLen: 1,
+          nodeTimeout: new BN(300),
+        };
+      }) as typeof origQueueLoadData;
+
+      sb.Oracle.loadMany = (async () => [
+        {
+          gatewayUri: Buffer.from("https://oracle.switchboard.xyz/devnet"),
+          enclave: {
+            verificationStatus: 4,
+            validUntil: new BN(Math.floor(Date.now() / 1000) + 3600),
+            quoteSigner: new Uint8Array(32),
+            mrEnclave: new Uint8Array(32),
+          },
+          isOnQueue: true,
+          lastHeartbeat: new BN(Math.floor(Date.now() / 1000) - 10),
+        },
+      ]) as unknown as typeof origOracleLoadMany;
+
+      const mockProgram = {
+        instruction: {
+          randomnessCommit: (
+            _args: unknown,
+            accounts: {
+              accounts: {
+                randomness: web3.PublicKey;
+                queue: web3.PublicKey;
+                oracle: web3.PublicKey;
+                recentSlothashes: web3.PublicKey;
+                authority: web3.PublicKey;
+              };
+            }
+          ) => ({
+            programId: new web3.PublicKey(
+              "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+            ),
+            keys: [
+              {
+                pubkey: accounts.accounts.randomness,
+                isSigner: false,
+                isWritable: true,
+              },
+              {
+                pubkey: accounts.accounts.queue,
+                isSigner: false,
+                isWritable: false,
+              },
+              {
+                pubkey: accounts.accounts.oracle,
+                isSigner: false,
+                isWritable: false,
+              },
+              {
+                pubkey: accounts.accounts.recentSlothashes,
+                isSigner: false,
+                isWritable: false,
+              },
+              {
+                pubkey: accounts.accounts.authority,
+                isSigner: true,
+                isWritable: true,
+              },
+            ],
+            data: Buffer.alloc(8),
+          }),
+        },
+      } as unknown as SwitchboardProgram;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (provider as any).getProgram = async () => mockProgram;
+
+      try {
+        const [res1, res2] = await Promise.all([
+          provider.prepareHarvestRandomness({
+            poolId: toPoolId(1),
+            cycleId: toDrawCycleId(1),
+          }),
+          provider.prepareHarvestRandomness({
+            poolId: toPoolId(2),
+            cycleId: toDrawCycleId(1),
+          }),
+        ]);
+
+        assert.strictEqual(
+          loadCount,
+          1,
+          "Concurrent resolutions must be deduplicated into a single in-flight promise"
+        );
+        const res1Accounts = res1.instructions[0]?.accounts;
+        const res2Accounts = res2.instructions[0]?.accounts;
+        assert.ok(res1Accounts && res1Accounts[2]);
+        assert.ok(res2Accounts && res2Accounts[2]);
+        assert.strictEqual(res1Accounts[2].address, oraclePubkey.toBase58());
+        assert.strictEqual(res2Accounts[2].address, oraclePubkey.toBase58());
+      } finally {
+        web3.Connection.prototype.getAccountInfo = origGetAccountInfo;
+        web3.Connection.prototype.getSlot = origGetSlot;
+        sb.Queue.prototype.loadData = origQueueLoadData;
+        sb.Oracle.loadMany = origOracleLoadMany;
+      }
     });
   });
 });

@@ -59,6 +59,7 @@
     "@solana/program-client-core": "^7.0.0",
     "@solana/react-hooks": "^1.1.5",
     "@solana/sysvars": "^7.0.0",
+    "@switchboard-xyz/common": "^3.10.6",
     "@tanstack/react-query": "^5.102.8",
     "@types/pg": "^8.23.1",
     "drizzle-orm": "^0.45.2",

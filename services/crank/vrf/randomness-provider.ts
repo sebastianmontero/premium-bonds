@@ -2,6 +2,12 @@ import * as web3 from "@solana/web3.js";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import * as sb from "@switchboard-xyz/on-demand";
 import {
+  mergeHealthyOracleSnapshots,
+  selectRandomnessOracle,
+  type HealthyOraclesResponse,
+  type HealthyOracleGatewaySnapshot,
+} from "@switchboard-xyz/common";
+import {
   Address,
   address,
   Instruction,
@@ -57,6 +63,147 @@ export {
 
 export const DEVNET_SB_QUEUE =
   "EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7" as const;
+
+export const DEFAULT_GATEWAY_PROBE_TIMEOUT_MS = 1_500;
+export const DEFAULT_ORACLE_CACHE_TTL_MS = 60_000;
+
+export interface CachedOracleEntry {
+  readonly oracleKey: web3.PublicKey;
+  readonly expiresAt: number;
+}
+
+export interface OracleResolutionOptions {
+  readonly timeoutMs?: number;
+  readonly fetchFn?: typeof fetch;
+}
+
+export type SwitchboardProgram = Awaited<
+  ReturnType<typeof sb.AnchorUtils.loadProgramFromProvider>
+>;
+
+export function parseGatewayUri(
+  gatewayUri: Uint8Array | null | undefined
+): string | null {
+  if (!gatewayUri || gatewayUri.length === 0) return null;
+  try {
+    // C-string null termination: truncate at the first null byte
+    const nullIdx = gatewayUri.indexOf(0);
+    const slice = nullIdx !== -1 ? gatewayUri.subarray(0, nullIdx) : gatewayUri;
+    const raw = Buffer.from(slice).toString("utf-8").trim();
+    if (!raw) return null;
+
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+
+    // Preserve subpath (e.g. /devnet) while stripping trailing slashes
+    const cleanPath = url.pathname.replace(/\/+$/, "");
+    return `${url.origin}${cleanPath}`;
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveHealthyQueueOracle(
+  program: SwitchboardProgram,
+  queueAddress: web3.PublicKey,
+  options?: OracleResolutionOptions
+): Promise<{ oracleKey: web3.PublicKey; ttlMs: number }> {
+  const queueAccount = new sb.Queue(program, queueAddress);
+  const queueData = await queueAccount.loadData();
+  const oracleKeys = queueData.oracleKeys.slice(0, queueData.oracleKeysLen);
+
+  if (oracleKeys.length === 0) {
+    throw new Error(
+      `[SwitchboardOnDemand] No oracle keys registered on queue ${queueAddress.toBase58()}`
+    );
+  }
+
+  const loadedOracles = await sb.Oracle.loadMany(program, oracleKeys);
+  const onChainGatewayUrls = loadedOracles
+    .map((data) => parseGatewayUri(data?.gatewayUri))
+    .filter((url): url is string => Boolean(url));
+
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_GATEWAY_PROBE_TIMEOUT_MS;
+  const fetchImpl = options?.fetchFn ?? globalThis.fetch;
+
+  // Quiet parallel health probes with native fetch and schema validation
+  const probeResults = await Promise.all(
+    Array.from(new Set(onChainGatewayUrls)).map(
+      async (gatewayUrl): Promise<HealthyOracleGatewaySnapshot | null> => {
+        try {
+          const endpoint = `${gatewayUrl}/gateway/api/v1/healthy_oracles`;
+          const res = await fetchImpl(endpoint, {
+            signal: AbortSignal.timeout(timeoutMs),
+            headers: { Accept: "application/json" },
+          });
+          if (!res.ok) return null;
+          const response = (await res.json()) as HealthyOraclesResponse;
+          // Guard against non-array payloads
+          if (!response || !Array.isArray(response.oracles)) return null;
+          return { gatewayUrl, response };
+        } catch {
+          return null;
+        }
+      }
+    )
+  );
+
+  const validSnapshots = probeResults.filter(
+    (s): s is HealthyOracleGatewaySnapshot => s !== null
+  );
+
+  const liveHealth = mergeHealthyOracleSnapshots(validSnapshots);
+
+  // Build candidates with fault tolerance (skip unreadable accounts instead of aborting queue)
+  type OracleCandidate = ReturnType<
+    typeof sb.buildSolanaRandomnessOracleCandidate
+  >;
+  const candidates: OracleCandidate[] = [];
+  for (let i = 0; i < oracleKeys.length; i++) {
+    const oracleKey = oracleKeys[i];
+    const data = loadedOracles[i];
+    if (!data) continue;
+    candidates.push(
+      sb.buildSolanaRandomnessOracleCandidate({
+        oracle: new sb.Oracle(program, oracleKey),
+        data,
+        liveOracleHealth: liveHealth.byPullOracle.get(oracleKey.toBase58()),
+        queueData,
+        version: liveHealth.majorityVersion ?? undefined,
+      })
+    );
+  }
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `[SwitchboardOnDemand] No readable oracle candidate accounts found on queue ${queueAddress.toBase58()}`
+    );
+  }
+
+  const selection = selectRandomnessOracle(candidates);
+  const selectedCandidate = selection.candidate;
+
+  // Dynamically bound TTL by quote expiration and heartbeat timeout
+  const now = Date.now();
+  const quoteRemainingMs =
+    selectedCandidate.validUntilUnix !== undefined
+      ? selectedCandidate.validUntilUnix * 1000 - now
+      : DEFAULT_ORACLE_CACHE_TTL_MS;
+  const lastHeartbeatUnix = selectedCandidate.lastHeartbeatUnix;
+  const heartbeatExpiryMs =
+    lastHeartbeatUnix !== undefined
+      ? (lastHeartbeatUnix + queueData.nodeTimeout.toNumber()) * 1000 - now
+      : DEFAULT_ORACLE_CACHE_TTL_MS;
+  const ttlMs = Math.max(
+    1_000,
+    Math.min(DEFAULT_ORACLE_CACHE_TTL_MS, quoteRemainingMs, heartbeatExpiryMs)
+  );
+
+  return {
+    oracleKey: selectedCandidate.oracle.pubkey,
+    ttlMs,
+  };
+}
 
 export interface SwitchboardRandomnessHeader {
   readonly authority: Address;
@@ -206,6 +353,8 @@ export interface VrfProviderOptions {
   readonly queueAddress?: Address;
   readonly signer?: KeyPairSigner;
   readonly randomnessAccount?: Address;
+  readonly fetchFn?: typeof fetch;
+  readonly gatewayTimeoutMs?: number;
 }
 
 export class MockVrfProvider implements IVrfProvider {
@@ -330,10 +479,6 @@ export class MockVrfProvider implements IVrfProvider {
   }
 }
 
-type SwitchboardProgram = Awaited<
-  ReturnType<typeof sb.AnchorUtils.loadProgramFromProvider>
->;
-
 export class SwitchboardOnDemandProvider implements IVrfProvider {
   private readonly activePoolRandomness = new Map<PoolId, Address>();
   private readonly defaultRandomnessAccount?: Address;
@@ -341,6 +486,13 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
   private readonly programId: web3.PublicKey;
   private readonly signer?: KeyPairSigner;
   private programPromise?: Promise<SwitchboardProgram>;
+  private readonly oracleCache = new Map<string, CachedOracleEntry>();
+  private readonly inFlightResolutions = new Map<
+    string,
+    Promise<web3.PublicKey>
+  >();
+  private readonly fetchFn?: typeof fetch;
+  private readonly gatewayTimeoutMs?: number;
 
   constructor(
     private readonly rpcUrl: string,
@@ -361,6 +513,19 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
     );
     this.signer = options?.signer;
     this.defaultRandomnessAccount = options?.randomnessAccount;
+    this.fetchFn = options?.fetchFn;
+    this.gatewayTimeoutMs = options?.gatewayTimeoutMs;
+  }
+
+  public invalidateOracleCache(queueAddress?: web3.PublicKey): void {
+    if (queueAddress) {
+      const key = queueAddress.toBase58();
+      this.oracleCache.delete(key);
+      this.inFlightResolutions.delete(key);
+    } else {
+      this.oracleCache.clear();
+      this.inFlightResolutions.clear();
+    }
   }
 
   private async getProgram(): Promise<SwitchboardProgram> {
@@ -379,6 +544,63 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
       });
     }
     return this.programPromise;
+  }
+
+  private async getHealthyOracle(
+    queueAddress: web3.PublicKey = this.queueAddress,
+    options?: { forceRefresh?: boolean }
+  ): Promise<web3.PublicKey> {
+    const queueKey = queueAddress.toBase58();
+    const now = Date.now();
+
+    if (!options?.forceRefresh) {
+      const cached = this.oracleCache.get(queueKey);
+      if (cached && cached.expiresAt > now) {
+        return cached.oracleKey;
+      }
+    }
+
+    const inFlight = this.inFlightResolutions.get(queueKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const resolutionPromise = (async () => {
+      const program = await this.getProgram();
+      const { oracleKey, ttlMs } = await resolveHealthyQueueOracle(
+        program,
+        queueAddress,
+        {
+          fetchFn: this.fetchFn,
+          timeoutMs: this.gatewayTimeoutMs,
+        }
+      );
+      this.oracleCache.set(queueKey, {
+        oracleKey,
+        expiresAt: Date.now() + ttlMs,
+      });
+      return oracleKey;
+    })().finally(() => {
+      this.inFlightResolutions.delete(queueKey);
+    });
+
+    this.inFlightResolutions.set(queueKey, resolutionPromise);
+    return resolutionPromise;
+  }
+
+  private async buildCommitInstruction(
+    randomnessPubkey: web3.PublicKey,
+    signerPubkey: web3.PublicKey
+  ): Promise<Instruction> {
+    const program = await this.getProgram();
+    const randomness = new sb.Randomness(program, randomnessPubkey);
+    const selectedOracle = await this.getHealthyOracle();
+    const commitIx = await randomness.commitIx(
+      this.queueAddress,
+      signerPubkey,
+      selectedOracle
+    );
+    return web3InstructionToKit(commitIx);
   }
 
   async prepareHarvestRandomness(
@@ -444,15 +666,16 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
       );
     }
 
-    const program = await this.getProgram();
-    const randomness = new sb.Randomness(program, pubkey);
     const signerPubkey = new web3.PublicKey(this.signer.address);
-    const commitIx = await randomness.commitIx(this.queueAddress, signerPubkey);
+    const commitInstruction = await this.buildCommitInstruction(
+      pubkey,
+      signerPubkey
+    );
     this.activePoolRandomness.set(params.poolId, existing);
 
     return {
       randomnessAccount: existing,
-      instructions: [web3InstructionToKit(commitIx)],
+      instructions: [commitInstruction],
       computeUnitsRequired: 35_000,
     };
   }
@@ -460,6 +683,7 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
   async prepareRebindRandomness(
     params: PrepareRebindRandomnessParams
   ): Promise<VrfBinding> {
+    this.invalidateOracleCache(this.queueAddress);
     return this.provisionFreshRandomness(params.poolId);
   }
 
@@ -480,18 +704,17 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
       this.queueAddress,
       signerPubkey
     );
-    const randomness = new sb.Randomness(program, kp.publicKey);
-    const commitIx = await randomness.commitIx(this.queueAddress, signerPubkey);
+    const commitInstruction = await this.buildCommitInstruction(
+      kp.publicKey,
+      signerPubkey
+    );
 
     const randomnessAccount = kitSigner.address;
     this.activePoolRandomness.set(poolId, randomnessAccount);
 
     return {
       randomnessAccount,
-      instructions: [
-        web3InstructionToKit(createIx),
-        web3InstructionToKit(commitIx),
-      ],
+      instructions: [web3InstructionToKit(createIx), commitInstruction],
       signers: [kitSigner],
       computeUnitsRequired: 130_000,
     };
@@ -568,6 +791,7 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
         revealInstruction: web3InstructionToKit(revealIx),
       };
     } catch (err: unknown) {
+      this.invalidateOracleCache(this.queueAddress);
       const msg = err instanceof Error ? err.message : String(err);
       return {
         status: "pending_oracle",
