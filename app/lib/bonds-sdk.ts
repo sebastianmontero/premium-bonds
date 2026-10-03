@@ -45,6 +45,7 @@ import type {
 } from "./generated/yield-bonds/src/generated";
 
 export {
+  ANCHOR_PROGRAM_ADDRESS,
   decodeGlobalConfig,
   decodePrizePool,
   decodeDrawCycle,
@@ -63,6 +64,7 @@ export type {
 };
 
 import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
+export { MOCK_HUMA_PROGRAM_ADDRESS };
 
 import {
   RedemptionType,
@@ -117,12 +119,8 @@ export type {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const PROGRAM_ID = address(
-  process.env.NEXT_PUBLIC_PROGRAM_ID || ANCHOR_PROGRAM_ADDRESS
-);
-export const HUMA_PROGRAM_ID = address(
-  process.env.NEXT_PUBLIC_HUMA_PROGRAM_ID || MOCK_HUMA_PROGRAM_ADDRESS
-);
+export const PROGRAM_ID: Address = ANCHOR_PROGRAM_ADDRESS;
+export const HUMA_PROGRAM_ID: Address = MOCK_HUMA_PROGRAM_ADDRESS;
 export const SYSTEM_PROGRAM_ID = address("11111111111111111111111111111111");
 export const TOKEN_PROGRAM_ID = address(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"

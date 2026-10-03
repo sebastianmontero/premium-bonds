@@ -45,6 +45,7 @@ import {
   parseTokenAmount,
   buildTransferSolInstruction,
   buildCreateAccountInstruction,
+  SWITCHBOARD_ON_DEMAND_DEVNET_PID,
   parseDeficitArgs,
   printDeficitCalculationBreakdown,
 } from "./utils";
@@ -446,8 +447,13 @@ export async function ensureHumaLenderStateOnChain(
       );
       return;
     }
+    if (!isOwnerValid) {
+      throw new Error(
+        `Existing Huma lender state account ${params.lenderStateSigner.address} is owned by ${accountInfo.value.owner}, expected ${params.humaProgramId}. Please re-run devnet init to generate a fresh keypair.`
+      );
+    }
     console.warn(
-      `⚠️  Existing Huma lender state account has invalid owner (${accountInfo.value.owner}) or truncated space (${rawData?.length ?? 0}). Re-allocating...`
+      `⚠️  Existing Huma lender state account has truncated space (${rawData?.length ?? 0}). Re-allocating...`
     );
   }
 
@@ -523,15 +529,33 @@ async function handleInit(args: string[]) {
 
   const rpc = createResilientRpc(DEVNET_RPC_URL);
 
-  // Switchboard randomness account: auto-provision if missing
+  // Switchboard randomness account: validate on-chain and auto-provision if missing or invalid
   const devnetEnv = readEnvFile(DEVNET_ENV_PATH);
   let randomnessAddressStr =
     process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
     devnetEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
 
-  if (!randomnessAddressStr) {
+  let isRandomnessValid = false;
+  if (randomnessAddressStr) {
+    try {
+      const info = await fetchAccountInfo(rpc, address(randomnessAddressStr));
+      if (
+        info?.value &&
+        info.value.owner === SWITCHBOARD_ON_DEMAND_DEVNET_PID
+      ) {
+        const rawData = decodeAccountBase64Data(info.value);
+        if (rawData && rawData.length >= 408) {
+          isRandomnessValid = true;
+        }
+      }
+    } catch {
+      isRandomnessValid = false;
+    }
+  }
+
+  if (!isRandomnessValid) {
     console.log(
-      "ℹ No NEXT_PUBLIC_RANDOMNESS_ACCOUNT configured. Automatically provisioning Switchboard On-Demand VRF account..."
+      "ℹ Switchboard On-Demand VRF account missing or invalid on Devnet. Automatically provisioning..."
     );
     const crankDevKeypair = path.resolve(
       os.homedir(),
@@ -542,6 +566,7 @@ async function handleInit(args: string[]) {
       : keypairPath;
     const result = await provisionDevnetRandomnessAccount({
       payerKeypairPath: randomnessPayerPath,
+      forceNew: !!randomnessAddressStr && !isRandomnessValid,
     });
     randomnessAddressStr = result.address;
   }
@@ -560,7 +585,7 @@ async function handleInit(args: string[]) {
     STATE_DIR,
     "huma-pool-state-key.json"
   );
-  const humaPoolStateSigner = await loadOrGenerateKeypair(
+  let humaPoolStateSigner = await loadOrGenerateKeypair(
     humaPoolStateKeyPath,
     { overwriteIfInvalid: true, label: "Huma Pool State" }
   );
@@ -568,10 +593,29 @@ async function handleInit(args: string[]) {
   console.log(`Huma Pool State address: ${humaPoolStateSigner.address}`);
 
   // Call initialize_mock_pool_state on mock_huma program
-  const humaPoolStateInfo = await fetchAccountInfo(
+  let humaPoolStateInfo = await fetchAccountInfo(
     rpc,
     humaPoolStateSigner.address
   );
+
+  if (
+    humaPoolStateInfo?.value &&
+    humaPoolStateInfo.value.owner !== mockHumaProgramId
+  ) {
+    console.warn(
+      `⚠️  Existing Huma Pool State account is owned by ${humaPoolStateInfo.value.owner}, expected ${mockHumaProgramId}. Regenerating fresh keypair...`
+    );
+    if (fs.existsSync(humaPoolStateKeyPath)) {
+      fs.unlinkSync(humaPoolStateKeyPath);
+    }
+    humaPoolStateSigner = await generateAndSaveKeypair(humaPoolStateKeyPath);
+    console.log(`New Huma Pool State address: ${humaPoolStateSigner.address}`);
+    humaPoolStateInfo = await fetchAccountInfo(
+      rpc,
+      humaPoolStateSigner.address
+    );
+  }
+
   if (!humaPoolStateInfo?.value) {
     console.log("Initializing Huma mock pool state on-chain...");
     const initHumaIx = {
@@ -689,10 +733,39 @@ async function handleInit(args: string[]) {
     STATE_DIR,
     "huma-lender-state-key.json"
   );
-  const humaLenderStateSigner = await loadOrGenerateKeypair(
+  let humaLenderStateSigner = await loadOrGenerateKeypair(
     humaLenderStateKeyPath,
     { overwriteIfInvalid: true, label: "Huma Lender State" }
   );
+
+  let humaLenderStateInfo = await fetchAccountInfo(
+    rpc,
+    humaLenderStateSigner.address
+  );
+
+  if (
+    humaLenderStateInfo?.value &&
+    humaLenderStateInfo.value.owner !== mockHumaProgramId
+  ) {
+    console.warn(
+      `⚠️  Existing Huma Lender State account is owned by ${humaLenderStateInfo.value.owner}, expected ${mockHumaProgramId}. Regenerating fresh keypair...`
+    );
+    if (fs.existsSync(humaLenderStateKeyPath)) {
+      fs.unlinkSync(humaLenderStateKeyPath);
+    }
+    humaLenderStateSigner = await generateAndSaveKeypair(
+      humaLenderStateKeyPath
+    );
+    console.log(
+      `New Huma Lender State address: ${humaLenderStateSigner.address}`
+    );
+    humaLenderStateInfo = await fetchAccountInfo(
+      rpc,
+      humaLenderStateSigner.address
+    );
+  }
+
+  const isLenderStateNewlyAllocated = !humaLenderStateInfo?.value;
 
   await ensureHumaLenderStateOnChain({
     rpc,
@@ -701,12 +774,7 @@ async function handleInit(args: string[]) {
     humaProgramId: address(mockHumaProgramId),
   });
 
-  // Call create_lender_accounts_v2 on mock_huma program
-  const humaLenderStateInfo = await fetchAccountInfo(
-    rpc,
-    humaLenderStateSigner.address
-  );
-  if (!humaLenderStateInfo?.value) {
+  if (isLenderStateNewlyAllocated) {
     console.log("Initializing Huma lender accounts on-chain...");
     const initLenderIx = {
       programAddress: address(mockHumaProgramId),
@@ -782,16 +850,28 @@ async function handleInit(args: string[]) {
     .getAccountInfo(ticketRegistryAddress, { encoding: "base64" })
     .send();
 
-  // If ticket registry account exists on-chain but pool is not yet initialized, verify discriminator is all zeros
-  if (ticketRegistryInfo?.value && !poolInfo?.value) {
-    const rawData = decodeAccountBase64Data(ticketRegistryInfo.value);
-    const isZeroed = rawData
-      ? rawData.subarray(0, 8).every((b: number) => b === 0)
-      : true;
-    if (!isZeroed) {
+  // If ticket registry account exists on-chain, verify owner and discriminator
+  if (ticketRegistryInfo?.value) {
+    const isOwnerValid = ticketRegistryInfo.value.owner === anchorProgramId;
+    let shouldRegenerate = !isOwnerValid;
+
+    if (isOwnerValid && !poolInfo?.value) {
+      const rawData = decodeAccountBase64Data(ticketRegistryInfo.value);
+      const isZeroed = rawData
+        ? rawData.subarray(0, 8).every((b: number) => b === 0)
+        : true;
+      if (!isZeroed) {
+        shouldRegenerate = true;
+      }
+    }
+
+    if (shouldRegenerate) {
       console.warn(
-        "⚠️  Existing Ticket Registry account has non-zero discriminator from a prior run. Regenerating fresh keypair..."
+        `⚠️  Existing Ticket Registry account is invalid (owner: ${ticketRegistryInfo.value.owner}, expected: ${anchorProgramId}, or non-zero discriminator). Regenerating fresh keypair...`
       );
+      if (fs.existsSync(ticketRegistryKeyPath)) {
+        fs.unlinkSync(ticketRegistryKeyPath);
+      }
       ticketRegistrySigner = await generateAndSaveKeypair(
         ticketRegistryKeyPath
       );

@@ -51,8 +51,8 @@ describe("Devnet State Persistence & Synchronization (devnet-state)", () => {
   });
 
   const sampleAddresses: DevnetProtocolAccounts = {
-    programId: "Bonds11111111111111111111111111111111111111",
-    humaProgramId: "Huma11111111111111111111111111111111111111",
+    programId: PROGRAM_ID,
+    humaProgramId: HUMA_PROGRAM_ID,
     adminAddress: "Admin1111111111111111111111111111111111111",
     usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     pstMint: "PST111111111111111111111111111111111111111",

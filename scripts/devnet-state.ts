@@ -1,7 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import { readEnvFile, upsertEnvFile } from "./env-utils";
-import { PROGRAM_ID, HUMA_PROGRAM_ID } from "../app/lib/bonds-sdk";
+import {
+  PROGRAM_ID,
+  HUMA_PROGRAM_ID,
+  ANCHOR_PROGRAM_ADDRESS,
+  MOCK_HUMA_PROGRAM_ADDRESS,
+} from "../app/lib/bonds-sdk";
 
 export const PROJECT_ROOT = path.resolve(__dirname, "..");
 export const DEVNET_STATE_DIR = path.resolve(__dirname, "devnet-state");
@@ -467,13 +472,9 @@ export function syncDevnetToActiveEnv(
     }
   }
 
-  // Hierarchical address resolution: addresses.json > .env.devnet > canonical SDK constants
-  const programId =
-    addresses.programId || devnetEnv.NEXT_PUBLIC_PROGRAM_ID || PROGRAM_ID;
-  const humaProgramId =
-    addresses.humaProgramId ||
-    devnetEnv.NEXT_PUBLIC_HUMA_PROGRAM_ID ||
-    HUMA_PROGRAM_ID;
+  // Canonical program addresses strictly pinned to compiled Codama constants
+  const programId = ANCHOR_PROGRAM_ADDRESS;
+  const humaProgramId = MOCK_HUMA_PROGRAM_ADDRESS;
   const usdcMint =
     addresses.usdcMint ||
     devnetEnv.NEXT_PUBLIC_USDC_MINT ||
