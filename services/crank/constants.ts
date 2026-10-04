@@ -24,6 +24,18 @@ export const MAX_RPC_MISMATCH_RETRIES = 2;
 /// Quarantine probe interval when an on-chain circuit breaker halt is encountered.
 export const CIRCUIT_BREAKER_HALT_QUARANTINE_MS = 60_000;
 
+/// Base cooldown duration in milliseconds for venue liquidity deficits (6066).
+export const VENUE_LIQUIDITY_BASE_COOLDOWN_MS = 30_000;
+
+/// Maximum backoff cooldown ceiling for venue liquidity deficits (10 minutes).
+export const VENUE_LIQUIDITY_MAX_COOLDOWN_MS = 600_000;
+
+/// Threshold duration of continuous deficit before emitting stalled warning alert (15 minutes).
+export const VENUE_LIQUIDITY_ALERT_STALLED_MS = 900_000;
+
+/// Candidate-level quarantine duration (5 minutes) before re-attempting a deficient candidate.
+export const REDEMPTION_CANDIDATE_QUARANTINE_MS = 300_000;
+
 /// Helper to check whether VRF randomness has expired on-chain.
 export function isRandomnessExpired(
   committedSlot: bigint,

@@ -11,6 +11,7 @@ export class MetricsServer {
   private server: http.Server | null = null;
   private txCounters: Map<string, number> = new Map();
   private errorCounters: Map<string, Map<string, number>> = new Map();
+  private deferredCounters: Map<string, number> = new Map();
   private poolMetrics: Map<number, PoolMetricSnapshot> = new Map();
   private payoutRegistryClaimable: Map<
     string,
@@ -24,6 +25,11 @@ export class MetricsServer {
   incrementTx(workerName: string, success: boolean): void {
     const key = `${workerName}_${success ? "success" : "failed"}`;
     this.txCounters.set(key, (this.txCounters.get(key) || 0) + 1);
+  }
+
+  incrementDeferred(workerName: string, reason?: string): void {
+    const key = reason ? `${workerName}_${reason}` : workerName;
+    this.deferredCounters.set(key, (this.deferredCounters.get(key) || 0) + 1);
   }
 
   incrementError(workerName: string, errorType: string): void {

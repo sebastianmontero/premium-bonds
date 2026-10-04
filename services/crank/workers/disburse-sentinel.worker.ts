@@ -8,10 +8,15 @@ import {
   CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS,
 } from "../../../app/lib/bonds-sdk";
 import {
+  REDEMPTION_CANDIDATE_QUARANTINE_MS,
+  VENUE_LIQUIDITY_ALERT_STALLED_MS,
+} from "../constants";
+import {
   CrankExecutionContext,
   PoolStateSnapshot,
   ICrankTask,
   CrankTaskOutcome,
+  WorkerDeferredOutcome,
 } from "../types";
 
 /**
@@ -32,6 +37,12 @@ export class DisburseSentinelWorker implements ICrankTask {
   readonly name = "DisburseSentinelWorker";
   private candidateCache: Map<number, CandidateCacheEntry> = new Map();
   private readonly cacheTtlMs = 30_000; // 30s candidate cache
+  private quarantinedCandidates: Map<string, number> = new Map(); // key: `${poolId}:${candidate.redemptionId}` -> expiresAt
+  private deficitStreak: Map<number, { count: number; firstSeenAt: number }> =
+    new Map();
+  private forceSingleCandidate: Map<number, boolean> = new Map();
+  private lastEvaluatedBatch: Map<number, PendingRedemptionCandidate[]> =
+    new Map();
 
   invalidateCandidateCache(poolId?: number): void {
     if (poolId !== undefined) {
@@ -39,6 +50,30 @@ export class DisburseSentinelWorker implements ICrankTask {
     } else {
       this.candidateCache.clear();
     }
+  }
+
+  clearQuarantines(poolId?: number): void {
+    if (poolId !== undefined) {
+      const prefix = `${poolId}:`;
+      for (const key of this.quarantinedCandidates.keys()) {
+        if (key.startsWith(prefix)) {
+          this.quarantinedCandidates.delete(key);
+        }
+      }
+    } else {
+      this.quarantinedCandidates.clear();
+    }
+  }
+
+  isCandidateQuarantined(poolId: number, redemptionId: bigint): boolean {
+    const key = `${poolId}:${redemptionId}`;
+    const expiresAt = this.quarantinedCandidates.get(key);
+    if (!expiresAt) return false;
+    if (Date.now() >= expiresAt) {
+      this.quarantinedCandidates.delete(key);
+      return false;
+    }
+    return true;
   }
 
   canHandle(snapshot: PoolStateSnapshot): boolean {
@@ -120,8 +155,33 @@ export class DisburseSentinelWorker implements ICrankTask {
       };
     }
 
-    // Batch up to MAX_REDEMPTIONS_PER_TX = 3
-    const batch = candidates.slice(0, MAX_REDEMPTIONS_PER_TX);
+    // Filter out quarantined candidates
+    const now = Date.now();
+    for (const [key, expiresAt] of this.quarantinedCandidates.entries()) {
+      if (now >= expiresAt) {
+        this.quarantinedCandidates.delete(key);
+      }
+    }
+
+    const eligibleCandidates = candidates.filter(
+      (c) => !this.quarantinedCandidates.has(`${poolId}:${c.redemptionId}`)
+    );
+
+    if (eligibleCandidates.length === 0) {
+      return {
+        shouldExecute: false,
+        reason: `All ${candidates.length} pending redemptions currently quarantined due to liquidity deficit`,
+      };
+    }
+
+    // Single-Candidate Fallback vs Normal Batching
+    const isSingleCandidateForced =
+      this.forceSingleCandidate.get(poolId) ?? false;
+    const batchSize = isSingleCandidateForced ? 1 : MAX_REDEMPTIONS_PER_TX;
+    const batch = eligibleCandidates.slice(0, batchSize);
+
+    this.lastEvaluatedBatch.set(poolId, batch);
+
     const instructions = await this.buildInstructionsForBatch(
       snapshot,
       context,
@@ -136,6 +196,64 @@ export class DisburseSentinelWorker implements ICrankTask {
       priorityFeeTier: "low",
       writableAccounts: [snapshot.poolAddress],
     };
+  }
+
+  onSuccess(poolId: number): void {
+    this.deficitStreak.delete(poolId);
+    this.forceSingleCandidate.delete(poolId);
+    this.lastEvaluatedBatch.delete(poolId);
+    this.invalidateCandidateCache(poolId);
+  }
+
+  onDeferred(poolId: number, outcome: WorkerDeferredOutcome): void {
+    if (outcome.status === "VENUE_LIQUIDITY_DEFICIT") {
+      const batch = this.lastEvaluatedBatch.get(poolId);
+      if (batch && batch.length > 1) {
+        // Multi-candidate batch failed simulation: retry candidate #0 individually before deferring / quarantining
+        console.warn(
+          `[DisburseSentinelWorker] [Pool #${poolId}] Multi-candidate batch failed simulation due to liquidity deficit. Retrying single candidate #${batch[0].redemptionId} individually next tick.`
+        );
+        this.forceSingleCandidate.set(poolId, true);
+        this.invalidateCandidateCache(poolId);
+      } else if (batch && batch.length === 1) {
+        // Single candidate failed: quarantine this specific candidate
+        const candidate = batch[0];
+        const key = `${poolId}:${candidate.redemptionId}`;
+        this.quarantinedCandidates.set(
+          key,
+          Date.now() + REDEMPTION_CANDIDATE_QUARANTINE_MS
+        );
+        console.warn(
+          `[DisburseSentinelWorker] [Pool #${poolId}] Quarantining redemption candidate #${candidate.redemptionId} for ${REDEMPTION_CANDIDATE_QUARANTINE_MS / 1000}s due to venue liquidity deficit.`
+        );
+        this.forceSingleCandidate.delete(poolId);
+        this.invalidateCandidateCache(poolId);
+
+        // Track streak for alerts
+        const streak = this.deficitStreak.get(poolId) || {
+          count: 0,
+          firstSeenAt: Date.now(),
+        };
+        streak.count++;
+        this.deficitStreak.set(poolId, streak);
+        if (
+          Date.now() - streak.firstSeenAt >=
+          VENUE_LIQUIDITY_ALERT_STALLED_MS
+        ) {
+          console.warn(
+            `[DisburseSentinelWorker] [Pool #${poolId}] Venue liquidity deficit has persisted continuously for > ${VENUE_LIQUIDITY_ALERT_STALLED_MS / 1000}s.`
+          );
+        }
+      } else {
+        this.invalidateCandidateCache(poolId);
+      }
+    } else {
+      this.invalidateCandidateCache(poolId);
+    }
+  }
+
+  onError(poolId: number): void {
+    this.invalidateCandidateCache(poolId);
   }
 
   private getCachedCandidates(

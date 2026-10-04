@@ -656,4 +656,83 @@ describe("AdaptiveCrankScheduler Circuit Breaker & Unpause Deadlock Recovery", (
     await (scheduler as any).processPool(1);
     assert.strictEqual(alertCount, 2, "New halted cycle should alert");
   });
+
+  it("should classify VENUE_LIQUIDITY_DEFICIT as deferred and NOT trip CircuitBreaker", async () => {
+    const signer = await generateKeyPairSigner();
+    const metrics = new MetricsServer(0);
+    const config = createTestConfig({ poolIds: [1] });
+    const breaker = new CircuitBreaker(5, 60_000);
+
+    let onDeferredCalled = false;
+    let deferredStatus = "";
+
+    // Mock task that triggers and yields VENUE_LIQUIDITY_DEFICIT simulation error
+    const mockDeficitTask = {
+      name: "MockDisburseWorker",
+      canHandle: () => true,
+      evaluate: async () => ({
+        shouldExecute: true as const,
+        reason: "Claiming redemption",
+        instructions: [],
+        computeUnitLimit: 200_000,
+      }),
+      onDeferred: (_poolId: number, outcome: any) => {
+        onDeferredCalled = true;
+        deferredStatus = outcome.status;
+      },
+    };
+
+    // Mock executor that returns VENUE_LIQUIDITY_DEFICIT
+    const mockExecutor = {
+      executeInstructions: async () => ({
+        workerName: "MockDisburseWorker",
+        executed: false,
+        reason: "Pool vault has insufficient balance to settle redemption",
+        outcome: {
+          status: "VENUE_LIQUIDITY_DEFICIT" as const,
+          reason: "Pool vault has insufficient balance to settle redemption",
+          code: 6066,
+        },
+      }),
+    };
+
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      mockExecutor as any,
+      breaker,
+      undefined,
+      async () => ({
+        poolId: 1 as any,
+        poolAddress: TEST_ADDRESSES.USER,
+        pool: buildMockPrizePool({ status: PoolStatus.Active }),
+        ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+        ticketRegistry: buildMockTicketRegistry(),
+        currentSlot: 1000n,
+        currentTimestamp: 2000n as any,
+        state: "IDLE",
+        nextDrawAt: 3000n as any,
+      })
+    );
+
+    // Replace tasks with our mock deficit task
+    (scheduler as any).tasks = [mockDeficitTask];
+
+    // Execute 5 consecutive times
+    for (let i = 0; i < 5; i++) {
+      await (scheduler as any).processPool(1);
+    }
+
+    // Verify CircuitBreaker remains CLOSED and healthy
+    assert.strictEqual(
+      breaker.canExecute(1),
+      true,
+      "CircuitBreaker must remain CLOSED after 5 consecutive venue liquidity deficits"
+    );
+    assert.strictEqual(breaker.getState(1), "CLOSED");
+    assert.strictEqual(onDeferredCalled, true);
+    assert.strictEqual(deferredStatus, "VENUE_LIQUIDITY_DEFICIT");
+  });
 });

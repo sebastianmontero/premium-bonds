@@ -24,6 +24,7 @@ import { normalizeInstructionSigners } from "../../../app/lib/tx-utils";
 import { CrankConfig } from "../config";
 import {
   WorkerExecutionResult,
+  WorkerDeferredOutcome,
   ExecuteInstructionsParams,
   PriorityFeeTier,
 } from "../types";
@@ -123,6 +124,117 @@ export function isBenignConcurrencyRace(
     }
   }
   return false;
+}
+
+export function isVenueLiquidityDeficit(
+  err: unknown,
+  logs?: readonly string[]
+): boolean {
+  if (!err && (!logs || logs.length === 0)) return false;
+  if (err) {
+    const matched = matchAnchorError(err);
+    if (matched && matched.code === 6066) {
+      return true;
+    }
+    const str = String(err).toLowerCase();
+    if (
+      str.includes("insufficientvaultbalance") ||
+      str.includes("insufficient balance to settle redemption") ||
+      str.includes("0x17b2") ||
+      str.includes("custom program error: 0x17b2") ||
+      str.includes("error code: 6066") ||
+      str.includes("error number: 6066")
+    ) {
+      return true;
+    }
+  }
+  if (logs && logs.length > 0) {
+    const matchedLog = matchAnchorError(logs);
+    if (matchedLog && matchedLog.code === 6066) {
+      return true;
+    }
+    const fullLogs = logs.join(" ").toLowerCase();
+    if (
+      fullLogs.includes("insufficientvaultbalance") ||
+      fullLogs.includes("insufficient balance to settle redemption") ||
+      fullLogs.includes("0x17b2") ||
+      fullLogs.includes("custom program error: 0x17b2") ||
+      fullLogs.includes("error code: 6066") ||
+      fullLogs.includes("error number: 6066")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function classifyDeferral(
+  err: unknown,
+  logs?: readonly string[]
+): WorkerDeferredOutcome | null {
+  if (isBenignConcurrencyRace(err, logs)) {
+    return {
+      status: "CONCURRENCY_RACE_LOST",
+      reason: "State already progressed by competing replica",
+    };
+  }
+
+  if (isVenueLiquidityDeficit(err, logs)) {
+    const mutableLogs = logs ? [...logs] : undefined;
+    const parsed = parseTransactionError(err, mutableLogs);
+    const numericCode =
+      typeof parsed.code === "number"
+        ? parsed.code
+        : typeof parsed.code === "string"
+          ? parseInt(parsed.code, 10) || 6066
+          : 6066;
+    return {
+      status: "VENUE_LIQUIDITY_DEFICIT",
+      reason:
+        parsed.message ||
+        "Pool vault has insufficient balance to settle redemption",
+      code: numericCode,
+      logs,
+    };
+  }
+
+  return null;
+}
+
+export function buildFailureResult(
+  workerName: string,
+  err: unknown,
+  logs?: readonly string[],
+  fallbackPrefix?: string
+): WorkerExecutionResult {
+  const deferral = classifyDeferral(err, logs);
+  if (deferral) {
+    return {
+      workerName,
+      executed: false,
+      reason: deferral.reason,
+      outcome: deferral,
+    };
+  }
+
+  const mutableLogs = logs ? [...logs] : undefined;
+  const parsed = parseTransactionError(err, mutableLogs);
+  const codeStr = parsed.code !== undefined ? ` (${parsed.code})` : "";
+  const prefix = fallbackPrefix ? `${fallbackPrefix}: ` : "";
+  const reason = `${prefix}${parsed.title}${codeStr} - ${parsed.message}`;
+  return {
+    workerName,
+    executed: false,
+    reason,
+    outcome: {
+      status: "ERROR",
+      reason,
+      parsedError: parsed,
+      logs,
+      error: err instanceof Error ? err : new Error(reason),
+    },
+    error: err instanceof Error ? err : new Error(reason),
+  };
 }
 
 export class TransactionExecutor {
@@ -294,37 +406,24 @@ export class TransactionExecutor {
 
       if (simRes?.value?.err) {
         const logs = (simRes.value.logs as string[] | undefined) || [];
-        if (isBenignConcurrencyRace(simRes.value.err, logs)) {
+        const failure = buildFailureResult(
+          workerName,
+          simRes.value.err,
+          logs,
+          "Simulation failed"
+        );
+        if (failure.outcome.status === "CONCURRENCY_RACE_LOST") {
           console.log(
             `[TxExecutor] [${workerName}] Preflight simulation benign concurrency race lost: state already progressed.`
           );
-          return {
-            workerName,
-            executed: false,
-            reason: "State already progressed by competing replica",
-            outcome: {
-              status: "CONCURRENCY_RACE_LOST",
-              reason: "State already progressed by competing replica",
-            },
-          };
+        } else if (failure.outcome.status === "VENUE_LIQUIDITY_DEFICIT") {
+          console.warn(
+            `[TxExecutor] [${workerName}] Preflight simulation deferred due to venue liquidity deficit: ${failure.reason}`
+          );
+        } else {
+          console.error(`[TxExecutor] [${workerName}] ${failure.reason}`, logs);
         }
-
-        const parsed = parseTransactionError(simRes.value.err, logs);
-        const codeStr = parsed.code !== undefined ? ` (${parsed.code})` : "";
-        const reason = `Simulation failed: ${parsed.title}${codeStr} - ${parsed.message}`;
-        console.error(`[TxExecutor] [${workerName}] ${reason}`, logs);
-        return {
-          workerName,
-          executed: false,
-          reason,
-          outcome: {
-            status: "ERROR",
-            reason,
-            parsedError: parsed,
-            logs,
-            error: new Error(reason),
-          },
-        };
+        return failure;
       }
 
       // Jito Bundle Submission or RPC Broadcast
@@ -371,33 +470,24 @@ export class TransactionExecutor {
         if (status?.value?.[0]) {
           const s = status.value[0];
           if (s.err) {
-            if (isBenignConcurrencyRace(s.err)) {
-              return {
-                workerName,
-                executed: false,
-                reason: "State already progressed on-chain",
-                outcome: {
-                  status: "CONCURRENCY_RACE_LOST",
-                  reason: "State already progressed on-chain",
-                },
-              };
-            }
-            const parsed = parseTransactionError(s.err);
-            const codeStr =
-              parsed.code !== undefined ? ` (${parsed.code})` : "";
-            const reason = `Transaction reverted on-chain: ${parsed.title}${codeStr} - ${parsed.message}`;
-            console.error(`[TxExecutor] [${workerName}] ${reason}`);
-            return {
+            const failure = buildFailureResult(
               workerName,
-              executed: false,
-              reason,
-              outcome: {
-                status: "ERROR",
-                reason,
-                parsedError: parsed,
-                error: new Error(reason),
-              },
-            };
+              s.err,
+              undefined,
+              "Transaction reverted on-chain"
+            );
+            if (failure.outcome.status === "CONCURRENCY_RACE_LOST") {
+              console.log(
+                `[TxExecutor] [${workerName}] State already progressed on-chain.`
+              );
+            } else if (failure.outcome.status === "VENUE_LIQUIDITY_DEFICIT") {
+              console.warn(
+                `[TxExecutor] [${workerName}] Transaction deferred due to venue liquidity deficit: ${failure.reason}`
+              );
+            } else {
+              console.error(`[TxExecutor] [${workerName}] ${failure.reason}`);
+            }
+            return failure;
           }
           if (
             s.confirmationStatus === "confirmed" ||
@@ -450,34 +540,24 @@ export class TransactionExecutor {
         },
       };
     } catch (err: unknown) {
-      if (isBenignConcurrencyRace(err)) {
-        return {
-          workerName,
-          executed: false,
-          reason: "State already progressed by competing replica",
-          outcome: {
-            status: "CONCURRENCY_RACE_LOST",
-            reason: "State already progressed by competing replica",
-          },
-        };
-      }
-
-      const parsed = parseTransactionError(err);
-      const codeStr = parsed.code !== undefined ? ` (${parsed.code})` : "";
-      const reason = `Failed to land transaction: ${parsed.title}${codeStr} - ${parsed.message}`;
-      console.error(`[TxExecutor] [${workerName}] ${reason}`);
-      return {
+      const failure = buildFailureResult(
         workerName,
-        executed: false,
-        reason,
-        outcome: {
-          status: "ERROR",
-          reason,
-          parsedError: parsed,
-          error: err instanceof Error ? err : new Error(String(err)),
-        },
-        error: err instanceof Error ? err : new Error(String(err)),
-      };
+        err,
+        undefined,
+        "Failed to land transaction"
+      );
+      if (failure.outcome.status === "CONCURRENCY_RACE_LOST") {
+        console.log(
+          `[TxExecutor] [${workerName}] State already progressed by competing replica.`
+        );
+      } else if (failure.outcome.status === "VENUE_LIQUIDITY_DEFICIT") {
+        console.warn(
+          `[TxExecutor] [${workerName}] Deferred due to venue liquidity deficit: ${failure.reason}`
+        );
+      } else {
+        console.error(`[TxExecutor] [${workerName}] ${failure.reason}`);
+      }
+      return failure;
     }
   }
 }

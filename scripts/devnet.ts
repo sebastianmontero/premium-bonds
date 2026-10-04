@@ -113,6 +113,7 @@ import {
   getSettleRequestsInstructionDataEncoder,
   getInitializeMockPoolStateInstructionDataEncoder,
   getCreateLenderAccountsV2InstructionDataEncoder,
+  parseTokenAccountBalance,
   PrizeTierInput,
 } from "../app/lib/bonds-sdk";
 
@@ -173,6 +174,9 @@ function printUsage() {
   );
   console.log("                        Aliases: induce-deficit, insolvency");
   console.log("  settle [count]        Settles pending redemptions on devnet");
+  console.log(
+    "  top-up-vault [--pool <id>] [--amount <usdc>] Mints USDC directly to pool vault to bridge redemption deficits"
+  );
   console.log(
     "  seed-users [--users <n>] [--tickets <n>] [--sol <sol>] [--usdc <amount>] [--pool <id>] [--mature] [--save-keys [path]] [--no-save-keys] Seeds test users with SOL/USDC and buys bonds"
   );
@@ -1500,6 +1504,18 @@ async function handleSettle(args: string[]) {
   // Derive pool authority
   const poolAuthority = await findHumaPoolAuthorityPda(humaPoolState);
 
+  // Check humaPoolModeToken balance before sending settle_requests
+  const modeTokenInfo = await fetchAccountInfo(rpc, address(humaPoolModeToken));
+  const modeTokenData = decodeAccountBase64Data(modeTokenInfo?.value);
+  const escrowedPst = modeTokenData
+    ? parseTokenAccountBalance(modeTokenData)
+    : 0n;
+  if (escrowedPst === 0n) {
+    throw new Error(
+      `Mock Huma pool mode token escrow (${humaPoolModeToken}) balance is 0. Cannot settle redemption requests without escrowed PST.`
+    );
+  }
+
   console.log(`Sending settle_requests transaction for count=${count}...`);
   const settleIx = {
     programAddress: address(humaProgramId),
@@ -1545,6 +1561,39 @@ async function handleSettle(args: string[]) {
 
   await sendTx(rpc, settleIx, adminSigner);
   console.log("Redemption requests settled successfully on-chain!");
+}
+
+async function handleTopUpVault(args: string[]) {
+  let poolId = 1;
+  let amountUsdc = 2.0;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--pool" && args[i + 1]) {
+      poolId = parseInt(args[++i], 10);
+    } else if (args[i] === "--amount" && args[i + 1]) {
+      amountUsdc = parseFloat(args[++i]);
+    }
+  }
+
+  const microUsdc = BigInt(Math.round(amountUsdc * 1_000_000));
+  const rpc = createResilientRpc(DEVNET_RPC_URL);
+  const accounts = loadDevnetAccounts();
+  const adminSigner = await loadKeypair(resolveDefaultKeypairPath());
+  const poolVault = await findPoolVaultPda(poolId);
+
+  console.log(
+    `Top-up: Minting ${amountUsdc} USDC (${microUsdc} micro-USDC) to Pool #${poolId} vault (${poolVault})...`
+  );
+  const prefundIx = buildMintToInstruction({
+    mint: address(accounts.usdcMint),
+    destination: poolVault,
+    authority: adminSigner,
+    amount: microUsdc,
+  });
+  await sendTx(rpc, prefundIx, adminSigner);
+  console.log(
+    `✓ Successfully topped up Pool #${poolId} vault with ${amountUsdc} USDC.`
+  );
 }
 
 async function handleSyncEnv(args: string[]) {
@@ -1632,6 +1681,10 @@ async function main() {
       break;
     case "settle":
       await handleSettle(args.slice(1));
+      break;
+    case "top-up-vault":
+    case "topup":
+      await handleTopUpVault(args.slice(1));
       break;
     case "seed-users":
     case "seed":

@@ -981,6 +981,7 @@ export interface PendingRedemptionCandidate {
   user: Address;
   humaRequestId: bigint;
   redemptionType?: RedemptionType;
+  amount?: bigint;
 }
 
 export interface FetchPendingRedemptionCandidatesParams {
@@ -1074,6 +1075,7 @@ export async function fetchPendingRedemptionCandidates(
           user: address(parsed.user),
           humaRequestId: parsed.humaRequestId,
           redemptionType: parsed.redemptionType,
+          amount: parsed.amount,
         });
       }
     } catch {

@@ -13,7 +13,13 @@ import {
   type ResilientRpcClient,
 } from "../../../app/lib/rpc-transport";
 import { CrankConfig } from "../config";
-import { CrankExecutionContext, ICrankTask, PoolStateSnapshot } from "../types";
+import {
+  CrankExecutionContext,
+  ICrankTask,
+  PoolStateSnapshot,
+  isDeferredOutcome,
+  WorkerDeferredOutcome,
+} from "../types";
 import { fetchPoolStateSnapshot } from "../state/snapshot-fetcher";
 import { isPoolStatus } from "../state/snapshot-classifier";
 import { CIRCUIT_BREAKER_HALT_QUARANTINE_MS } from "../constants";
@@ -43,7 +49,6 @@ export class AdaptiveCrankScheduler {
   private readonly metrics: MetricsServer;
   private readonly vrfProvider: IVrfProvider;
   private tasks: readonly ICrankTask[];
-  private readonly disburseWorker: DisburseSentinelWorker;
   private readonly context: CrankExecutionContext;
   private readonly inFlightPools: Set<number> = new Set();
   private readonly nextEligibleTickMs: Map<number, number> = new Map();
@@ -113,7 +118,6 @@ export class AdaptiveCrankScheduler {
       jitoEnabled: config.jitoEnabled,
     };
 
-    this.disburseWorker = new DisburseSentinelWorker();
     this.tasks = [
       new HarvestYieldWorker(this.vrfProvider, config),
       new PrepareDrawWorker(),
@@ -121,7 +125,7 @@ export class AdaptiveCrankScheduler {
       new AtomicRevealWorker(this.vrfProvider),
       new ReinvestWinningsWorker(),
       new CapacitySentinelWorker(this.alertNotifier),
-      this.disburseWorker,
+      new DisburseSentinelWorker(),
     ];
   }
 
@@ -459,17 +463,21 @@ export class AdaptiveCrankScheduler {
             console.log(
               `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} succeeded. Tx: ${result.signature}`
             );
-            if (task.name === "DisburseSentinelWorker") {
-              this.disburseWorker.invalidateCandidateCache(poolId);
-            }
+            await this.safeInvokeHook(() =>
+              task.onSuccess?.(poolId, result.signature)
+            );
             this.metrics.incrementTx(task.name, true);
             this.breaker.recordSuccess(poolId);
             executedAny = true;
-          } else if (result.outcome.status === "CONCURRENCY_RACE_LOST") {
+          } else if (isDeferredOutcome(result.outcome)) {
             console.log(
-              `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} benign race lost. State already progressed.`
+              `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} deferred: ${result.outcome.status} - ${result.reason}`
             );
-            // Do not trip circuit breaker on benign race
+            await this.safeInvokeHook(() =>
+              task.onDeferred?.(poolId, result.outcome as WorkerDeferredOutcome)
+            );
+            this.metrics.incrementDeferred(task.name, result.outcome.status);
+            // CRITICAL: Deferrals (benign concurrency races or venue liquidity deficits) NEVER trip the pool circuit breaker!
           } else {
             const errToInspect =
               (result as { error?: unknown }).error ??
@@ -488,6 +496,9 @@ export class AdaptiveCrankScheduler {
               );
               // CRITICAL: DO NOT trip circuit breaker on transport errors!
             } else {
+              await this.safeInvokeHook(() =>
+                task.onError?.(poolId, errToInspect)
+              );
               const actionable =
                 result.outcome.status === "ERROR" &&
                 result.outcome.parsedError?.actionableStep
@@ -519,6 +530,7 @@ export class AdaptiveCrankScheduler {
           );
           // DO NOT call this.breaker.recordPoolFailure for transport errors
         } else {
+          await this.safeInvokeHook(() => task.onError?.(poolId, err));
           console.error(
             `[AdaptiveCrankScheduler] [Pool #${poolId}] Task [${task.name}] error:`,
             msg
@@ -549,5 +561,15 @@ export class AdaptiveCrankScheduler {
         await this.alertNotifier.notifyLowBalance(sol);
       }
     } catch {}
+  }
+
+  private async safeInvokeHook(fn: () => void | Promise<void>): Promise<void> {
+    try {
+      await fn();
+    } catch (err) {
+      console.warn(
+        `[AdaptiveCrankScheduler] Warning: Error executing task lifecycle hook: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
   }
 }

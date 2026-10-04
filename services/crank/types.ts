@@ -182,16 +182,25 @@ export interface CrankExecutionContext {
   readonly jitoEnabled?: boolean;
 }
 
+export type WorkerDeferredOutcome =
+  | {
+      readonly status: "CONCURRENCY_RACE_LOST";
+      readonly reason: string;
+    }
+  | {
+      readonly status: "VENUE_LIQUIDITY_DEFICIT";
+      readonly reason: string;
+      readonly code?: number;
+      readonly logs?: readonly string[];
+    };
+
 export type WorkerExecutionOutcome =
   | {
       readonly status: "EXECUTED";
       readonly signature: string;
       readonly computeUnitsUsed?: number;
     }
-  | {
-      readonly status: "CONCURRENCY_RACE_LOST";
-      readonly reason: string;
-    }
+  | WorkerDeferredOutcome
   | {
       readonly status: "ERROR";
       readonly reason: string;
@@ -199,6 +208,15 @@ export type WorkerExecutionOutcome =
       readonly error?: Error;
       readonly logs?: readonly string[];
     };
+
+export function isDeferredOutcome(
+  outcome: WorkerExecutionOutcome
+): outcome is WorkerDeferredOutcome {
+  return (
+    outcome.status === "CONCURRENCY_RACE_LOST" ||
+    outcome.status === "VENUE_LIQUIDITY_DEFICIT"
+  );
+}
 
 export interface WorkerExecutionResult {
   readonly workerName: string;
@@ -246,6 +264,12 @@ export interface ICrankTask {
     snapshot: PoolStateSnapshot,
     context: CrankExecutionContext
   ): Promise<CrankTaskOutcome>;
+  onSuccess?(poolId: number, signature?: string): void | Promise<void>;
+  onDeferred?(
+    poolId: number,
+    outcome: WorkerDeferredOutcome
+  ): void | Promise<void>;
+  onError?(poolId: number, error: unknown): void | Promise<void>;
 }
 
 export interface ICrankWorker<

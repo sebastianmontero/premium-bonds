@@ -45,6 +45,23 @@ declare_id!("ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz");
 /// Seed used to derive the pool authority PDA.
 pub const POOL_AUTHORITY_SEED: &[u8] = b"pool_authority";
 
+pub const POOL_STATE_TOTAL_ASSETS_OFFSET: usize = 30;
+pub const POOL_STATE_TOTAL_ASSETS_END: usize = 46;
+
+/// Reads the total assets from a Mock Huma pool_state account.
+#[inline]
+pub fn read_pool_total_assets(pool_state_info: &AccountInfo) -> Result<u128> {
+    let data = pool_state_info.try_borrow_data()?;
+    require!(
+        data.len() >= POOL_STATE_TOTAL_ASSETS_END,
+        MockHumaError::InvalidPoolStateData
+    );
+    let bytes: [u8; 16] = data[POOL_STATE_TOTAL_ASSETS_OFFSET..POOL_STATE_TOTAL_ASSETS_END]
+        .try_into()
+        .map_err(|_| error!(MockHumaError::InvalidPoolStateData))?;
+    Ok(u128::from_le_bytes(bytes))
+}
+
 pub const LENDER_STATE_OWED_OFFSET: usize = 8;
 pub const LENDER_STATE_MIN_LEN: usize = 16;
 
@@ -157,8 +174,26 @@ pub mod mock_huma {
             ctx.accounts.underlying_mint.decimals,
         )?;
 
-        // 2. Mint $PST 1:1 to depositor's mode token account (skipped if simulating zero shares minted)
+        let pst_supply = ctx.accounts.mode_mint.supply;
+        let total_assets = read_pool_total_assets(&ctx.accounts.pool_state.to_account_info())?;
+
+        let shares_to_mint = if pst_supply == 0 {
+            assets
+        } else {
+            require!(total_assets > 0, MockHumaError::MathOverflow);
+            let shares_u128 = (assets as u128)
+                .checked_mul(pst_supply as u128)
+                .ok_or(error!(MockHumaError::MathOverflow))?
+                .checked_div(total_assets)
+                .ok_or(error!(MockHumaError::MathOverflow))?;
+            shares_u128
+                .try_into()
+                .map_err(|_| error!(MockHumaError::MathOverflow))?
+        };
+
+        // 2. Mint $PST to depositor's mode token account (skipped if simulating zero shares minted)
         if !is_zero_shares_sim {
+            require!(shares_to_mint > 0, MockHumaError::ZeroSharesMinted);
             let pool_state_key = ctx.accounts.pool_state.key();
             let (_, bump) = Pubkey::find_program_address(
                 &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
@@ -177,7 +212,7 @@ pub mod mock_huma {
                     },
                     signer_seeds,
                 ),
-                assets, // 1:1 for test simplicity
+                shares_to_mint,
             )?;
         }
 
@@ -190,7 +225,11 @@ pub mod mock_huma {
                 assets
             );
         } else {
-            msg!("MockHuma: deposited {} USDC, minted {} PST", assets, assets);
+            msg!(
+                "MockHuma: deposited {} USDC, minted {} PST",
+                assets,
+                shares_to_mint
+            );
         }
         Ok(())
     }
@@ -468,6 +507,9 @@ pub mod mock_huma {
             return Ok(());
         }
 
+        let escrowed_pst = ctx.accounts.pool_mode_token.amount;
+        require!(escrowed_pst > 0, MockHumaError::NoEscrowedTokens);
+
         let new_next = next
             .checked_add(count_to_settle as u128)
             .ok_or(error!(MockHumaError::MathOverflow))?;
@@ -488,62 +530,62 @@ pub mod mock_huma {
             .copy_from_slice(&new_last.to_le_bytes());
 
         // Epoch simulation: burn escrowed PST
-        let escrowed_pst = ctx.accounts.pool_mode_token.amount;
-        if escrowed_pst > 0 {
-            let pst_supply = ctx.accounts.mode_mint.supply;
-            let total_assets = u128::from_le_bytes(data[30..46].try_into().unwrap());
+        let pst_supply = ctx.accounts.mode_mint.supply;
+        let total_assets = u128::from_le_bytes(
+            data[POOL_STATE_TOTAL_ASSETS_OFFSET..POOL_STATE_TOTAL_ASSETS_END]
+                .try_into()
+                .unwrap(),
+        );
 
-            let pst_to_burn = if count_to_settle == pending_count {
-                escrowed_pst
-            } else {
-                ((escrowed_pst as u128)
-                    .checked_mul(count_to_settle as u128)
-                    .ok_or(error!(MockHumaError::MathOverflow))?
-                    .checked_div(pending_count as u128)
-                    .ok_or(error!(MockHumaError::MathOverflow))?) as u64
-            };
-            require!(pst_to_burn <= pst_supply, MockHumaError::MathOverflow);
-
-            let usdc_value = pst_shares_to_usdc(pst_to_burn, pst_supply, total_assets)?;
-
-            // Release borrow on pool_state before calling update_pool_total_assets
-            drop(data);
-
-            update_pool_total_assets(&pool_state_info, -(usdc_value as i128))?;
-
-            // Burn the PST tokens
-            let pool_state_key = ctx.accounts.pool_state.key();
-            let (_, bump) = Pubkey::find_program_address(
-                &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
-                ctx.program_id,
-            );
-            let signer_seeds: &[&[&[u8]]] =
-                &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
-
-            // Burn PST tokens from pool vault
-            anchor_spl::token_interface::burn(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.key(),
-                    anchor_spl::token_interface::Burn {
-                        mint: ctx.accounts.mode_mint.to_account_info(),
-                        from: ctx.accounts.pool_mode_token.to_account_info(),
-                        authority: ctx.accounts.pool_authority.to_account_info(),
-                    },
-                    signer_seeds,
-                ),
-                pst_to_burn,
-            )?;
-
-            // Accumulate usdc_value into lender_state
-            accumulate_lender_owed(&ctx.accounts.lender_state.to_account_info(), usdc_value)?;
-
-            msg!(
-                "MockHuma: Settled {} requests, burned {} PST (worth {} USDC).",
-                count_to_settle, pst_to_burn, usdc_value
-            );
+        let pst_to_burn = if count_to_settle == pending_count {
+            escrowed_pst
         } else {
-            drop(data);
-        }
+            ((escrowed_pst as u128)
+                .checked_mul(count_to_settle as u128)
+                .ok_or(error!(MockHumaError::MathOverflow))?
+                .checked_div(pending_count as u128)
+                .ok_or(error!(MockHumaError::MathOverflow))?) as u64
+        };
+        require!(pst_to_burn > 0, MockHumaError::MathOverflow);
+        require!(pst_to_burn <= pst_supply, MockHumaError::MathOverflow);
+
+        let usdc_value = pst_shares_to_usdc(pst_to_burn, pst_supply, total_assets)?;
+
+        // Release borrow on pool_state before calling update_pool_total_assets
+        drop(data);
+
+        update_pool_total_assets(&pool_state_info, -(usdc_value as i128))?;
+
+        // Burn the PST tokens
+        let pool_state_key = ctx.accounts.pool_state.key();
+        let (_, bump) = Pubkey::find_program_address(
+            &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
+            ctx.program_id,
+        );
+        let signer_seeds: &[&[&[u8]]] =
+            &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
+
+        // Burn PST tokens from pool vault
+        anchor_spl::token_interface::burn(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                anchor_spl::token_interface::Burn {
+                    mint: ctx.accounts.mode_mint.to_account_info(),
+                    from: ctx.accounts.pool_mode_token.to_account_info(),
+                    authority: ctx.accounts.pool_authority.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            pst_to_burn,
+        )?;
+
+        // Accumulate usdc_value into lender_state
+        accumulate_lender_owed(&ctx.accounts.lender_state.to_account_info(), usdc_value)?;
+
+        msg!(
+            "MockHuma: Settled {} requests, burned {} PST (worth {} USDC).",
+            count_to_settle, pst_to_burn, usdc_value
+        );
 
         Ok(())
     }
@@ -605,16 +647,21 @@ pub fn increment_huma_redemption_queue(
 /// `delta` is signed: positive for deposits, negative for withdrawals.
 pub fn update_pool_total_assets(pool_state_info: &AccountInfo, delta: i128) -> Result<()> {
     let mut data = pool_state_info.try_borrow_mut_data()?;
-    if data.len() < 46 {
+    if data.len() < POOL_STATE_TOTAL_ASSETS_END {
         return Ok(());
     }
-    let current = u128::from_le_bytes(data[30..46].try_into().unwrap());
+    let current = u128::from_le_bytes(
+        data[POOL_STATE_TOTAL_ASSETS_OFFSET..POOL_STATE_TOTAL_ASSETS_END]
+            .try_into()
+            .unwrap(),
+    );
     let updated = if delta >= 0 {
         current.saturating_add(delta as u128)
     } else {
         current.saturating_sub((-delta) as u128)
     };
-    data[30..46].copy_from_slice(&updated.to_le_bytes());
+    data[POOL_STATE_TOTAL_ASSETS_OFFSET..POOL_STATE_TOTAL_ASSETS_END]
+        .copy_from_slice(&updated.to_le_bytes());
     Ok(())
 }
 
@@ -840,4 +887,8 @@ pub enum MockHumaError {
     InvalidPoolStateData,
     #[msg("MockHuma: Lender state account data is too short (expected at least 16 bytes)")]
     InvalidLenderStateData,
+    #[msg("MockHuma: No escrowed PST tokens available for settlement")]
+    NoEscrowedTokens,
+    #[msg("MockHuma: Zero shares minted for deposit")]
+    ZeroSharesMinted,
 }

@@ -9,7 +9,11 @@ import { ReinvestWinningsWorker } from "../workers/reinvest-winnings.worker";
 import { CapacitySentinelWorker } from "../workers/capacity-sentinel.worker";
 import { DisburseSentinelWorker } from "../workers/disburse-sentinel.worker";
 import { MockVrfProvider, IVrfProvider } from "../vrf/randomness-provider";
-import { RedemptionType, ATA_PROGRAM_ID } from "@/app/lib/bonds-sdk";
+import {
+  RedemptionType,
+  ATA_PROGRAM_ID,
+  PendingRedemptionCandidate,
+} from "@/app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
   toPoolId,
@@ -749,5 +753,195 @@ describe("Strategy Workers Unit Tests", () => {
       "Claim instruction must contain configured humaLenderState"
     );
     assert.strictEqual(lenderMeta.role, AccountRole.WRITABLE);
+  });
+
+  it("DisburseSentinelWorker should quarantine deficient candidate and exclude from next evaluation", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const sentinel = new DisburseSentinelWorker();
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        tokenMint: mockAddress,
+        totalPendingRedemptions: 2n,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const candidate0 = {
+      redemptionId: 0n,
+      user: mockAddress,
+      humaRequestId: 0n,
+      redemptionType: RedemptionType.BondSale,
+    };
+    const candidate1 = {
+      redemptionId: 1n,
+      user: TEST_ADDRESSES.USER_2,
+      humaRequestId: 1n,
+      redemptionType: RedemptionType.BondSale,
+    };
+
+    interface SentinelInternalState {
+      candidateCache: Map<
+        number,
+        { candidates: PendingRedemptionCandidate[]; cachedAt: number }
+      >;
+      lastEvaluatedBatch: Map<number, PendingRedemptionCandidate[]>;
+    }
+    const internal = sentinel as unknown as SentinelInternalState;
+
+    // Inject cached candidates
+    internal.candidateCache.set(1, {
+      candidates: [candidate0, candidate1],
+      cachedAt: Date.now(),
+    });
+
+    // 1. Initial evaluate batches candidate 0 & 1
+    const outcome1 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome1.shouldExecute, true);
+
+    // 2. Simulate single-candidate failure with VENUE_LIQUIDITY_DEFICIT
+    internal.lastEvaluatedBatch.set(1, [candidate0]);
+    sentinel.onDeferred(1, {
+      status: "VENUE_LIQUIDITY_DEFICIT",
+      reason: "InsufficientVaultBalance",
+      code: 6066,
+    });
+
+    assert.strictEqual(
+      sentinel.isCandidateQuarantined(1, 0n),
+      true,
+      "Candidate #0 must be quarantined"
+    );
+    assert.strictEqual(
+      sentinel.isCandidateQuarantined(1, 1n),
+      false,
+      "Candidate #1 must not be quarantined"
+    );
+
+    // 3. Re-inject candidates into cache to evaluate candidate #1
+    internal.candidateCache.set(1, {
+      candidates: [candidate0, candidate1],
+      cachedAt: Date.now(),
+    });
+
+    const outcome2 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome2.shouldExecute, true);
+    if (outcome2.shouldExecute) {
+      assert.match(
+        outcome2.reason,
+        /IDs: \[#1\]/,
+        "Must evaluate candidate #1 while candidate #0 is quarantined"
+      );
+    }
+
+    // 4. Quarantine candidate #1 as well
+    internal.lastEvaluatedBatch.set(1, [candidate1]);
+    sentinel.onDeferred(1, {
+      status: "VENUE_LIQUIDITY_DEFICIT",
+      reason: "InsufficientVaultBalance",
+      code: 6066,
+    });
+
+    // 5. When all candidates are quarantined, evaluate returns shouldExecute: false WITHOUT retryAfterMs
+    internal.candidateCache.set(1, {
+      candidates: [candidate0, candidate1],
+      cachedAt: Date.now(),
+    });
+
+    const outcome3 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome3.shouldExecute, false);
+    assert.strictEqual(
+      outcome3.retryAfterMs,
+      undefined,
+      "Must not set retryAfterMs on pool scheduler"
+    );
+    assert.match(
+      outcome3.reason,
+      /All 2 pending redemptions currently quarantined/
+    );
+  });
+
+  it("DisburseSentinelWorker should fallback to single candidate when multi-candidate batch fails", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const sentinel = new DisburseSentinelWorker();
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        tokenMint: mockAddress,
+        totalPendingRedemptions: 3n,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const candidates = [
+      {
+        redemptionId: 10n,
+        user: mockAddress,
+        humaRequestId: 10n,
+        redemptionType: RedemptionType.BondSale,
+      },
+      {
+        redemptionId: 11n,
+        user: TEST_ADDRESSES.USER_2,
+        humaRequestId: 11n,
+        redemptionType: RedemptionType.BondSale,
+      },
+    ];
+
+    interface SentinelInternalState {
+      candidateCache: Map<
+        number,
+        { candidates: PendingRedemptionCandidate[]; cachedAt: number }
+      >;
+      lastEvaluatedBatch: Map<number, PendingRedemptionCandidate[]>;
+    }
+    const internal = sentinel as unknown as SentinelInternalState;
+
+    internal.candidateCache.set(1, {
+      candidates,
+      cachedAt: Date.now(),
+    });
+
+    // 1. First evaluation batches 2 candidates
+    const outcome1 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome1.shouldExecute, true);
+
+    // 2. Multi-candidate batch fails with VENUE_LIQUIDITY_DEFICIT
+    sentinel.onDeferred(1, {
+      status: "VENUE_LIQUIDITY_DEFICIT",
+      reason: "InsufficientVaultBalance",
+      code: 6066,
+    });
+
+    // 3. Next evaluation forces single candidate fallback
+    internal.candidateCache.set(1, {
+      candidates,
+      cachedAt: Date.now(),
+    });
+
+    const outcome2 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome2.shouldExecute, true);
+    if (outcome2.shouldExecute) {
+      assert.match(
+        outcome2.reason,
+        /Claiming batch of 1 settled redemptions \(IDs: \[#10\]\)/
+      );
+    }
   });
 });

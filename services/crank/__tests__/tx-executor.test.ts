@@ -2,6 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   isBenignConcurrencyRace,
+  isVenueLiquidityDeficit,
+  classifyDeferral,
+  buildFailureResult,
   JITO_TIP_ACCOUNTS,
   createSystemTransferInstruction,
 } from "../executor/tx-executor";
@@ -75,6 +78,99 @@ describe("TxExecutor Unit Tests", () => {
       ]),
       true
     );
+  });
+
+  it("should classify InsufficientVaultBalance (6066 / 0x17b2) as venue liquidity deficit", () => {
+    // Custom error 6066
+    assert.strictEqual(
+      isVenueLiquidityDeficit({
+        InstructionError: [0, { Custom: 6066 }],
+      }),
+      true
+    );
+
+    // BigInt 6066n
+    assert.strictEqual(
+      isVenueLiquidityDeficit({
+        InstructionError: [0n, { Custom: 6066n }],
+      }),
+      true
+    );
+
+    // Hex 0x17b2 in error string
+    assert.strictEqual(
+      isVenueLiquidityDeficit(new Error("custom program error: 0x17b2")),
+      true
+    );
+
+    // Error name string
+    assert.strictEqual(
+      isVenueLiquidityDeficit(new Error("InsufficientVaultBalance")),
+      true
+    );
+
+    // Matching from simulation logs
+    assert.strictEqual(
+      isVenueLiquidityDeficit({}, [
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
+        "Program log: AnchorError thrown in programs/anchor/src/instructions/user/claim_redemption.rs:213. Error Code: InsufficientVaultBalance. Error Number: 6066.",
+      ]),
+      true
+    );
+
+    // Unrelated error should return false
+    assert.strictEqual(
+      isVenueLiquidityDeficit(new Error("InsufficientFunds")),
+      false
+    );
+  });
+
+  it("classifyDeferral should correctly categorize benign races and liquidity deficits", () => {
+    // Benign race
+    const raceOutcome = classifyDeferral({
+      InstructionError: [0, { Custom: 6008 }],
+    });
+    assert.ok(raceOutcome);
+    assert.strictEqual(raceOutcome.status, "CONCURRENCY_RACE_LOST");
+
+    // Liquidity deficit
+    const deficitOutcome = classifyDeferral({
+      InstructionError: [0, { Custom: 6066 }],
+    });
+    assert.ok(deficitOutcome);
+    assert.strictEqual(deficitOutcome.status, "VENUE_LIQUIDITY_DEFICIT");
+    if (deficitOutcome.status === "VENUE_LIQUIDITY_DEFICIT") {
+      assert.strictEqual(deficitOutcome.code, 6066);
+    }
+
+    // Regular error returns null
+    const regularOutcome = classifyDeferral(
+      new Error("Random network failure")
+    );
+    assert.strictEqual(regularOutcome, null);
+  });
+
+  it("buildFailureResult should construct unified result objects", () => {
+    // Deferral result
+    const deferralResult = buildFailureResult("DisburseSentinelWorker", {
+      InstructionError: [0, { Custom: 6066 }],
+    });
+    assert.strictEqual(deferralResult.executed, false);
+    assert.strictEqual(
+      deferralResult.outcome.status,
+      "VENUE_LIQUIDITY_DEFICIT"
+    );
+
+    // Hard error result
+    const hardErrorResult = buildFailureResult(
+      "HarvestYieldWorker",
+      new Error("Invalid fee account"),
+      undefined,
+      "Simulation failed"
+    );
+    assert.strictEqual(hardErrorResult.executed, false);
+    assert.strictEqual(hardErrorResult.outcome.status, "ERROR");
+    assert.match(hardErrorResult.reason, /Simulation failed/);
   });
 
   it("should construct valid SystemProgram transfer tip instruction", async () => {
