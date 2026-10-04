@@ -49,10 +49,10 @@ export function useUserTokenBalance(
   return {
     raw: usdc.raw,
     balance: Number(usdc.raw), // Deprecated compatibility property
-    formattedBalance: usdc.formatted.display,
+    formattedBalance: usdc.formatted.numeric,
     formatted: usdc.formatted,
     fullBalance: usdc.formatted.full,
-    displayWithCurrency: usdc.formatted.displayWithCurrency,
+    displayWithCurrency: usdc.formatted.formatted,
     isLoading,
     isFetching,
     isError,

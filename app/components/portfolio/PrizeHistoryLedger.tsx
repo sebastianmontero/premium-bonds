@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import {
   formatCurrency,
+  formatTokenBalance,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
@@ -121,7 +122,14 @@ export function PrizeHistoryLedger({
             {claimCapability.canExecute ? (
               <button
                 onClick={onClaim}
-                className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer animate-yield-pulse"
+                className={`btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer ${
+                  formatTokenBalance(unclaimedTotal, {
+                    tokenSymbol,
+                    decimals: tokenDecimals,
+                  }).isBelowThreshold
+                    ? ""
+                    : "animate-yield-pulse"
+                }`}
               >
                 {t("claimAll")} (
                 {formatCurrency(unclaimedTotal, {

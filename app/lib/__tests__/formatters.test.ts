@@ -6,6 +6,7 @@ import {
   createCurrencyFormatter,
   formatBaseUnitsToString,
   formatTokenAmount,
+  formatTokenBalance,
   formatBalanceAmount,
   toSafeBigInt,
   getTokenFormattingConfig,
@@ -31,7 +32,7 @@ import {
 
 describe("Currency & Token Formatters Unit Tests", () => {
   describe("formatCurrency Core Abstraction", () => {
-    it("should format fractional USDC amounts to exact cents with dollar prefix", () => {
+    it("should format fractional USDC amounts to exact cents with dollar prefix (floor truncation by default)", () => {
       // 49.50 USDC = 49_500_000 base units (after 1% protocol fee on 50 USDC)
       const formatted = formatCurrency(49_500_000, {
         tokenSymbol: "USDC",
@@ -164,8 +165,9 @@ describe("Currency & Token Formatters Unit Tests", () => {
       );
     });
 
-    it("should respect strict floor truncation mode (roundingMode: 'trunc')", () => {
-      // 9.999999 USDC with trunc -> $9.99
+    it("should respect floor truncation by default and round mode when specified", () => {
+      // 9.999999 USDC with default trunc -> $9.99
+      assert.strictEqual(formatCurrency(9_999_999n), "$9.99");
       assert.strictEqual(
         formatCurrency(9_999_999n, {
           roundingMode: "trunc",
@@ -249,9 +251,43 @@ describe("Currency & Token Formatters Unit Tests", () => {
       assert.strictEqual(formatUiCurrency(NaN), "—");
       assert.strictEqual(formatUiCurrency(null, { fallback: "Free" }), "Free");
     });
+
+    it("should guarantee float safety without IEEE-754 floor bugs", () => {
+      assert.strictEqual(
+        formatUiCurrency(1.005, { roundingMode: "trunc" }),
+        "$1.00"
+      );
+      assert.strictEqual(
+        formatUiCurrency(29.999, { roundingMode: "trunc" }),
+        "$29.99"
+      );
+      assert.strictEqual(
+        formatUiCurrency(0.9999999999999999, { roundingMode: "trunc" }),
+        "$1.00"
+      );
+    });
+
+    it("should support ceiling rounding mode for fees", () => {
+      assert.strictEqual(
+        formatUiCurrency(0.00001, {
+          tokenSymbol: "SOL",
+          maxFractionDigits: 4,
+          roundingMode: "ceil",
+        }),
+        "0.0001 SOL"
+      );
+      assert.strictEqual(
+        formatUiCurrency(0.0054321, {
+          tokenSymbol: "SOL",
+          maxFractionDigits: 4,
+          roundingMode: "ceil",
+        }),
+        "0.0055 SOL"
+      );
+    });
   });
 
-  describe("formatBaseUnitsToString (Shared Kernel)", () => {
+  describe("formatBaseUnitsToString (Shared Kernel 3-Mode Rounding)", () => {
     it("should format BigInt base units with exact rounding and precision", () => {
       assert.strictEqual(
         formatBaseUnitsToString(49_500_000n, 6, 2, 2, "round"),
@@ -267,13 +303,51 @@ describe("Currency & Token Formatters Unit Tests", () => {
       );
       assert.strictEqual(formatBaseUnitsToString(0n, 6, 2, 2, "round"), "0.00");
     });
+
+    it("should support ceiling rounding mode (ceil)", () => {
+      // 1 micro-unit with 2 display decimals ceil-rounds to 0.01
+      assert.strictEqual(formatBaseUnitsToString(1n, 6, 2, 2, "ceil"), "0.01");
+      // Exact boundary: 10_000n with 6 decimals and 2 display decimals is 0.01
+      assert.strictEqual(
+        formatBaseUnitsToString(10_000n, 6, 2, 2, "ceil"),
+        "0.01"
+      );
+      // 10_001n with 6 decimals and 2 display decimals ceil-rounds to 0.02
+      assert.strictEqual(
+        formatBaseUnitsToString(10_001n, 6, 2, 2, "ceil"),
+        "0.02"
+      );
+    });
   });
 
   describe("formatTokenAmount Legacy Helper", () => {
-    it("should clamp division fractions in average prize pots to 2 decimals", () => {
+    it("should clamp division fractions in average prize pots to 2 decimals using truncation", () => {
       // 33.333333 USDC from recurring pot division (e.g. 100 / 3)
       const formatted = formatTokenAmount(33_333_333, USDC_DECIMALS, 2, 2);
       assert.strictEqual(formatted, "33.33");
+    });
+
+    it("should strictly floor-truncate amounts without half-up rounding (INV-FORMAT-002)", () => {
+      // 9.996 USDC must truncate to 9.99 (not round up to 10.00)
+      assert.strictEqual(
+        formatTokenAmount(9_996_000, USDC_DECIMALS, 2, 2),
+        "9.99"
+      );
+      assert.strictEqual(
+        formatTokenAmount(9_999_999, USDC_DECIMALS, 2, 2),
+        "9.99"
+      );
+      assert.strictEqual(
+        formatTokenAmount(999_999, USDC_DECIMALS, 2, 2),
+        "0.99"
+      );
+    });
+
+    it("should handle null, undefined, NaN, and string inputs gracefully", () => {
+      assert.strictEqual(formatTokenAmount(null, 6), "0.00");
+      assert.strictEqual(formatTokenAmount(undefined, 6), "0.00");
+      assert.strictEqual(formatTokenAmount(NaN, 6), "0.00");
+      assert.strictEqual(formatTokenAmount("50000000", 6), "50.00");
     });
   });
 
@@ -523,92 +597,142 @@ describe("Currency & Token Formatters Unit Tests", () => {
     });
   });
 
-  describe("Spendable Balance Non-Overstatement Invariant (INV-FORMAT-002)", () => {
+  describe("Spendable Balance Non-Overstatement Invariant (INV-FORMAT-002) & formatTokenBalance", () => {
     describe("Floor Truncation vs Over-reporting", () => {
       it("should floor 9.996 USDC to 9.99 instead of rounding up to 10.00", () => {
-        const result = formatBalanceAmount(9_996_000, {
+        const result = formatTokenBalance(9_996_000, {
           decimals: 6,
           tokenSymbol: "USDC",
         });
-        assert.strictEqual(result.display, "9.99");
-        assert.strictEqual(result.displayWithCurrency, "$9.99 USDC");
+        assert.strictEqual(result.numeric, "9.99");
+        assert.strictEqual(result.formatted, "$9.99");
+        assert.strictEqual(result.full, "9.996000");
+        assert.strictEqual(result.fullWithSymbol, "9.996000 USDC");
         assert.strictEqual(result.isBelowThreshold, false);
+
+        // formatBalanceAmount alias parity check
+        const aliasResult = formatBalanceAmount(9_996_000, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.deepStrictEqual(aliasResult, result);
       });
 
       it("should floor 9.999999 USDC to 9.99 instead of 10.00", () => {
-        const result = formatBalanceAmount(9_999_999, 6, "USDC");
-        assert.strictEqual(result.display, "9.99");
-        assert.strictEqual(result.displayWithCurrency, "$9.99 USDC");
+        const result = formatTokenBalance(9_999_999, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(result.numeric, "9.99");
+        assert.strictEqual(result.formatted, "$9.99");
+        assert.strictEqual(result.full, "9.999999");
+        assert.strictEqual(result.fullWithSymbol, "9.999999 USDC");
       });
 
       it("should floor 0.999999 USDC to 0.99 instead of 1.00", () => {
-        const result = formatBalanceAmount(999_999, 6, "USDC");
-        assert.strictEqual(result.display, "0.99");
-        assert.strictEqual(result.displayWithCurrency, "$0.99 USDC");
+        const result = formatTokenBalance(999_999, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(result.numeric, "0.99");
+        assert.strictEqual(result.formatted, "$0.99");
       });
     });
 
     describe("Sub-Threshold Dust & Boundary Handling", () => {
-      it("should format zero base units as 0.00 without sub-threshold indicator", () => {
-        const result = formatBalanceAmount(0, 6, "USDC");
-        assert.strictEqual(result.display, "0.00");
-        assert.strictEqual(result.displayWithCurrency, "$0.00 USDC");
+      it("should format zero base units as $0.00 without sub-threshold indicator", () => {
+        const result = formatTokenBalance(0, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(result.numeric, "0.00");
+        assert.strictEqual(result.formatted, "$0.00");
         assert.strictEqual(result.isZero, true);
         assert.strictEqual(result.isBelowThreshold, false);
       });
 
-      it("should format 1 base unit (0.000001 USDC) as < 0.01", () => {
-        const result = formatBalanceAmount(1, 6, "USDC");
-        assert.strictEqual(result.display, "< 0.01");
-        assert.strictEqual(result.displayWithCurrency, "< $0.01 USDC");
+      it("should format 1 base unit (0.000001 USDC) as < $0.01", () => {
+        const result = formatTokenBalance(1, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(result.numeric, "< 0.01");
+        assert.strictEqual(result.formatted, "< $0.01");
         assert.strictEqual(result.isZero, false);
         assert.strictEqual(result.isBelowThreshold, true);
-        assert.strictEqual(result.isSubCent, true);
       });
 
-      it("should format 4,000 base units (0.004 USDC) as < 0.01", () => {
-        const result = formatBalanceAmount(4_000, 6, "USDC");
-        assert.strictEqual(result.display, "< 0.01");
-        assert.strictEqual(result.displayWithCurrency, "< $0.01 USDC");
+      it("should format 4,000 base units (0.004 USDC) as < $0.01", () => {
+        const result = formatTokenBalance(4_000, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(result.numeric, "< 0.01");
+        assert.strictEqual(result.formatted, "< $0.01");
         assert.strictEqual(result.isBelowThreshold, true);
       });
 
-      it("should format 9,999 base units (0.009999 USDC) as < 0.01", () => {
-        const result = formatBalanceAmount(9_999, 6, "USDC");
-        assert.strictEqual(result.display, "< 0.01");
-        assert.strictEqual(result.displayWithCurrency, "< $0.01 USDC");
+      it("should format 9,999 base units (0.009999 USDC) as < $0.01", () => {
+        const result = formatTokenBalance(9_999, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(result.numeric, "< 0.01");
+        assert.strictEqual(result.formatted, "< $0.01");
         assert.strictEqual(result.isBelowThreshold, true);
       });
 
-      it("should format 10,000 base units (0.010000 USDC) exactly as 0.01", () => {
-        const result = formatBalanceAmount(10_000, 6, "USDC");
-        assert.strictEqual(result.display, "0.01");
-        assert.strictEqual(result.displayWithCurrency, "$0.01 USDC");
+      it("should format 10,000 base units (0.010000 USDC) exactly as $0.01", () => {
+        const result = formatTokenBalance(10_000, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(result.numeric, "0.01");
+        assert.strictEqual(result.formatted, "$0.01");
         assert.strictEqual(result.isBelowThreshold, false);
+      });
+
+      it("should format sub-cent dust with prefix ordering (+< $0.01, ~< $0.01)", () => {
+        assert.strictEqual(formatCurrency(1n, { prefix: "+" }), "+< $0.01");
+        assert.strictEqual(formatCurrency(1n, { prefix: "~" }), "~< $0.01");
+      });
+
+      it("should clamp negative sub-cent values to -$0.00 or ~-$0.00", () => {
+        assert.strictEqual(formatCurrency(-1n), "-$0.00");
+        assert.strictEqual(formatCurrency(-1n, { prefix: "~" }), "~-$0.00");
       });
     });
 
     describe("Full Precision Strings (Pure BigInt, Zero Precision Loss)", () => {
       it("should format full precision string without scientific notation", () => {
-        const result = formatBalanceAmount(9_996_000, 6, "USDC");
+        const result = formatTokenBalance(9_996_000, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
         assert.strictEqual(result.full, "9.996000");
-        assert.strictEqual(result.fullWithCurrency, "9.996000 USDC");
+        assert.strictEqual(result.fullWithSymbol, "9.996000 USDC");
       });
 
       it("should format full precision for large numbers with commas", () => {
-        const result = formatBalanceAmount(1_250_450_500_000n, 6, "USDC");
+        const result = formatTokenBalance(1_250_450_500_000n, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
         assert.strictEqual(result.full, "1,250,450.500000");
-        assert.strictEqual(result.display, "1,250,450.50");
-        assert.strictEqual(result.displayWithCurrency, "$1,250,450.50 USDC");
+        assert.strictEqual(result.numeric, "1,250,450.50");
+        assert.strictEqual(result.formatted, "$1,250,450.50");
       });
     });
 
     describe("Extreme Numbers & BigInt Safety (> 2^53 - 1)", () => {
       it("should safely format u64::MAX without overflow or NaN", () => {
         const u64Max = 18_446_744_073_709_551_615n;
-        const result = formatBalanceAmount(u64Max, 6, "USDC");
+        const result = formatTokenBalance(u64Max, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
         assert.strictEqual(result.isZero, false);
-        assert.strictEqual(result.display.length > 0, true);
+        assert.strictEqual(result.numeric.length > 0, true);
         assert.strictEqual(result.full.length > 0, true);
       });
     });
@@ -616,58 +740,63 @@ describe("Currency & Token Formatters Unit Tests", () => {
     describe("Non-USDC Tokens (SOL & WBTC)", () => {
       it("should format SOL balances with 4 display decimals and SOL threshold", () => {
         // 50_000_000 lamports = 0.05 SOL
-        const solResult = formatBalanceAmount(50_000_000n, {
+        const solResult = formatTokenBalance(50_000_000n, {
           decimals: 9,
           tokenSymbol: "SOL",
         });
-        assert.strictEqual(solResult.display, "0.0500");
-        assert.strictEqual(solResult.displayWithCurrency, "0.0500 SOL");
+        assert.strictEqual(solResult.numeric, "0.0500");
+        assert.strictEqual(solResult.formatted, "0.0500 SOL");
 
         // 99_999 lamports = 0.000099999 SOL (< 0.0001 SOL)
-        const dustResult = formatBalanceAmount(99_999n, {
+        const dustResult = formatTokenBalance(99_999n, {
           decimals: 9,
           tokenSymbol: "SOL",
         });
-        assert.strictEqual(dustResult.display, "< 0.0001");
-        assert.strictEqual(dustResult.displayWithCurrency, "< 0.0001 SOL");
+        assert.strictEqual(dustResult.numeric, "< 0.0001");
+        assert.strictEqual(dustResult.formatted, "< 0.0001 SOL");
         assert.strictEqual(dustResult.isBelowThreshold, true);
 
         // 100_000 lamports = 0.000100000 SOL (>= threshold)
-        const exactResult = formatBalanceAmount(100_000n, {
+        const exactResult = formatTokenBalance(100_000n, {
           decimals: 9,
           tokenSymbol: "SOL",
         });
-        assert.strictEqual(exactResult.display, "0.0001");
-        assert.strictEqual(exactResult.displayWithCurrency, "0.0001 SOL");
+        assert.strictEqual(exactResult.numeric, "0.0001");
+        assert.strictEqual(exactResult.formatted, "0.0001 SOL");
         assert.strictEqual(exactResult.isBelowThreshold, false);
       });
 
       it("should format WBTC balances with 6 display decimals", () => {
-        const wbtcResult = formatBalanceAmount(123_456_789n, {
+        const wbtcResult = formatTokenBalance(123_456_789n, {
           decimals: 8,
           tokenSymbol: "WBTC",
         });
-        assert.strictEqual(wbtcResult.display, "1.234567");
-        assert.strictEqual(wbtcResult.displayWithCurrency, "1.234567 WBTC");
+        assert.strictEqual(wbtcResult.numeric, "1.234567");
+        assert.strictEqual(wbtcResult.formatted, "1.234567 WBTC");
       });
     });
 
     describe("Tokens with Low Decimals (decimals < displayDecimals)", () => {
       it("should handle 0-decimal token with displayDecimals: 2 without error", () => {
-        const result = formatBalanceAmount(5n, {
+        const result = formatTokenBalance(5n, {
           decimals: 0,
-          displayDecimals: 2,
+          minFractionDigits: 2,
+          maxFractionDigits: 2,
           tokenSymbol: "POINTS",
         });
-        assert.strictEqual(result.display, "5.00");
+        assert.strictEqual(result.numeric, "5.00");
       });
     });
 
-    describe("Negative Balance Clamping & Sign Formatting", () => {
-      it("should clamp negative balance to zero in formatBalanceAmount", () => {
-        const result = formatBalanceAmount(-50_000_000, 6, "USDC");
-        assert.strictEqual(result.display, "0.00");
-        assert.strictEqual(result.isZero, true);
+    describe("Negative Balance Formatting", () => {
+      it("should format negative balances cleanly with sign", () => {
+        const result = formatTokenBalance(-50_000_000, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(result.numeric, "50.00");
+        assert.strictEqual(result.formatted, "-$50.00");
+        assert.strictEqual(result.isZero, false);
       });
     });
 
@@ -712,6 +841,39 @@ describe("Currency & Token Formatters Unit Tests", () => {
         assert.strictEqual(unknown.symbol, "BONK");
         assert.strictEqual(unknown.isFiatPrefix, false);
         assert.strictEqual(unknown.displayDecimals, 2);
+      });
+    });
+    describe("BigInt-First Aggregation Superadditive Invariant (INV-FORMAT-003)", () => {
+      it("should demonstrate superadditivity when summing on-chain base units before formatting", () => {
+        // Individual dust amounts: 4,000 base units (0.004 USDC) each
+        const prize1 = 4_000n;
+        const prize2 = 4_000n;
+        const prize3 = 4_000n;
+
+        // Formatted individually, each displays as sub-threshold dust
+        assert.strictEqual(formatCurrency(prize1), "< $0.01");
+        assert.strictEqual(formatCurrency(prize2), "< $0.01");
+        assert.strictEqual(formatCurrency(prize3), "< $0.01");
+
+        // When aggregated as BigInt base units on-chain before display formatting:
+        // Sum = 12,000 base units = 0.012 USDC -> strictly formats as $0.01
+        const aggregateBase = prize1 + prize2 + prize3;
+        assert.strictEqual(aggregateBase, 12_000n);
+        assert.strictEqual(formatCurrency(aggregateBase), "$0.01");
+      });
+
+      it("should preserve micro-unit precision in multi-entry portfolio aggregation", () => {
+        const balances = [
+          9_996_000n, // $9.996 (displays $9.99)
+          5_005_000n, // $5.005 (displays $5.00)
+          2_002_000n, // $2.002 (displays $2.00)
+        ];
+
+        // Sum of formatted parts would truncate: $9.99 + $5.00 + $2.00 = $16.99
+        // True on-chain aggregate: 9_996_000 + 5_005_000 + 2_002_000 = 17_003_000 ($17.003) -> displays $17.00
+        const totalBase = balances.reduce((acc, b) => acc + b, 0n);
+        assert.strictEqual(totalBase, 17_003_000n);
+        assert.strictEqual(formatCurrency(totalBase), "$17.00");
       });
     });
   });

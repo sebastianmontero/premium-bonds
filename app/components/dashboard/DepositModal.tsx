@@ -2,10 +2,11 @@
 
 import { useState, useCallback, useRef } from "react";
 import { LiveYieldTicker } from "./LiveYieldTicker";
-import { formatCurrency, formatBalanceAmount } from "@/app/lib/formatters";
+import { formatCurrency, formatTokenBalance } from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
+import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { isInFlightStage } from "./TransactionProgressModal";
 import {
   useTransactionRunner,
@@ -61,7 +62,7 @@ export function DepositModal({
   const maxTickets = Math.floor(walletBalance / pool.bondPrice);
   const maxSpendableBase = maxTickets * pool.bondPrice;
   const maxSpendableFormatted = formatCurrency(maxSpendableBase, pool);
-  const walletFormatted = formatBalanceAmount(walletBalance, {
+  const walletFormatted = formatTokenBalance(walletBalance, {
     decimals: pool.tokenDecimals,
     tokenSymbol: pool.tokenSymbol,
   });
@@ -262,12 +263,26 @@ export function DepositModal({
                   {t("amountLabel", { symbol: pool.tokenSymbol })}
                 </label>
                 <div className="flex items-center gap-1.5 text-[10px]">
-                  <span
-                    className="text-on-surface-variant cursor-help"
-                    title={walletFormatted.fullWithCurrency}
+                  <InteractiveTooltip
+                    ariaLabel={`${t("wallet")}: ${walletFormatted.formatted} (${walletFormatted.fullWithSymbol})`}
+                    align="left"
+                    side="top"
+                    triggerClassName="text-on-surface-variant cursor-help p-0 hover:text-on-surface transition-colors"
+                    content={
+                      <div className="text-left text-xs">
+                        <p className="font-semibold text-primary">
+                          {walletFormatted.fullWithSymbol}
+                        </p>
+                        <p className="text-[11px] text-on-surface-variant">
+                          {t("wallet")}
+                        </p>
+                      </div>
+                    }
                   >
-                    {t("wallet")}: {walletFormatted.displayWithCurrency}
-                  </span>
+                    <span className="border-b border-dotted border-current/40">
+                      {t("wallet")}: {walletFormatted.formatted}
+                    </span>
+                  </InteractiveTooltip>
                   <span className="text-outline-variant/50">·</span>
                   <button
                     type="button"

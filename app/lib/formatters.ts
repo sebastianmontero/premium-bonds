@@ -15,6 +15,7 @@ export const BPS_DENOMINATOR = 10_000;
 export const DEFAULT_APY_BPS = 850; // 8.50% Huma Credit Vaults target
 export const DEFAULT_APY = DEFAULT_APY_BPS / BPS_DENOMINATOR; // 0.085
 export const DEFAULT_TIER_PAYOUT_THRESHOLD_USD = 10.0;
+export const DEFAULT_BOND_PRICE = 5_000_000; // 5 USDC in base units
 
 /** Converts basis points to a decimal rate (e.g. 250 -> 0.025) */
 export function bpsToRate(bps: number): number {
@@ -385,8 +386,10 @@ export function getCachedNumberFormatter(
   return fmt;
 }
 
+export type RoundingMode = "trunc" | "round" | "ceil";
+
 /**
- * Internal BigInt formatting kernel shared by formatCurrency and formatBalanceAmount.
+ * Internal BigInt formatting kernel shared by formatCurrency and formatTokenBalance.
  * Ensures numerical precision safety, negative modulo safety, and strict rounding/truncation.
  */
 export function formatBaseUnitsToString(
@@ -394,7 +397,7 @@ export function formatBaseUnitsToString(
   decimals: number,
   minFractionDigits: number,
   maxFractionDigits: number,
-  roundingMode: "round" | "trunc" = "round"
+  roundingMode: RoundingMode = "round"
 ): string {
   const minDigits = Math.max(0, minFractionDigits);
   const maxDigits = Math.max(minDigits, maxFractionDigits);
@@ -410,11 +413,15 @@ export function formatBaseUnitsToString(
   if (decimals >= maxDigits) {
     const scaleDiff = decimals - maxDigits;
     let scaled: bigint;
-    if (roundingMode === "round" && scaleDiff > 0) {
-      const half = 10n ** BigInt(scaleDiff) / 2n;
-      scaled = (absRaw + half) / 10n ** BigInt(scaleDiff);
-    } else if (scaleDiff > 0) {
-      scaled = absRaw / 10n ** BigInt(scaleDiff);
+    if (scaleDiff > 0) {
+      const scaleDivisor = 10n ** BigInt(scaleDiff);
+      const remainder = absRaw % scaleDivisor;
+      scaled =
+        roundingMode === "ceil" && remainder > 0n
+          ? absRaw / scaleDivisor + 1n
+          : roundingMode === "round"
+            ? (absRaw + scaleDivisor / 2n) / scaleDivisor
+            : absRaw / scaleDivisor;
     } else {
       scaled = absRaw;
     }
@@ -460,7 +467,7 @@ export interface CurrencyTokenInfo {
   tokenDecimals?: number;
 }
 
-export interface FormatCurrencyOptions {
+export interface FormatTokenBalanceOptions {
   /** Token symbol (defaults to "USDC") */
   tokenSymbol?: SupportedTokenSymbol | (string & {});
   /** Decimals for base-to-UI conversion. If omitted, looked up from TOKEN_FORMATTING_CONFIGS (defaults to 6 for USDC) */
@@ -477,12 +484,201 @@ export interface FormatCurrencyOptions {
   style?: CurrencyDisplayStyle;
   /** Optional decoration sign (+ for deltas, ~ for estimates). Negative signs are handled intrinsically ("-$5.00" or "~-$5.00"). */
   prefix?: "+" | "~" | (string & {});
-  /** Rounding mode: "round" (half-up) or "trunc" (strict floor truncation for balances to satisfy INV-FORMAT-002) */
-  roundingMode?: "round" | "trunc";
+  /** Rounding mode: "trunc" (strict floor truncation, default), "round" (half-up), "ceil" (round up) */
+  roundingMode?: RoundingMode;
+  /** Whether to show '< $0.01' or '< 0.0001 SOL' when 0 < absRaw < threshold. Defaults to true. */
+  showSubThreshold?: boolean;
   /** Fallback string when amount is null, undefined, or NaN (defaults to "—") */
   fallback?: string;
 }
 
+export type FormatCurrencyOptions = FormatTokenBalanceOptions;
+
+export interface FormattedBalanceResult {
+  /** Formatted string with currency prefix/suffix (e.g. "$9.99", "< $0.01", "0.05 SOL", "< 0.0001 SOL") */
+  readonly formatted: string;
+  /** Numeric only display string (e.g. "9.99", "< 0.01") */
+  readonly numeric: string;
+  /** Full precision string without scientific notation (e.g. "9.996000") */
+  readonly full: string;
+  /** Full precision string with symbol (e.g. "9.996000 USDC") */
+  readonly fullWithSymbol: string;
+  /** Whether the balance is non-zero but below the minimum display threshold */
+  readonly isBelowThreshold: boolean;
+  /** Whether the balance is strictly zero */
+  readonly isZero: boolean;
+  /** Raw base units as BigInt */
+  readonly rawBaseUnits: bigint;
+}
+
+/**
+ * Pure deterministic BigInt division & balance formatting engine.
+ * Guarantees INV-FORMAT-002: DisplayAmount <= OnChainAmount.
+ */
+export function formatTokenBalance(
+  amountBase: bigint | number | string | null | undefined,
+  pool: CurrencyTokenInfo | null | undefined,
+  overrides?: Omit<FormatTokenBalanceOptions, "tokenSymbol" | "decimals">
+): FormattedBalanceResult;
+
+export function formatTokenBalance(
+  amountBase: bigint | number | string | null | undefined,
+  options?: FormatTokenBalanceOptions
+): FormattedBalanceResult;
+
+export function formatTokenBalance(
+  amountBase: bigint | number | string | null | undefined,
+  poolOrOptions?: CurrencyTokenInfo | FormatTokenBalanceOptions | null,
+  overrides?: Omit<FormatTokenBalanceOptions, "tokenSymbol" | "decimals">
+): FormattedBalanceResult {
+  let options: FormatTokenBalanceOptions = {};
+  if (poolOrOptions && typeof poolOrOptions === "object") {
+    if ("tokenDecimals" in poolOrOptions || overrides !== undefined) {
+      const pool = poolOrOptions as CurrencyTokenInfo;
+      options = {
+        tokenSymbol: pool.tokenSymbol,
+        decimals: pool.tokenDecimals,
+        ...overrides,
+      };
+    } else {
+      options = poolOrOptions as FormatTokenBalanceOptions;
+    }
+  } else if (overrides) {
+    options = { ...overrides };
+  }
+
+  const fallback = options.fallback ?? "—";
+
+  if (
+    amountBase === null ||
+    amountBase === undefined ||
+    (typeof amountBase === "number" && Number.isNaN(amountBase)) ||
+    (typeof amountBase === "string" && amountBase.trim() === "")
+  ) {
+    return {
+      formatted: fallback,
+      numeric: fallback,
+      full: fallback,
+      fullWithSymbol: fallback,
+      isBelowThreshold: false,
+      isZero: true,
+      rawBaseUnits: 0n,
+    };
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    if (typeof amountBase === "number" && !Number.isInteger(amountBase)) {
+      console.warn(
+        `[formatTokenBalance] Received float number "${amountBase}" as base units. Base units should be integers or BigInt. Use formatUiCurrency if the value is already in UI decimal units.`
+      );
+    }
+  }
+
+  const config = getTokenFormattingConfig(options.tokenSymbol);
+  const decimals = options.decimals ?? config.defaultDecimals;
+  const minDigits = options.minFractionDigits ?? config.displayDecimals;
+  const maxDigits =
+    options.maxFractionDigits ?? Math.max(minDigits, config.displayDecimals);
+  const style = options.style ?? "standard";
+  const prefix = options.prefix ?? "";
+  const roundingMode = options.roundingMode ?? "trunc";
+  const showSubThreshold = options.showSubThreshold ?? true;
+
+  const raw = toSafeBigInt(amountBase);
+  const isNegative = raw < 0n;
+  const absRaw = isNegative ? -raw : raw;
+  const isZero = raw === 0n;
+
+  // 1. Full precision string (pure BigInt, zero IEEE-754 precision loss)
+  const divisor = 10n ** BigInt(decimals);
+  const fullWhole = absRaw / divisor;
+  const fullFrac =
+    decimals > 0 ? (absRaw % divisor).toString().padStart(decimals, "0") : "";
+  const fullNum =
+    decimals > 0
+      ? `${fullWhole.toLocaleString("en-US")}.${fullFrac}`
+      : fullWhole.toLocaleString("en-US");
+  const full = isNegative ? `-${fullNum}` : fullNum;
+  const fullWithSymbol = `${full} ${config.symbol}`;
+
+  // 2. Sub-Threshold Evaluation
+  // Note: Only positive non-zero amounts trigger sub-threshold inequality (< $0.01)
+  // Negative dust values clamp cleanly to -$0.00 / ~-$0.00 without emitting inverted inequalities.
+  let isBelowThreshold = false;
+  if (!isNegative && !isZero && decimals >= maxDigits && showSubThreshold) {
+    const scaleDiff = decimals - maxDigits;
+    const thresholdBase = 10n ** BigInt(scaleDiff);
+    if (absRaw < thresholdBase) {
+      isBelowThreshold = true;
+    }
+  }
+
+  let numeric: string;
+  let formatted: string;
+
+  if (isBelowThreshold) {
+    const subThresholdVal =
+      maxDigits > 0 ? `0.${"0".repeat(maxDigits - 1)}1` : "1";
+    numeric = `< ${subThresholdVal}`;
+
+    if (style === "numericOnly") {
+      formatted = `${prefix}< ${subThresholdVal}`;
+    } else if (config.isFiatPrefix) {
+      if (style === "withSymbol") {
+        formatted = `${prefix}< $${subThresholdVal} ${config.symbol}`;
+      } else {
+        formatted = `${prefix}< $${subThresholdVal}`;
+      }
+    } else {
+      formatted = `${prefix}< ${subThresholdVal} ${config.symbol}`;
+    }
+  } else {
+    const numericStr = formatBaseUnitsToString(
+      absRaw,
+      decimals,
+      minDigits,
+      maxDigits,
+      roundingMode
+    );
+    numeric = numericStr;
+
+    let prefixPart = "";
+    if (isNegative) {
+      prefixPart = prefix === "~" ? "~-" : "-";
+    } else if (prefix) {
+      prefixPart = prefix;
+    }
+
+    if (style === "numericOnly") {
+      formatted = `${prefixPart}${numericStr}`;
+    } else if (config.isFiatPrefix) {
+      if (style === "withSymbol") {
+        formatted = `${prefixPart}$${numericStr} ${config.symbol}`;
+      } else {
+        formatted = `${prefixPart}$${numericStr}`;
+      }
+    } else {
+      formatted = `${prefixPart}${numericStr} ${config.symbol}`;
+    }
+  }
+
+  return {
+    formatted,
+    numeric,
+    full,
+    fullWithSymbol,
+    isBelowThreshold,
+    isZero,
+    rawBaseUnits: raw,
+  };
+}
+
+/** Canonical alias for backwards compatibility during migration */
+export const formatBalanceAmount = formatTokenBalance;
+
+/**
+ * Formats on-chain base-unit amounts to localized currency strings with strict floor truncation by default.
+ */
 export function formatCurrency(
   amountBase: bigint | number | string | null | undefined,
   pool: CurrencyTokenInfo | null | undefined,
@@ -499,82 +695,11 @@ export function formatCurrency(
   poolOrOptions?: CurrencyTokenInfo | FormatCurrencyOptions | null,
   overrides?: Omit<FormatCurrencyOptions, "tokenSymbol" | "decimals">
 ): string {
-  let options: FormatCurrencyOptions = {};
-  if (poolOrOptions) {
-    if ("tokenDecimals" in poolOrOptions || overrides !== undefined) {
-      const pool = poolOrOptions as CurrencyTokenInfo;
-      options = {
-        tokenSymbol: pool.tokenSymbol,
-        decimals: pool.tokenDecimals,
-        ...overrides,
-      };
-    } else {
-      options = poolOrOptions as FormatCurrencyOptions;
-    }
-  } else if (overrides) {
-    options = { ...overrides };
-  }
-
-  const fallback = options.fallback ?? "—";
-
-  if (amountBase === null || amountBase === undefined) {
-    return fallback;
-  }
-  if (typeof amountBase === "number" && Number.isNaN(amountBase)) {
-    return fallback;
-  }
-  if (typeof amountBase === "string" && amountBase.trim() === "") {
-    return fallback;
-  }
-
-  if (process.env.NODE_ENV === "development") {
-    if (typeof amountBase === "number" && !Number.isInteger(amountBase)) {
-      console.warn(
-        `[formatCurrency] Received float number "${amountBase}" as base units. Base units should be integers or BigInt. Use formatUiCurrency if the value is already in UI decimal units.`
-      );
-    }
-  }
-
-  const config = getTokenFormattingConfig(options.tokenSymbol);
-  const decimals = options.decimals ?? config.defaultDecimals;
-  const minDigits = options.minFractionDigits ?? config.displayDecimals;
-  const maxDigits =
-    options.maxFractionDigits ?? Math.max(minDigits, config.displayDecimals);
-  const style = options.style ?? "standard";
-  const prefix = options.prefix ?? "";
-  const roundingMode = options.roundingMode ?? "round";
-
-  const raw = toSafeBigInt(amountBase);
-  const isNegative = raw < 0n;
-  const absRaw = isNegative ? -raw : raw;
-
-  const numericStr = formatBaseUnitsToString(
-    absRaw,
-    decimals,
-    minDigits,
-    maxDigits,
-    roundingMode
-  );
-
-  let prefixPart = "";
-  if (isNegative) {
-    prefixPart = prefix === "~" ? "~-" : "-";
-  } else if (prefix) {
-    prefixPart = prefix;
-  }
-
-  if (style === "numericOnly") {
-    return `${prefixPart}${numericStr}`;
-  }
-
-  if (config.isFiatPrefix) {
-    if (style === "withSymbol") {
-      return `${prefixPart}$${numericStr} ${config.symbol}`;
-    }
-    return `${prefixPart}$${numericStr}`;
-  }
-
-  return `${prefixPart}${numericStr} ${config.symbol}`;
+  return formatTokenBalance(
+    amountBase,
+    poolOrOptions as CurrencyTokenInfo | FormatTokenBalanceOptions | null,
+    overrides
+  ).formatted;
 }
 
 export function createCurrencyFormatter(pool?: CurrencyTokenInfo) {
@@ -593,9 +718,15 @@ export interface FormatUiCurrencyOptions {
   maxFractionDigits?: number;
   style?: CurrencyDisplayStyle;
   prefix?: "+" | "~" | (string & {});
+  roundingMode?: RoundingMode;
   fallback?: string;
 }
 
+/**
+ * Formats decimal float UI values (already in token units, e.g. SOL fees or UI inputs).
+ * Supports "trunc" | "round" | "ceil" rounding modes with string/BigInt precision safety.
+ * Note: For on-chain base-unit balances, prefer `formatCurrency` or `formatTokenBalance`.
+ */
 export function formatUiCurrency(
   amountUi: number | null | undefined,
   options?: FormatUiCurrencyOptions
@@ -607,6 +738,7 @@ export function formatUiCurrency(
   ) {
     return options?.fallback ?? "—";
   }
+
   const config = getTokenFormattingConfig(options?.tokenSymbol);
   const minDigits =
     options?.minFractionDigits ??
@@ -615,11 +747,25 @@ export function formatUiCurrency(
     options?.maxFractionDigits ?? Math.max(minDigits, config.displayDecimals);
   const style = options?.style ?? "standard";
   const prefix = options?.prefix ?? "";
+  const roundingMode = options?.roundingMode ?? "trunc";
 
   const isNegative = amountUi < 0;
   const absVal = Math.abs(amountUi);
-  const fmt = getCachedNumberFormatter(minDigits, maxDigits);
-  const numericStr = fmt.format(absVal);
+
+  const fixedScale = 12;
+  const str = absVal.toFixed(fixedScale);
+  const parts = str.split(".");
+  const intPart = BigInt(parts[0] || "0");
+  const fracStr = (parts[1] || "").padEnd(fixedScale, "0").slice(0, fixedScale);
+  const scaledRaw = intPart * 10n ** BigInt(fixedScale) + BigInt(fracStr);
+
+  const numericStr = formatBaseUnitsToString(
+    scaledRaw,
+    fixedScale,
+    minDigits,
+    maxDigits,
+    roundingMode
+  );
 
   let prefixPart = "";
   if (isNegative) {
@@ -638,131 +784,6 @@ export function formatUiCurrency(
     return `${prefixPart}$${numericStr}`;
   }
   return `${prefixPart}${numericStr} ${config.symbol}`;
-}
-
-export interface FormatBalanceOptions {
-  decimals?: number;
-  tokenSymbol?: string;
-  displayDecimals?: number;
-  roundingMode?: "trunc" | "round";
-}
-
-export interface FormattedBalanceResult {
-  /** Truncated display string (e.g. "9.99" or "< 0.01") */
-  display: string;
-  /** Formatted with currency prefix/suffix (e.g. "$9.99 USDC" or "< $0.01 USDC" or "0.0543 SOL") */
-  displayWithCurrency: string;
-  /** Full precision string without scientific notation (e.g. "9.996000") */
-  full: string;
-  /** Full precision string with symbol (e.g. "9.996000 USDC") */
-  fullWithCurrency: string;
-  /** Whether the balance is non-zero but below the minimum display threshold */
-  isBelowThreshold: boolean;
-  /** Backwards-compatible alias for USD */
-  isSubCent: boolean;
-  /** Whether the balance is strictly zero */
-  isZero: boolean;
-  /** Raw base units as BigInt */
-  rawBaseUnits: bigint;
-}
-
-/**
- * Pure deterministic BigInt division & balance formatting engine.
- * Guarantees INV-FORMAT-002: DisplayAmount <= OnChainAmount.
- */
-export function formatBalanceAmount(
-  amountBase: bigint | number | string,
-  optionsOrDecimals?: FormatBalanceOptions | number,
-  legacyTokenSymbol?: string,
-  legacyDisplayDecimals?: number
-): FormattedBalanceResult {
-  const options: FormatBalanceOptions =
-    typeof optionsOrDecimals === "object"
-      ? optionsOrDecimals
-      : {
-          decimals: optionsOrDecimals,
-          tokenSymbol: legacyTokenSymbol,
-          displayDecimals: legacyDisplayDecimals,
-        };
-
-  const config = getTokenFormattingConfig(options.tokenSymbol);
-  const decimals = options.decimals ?? config.defaultDecimals;
-  const displayDecimals = options.displayDecimals ?? config.displayDecimals;
-  const roundingMode = options.roundingMode ?? "trunc";
-
-  let raw = toSafeBigInt(amountBase);
-  if (raw < 0n) raw = 0n;
-
-  const isZero = raw === 0n;
-  const divisor = 10n ** BigInt(decimals);
-
-  // 1. Full precision string (pure BigInt, zero IEEE-754 precision loss)
-  const fullWhole = raw / divisor;
-  const fullFrac =
-    decimals > 0 ? (raw % divisor).toString().padStart(decimals, "0") : "";
-  const full =
-    decimals > 0
-      ? `${fullWhole.toLocaleString("en-US")}.${fullFrac}`
-      : fullWhole.toLocaleString("en-US");
-  const fullWithCurrency = `${full} ${config.symbol}`;
-
-  // 2. Truncation and Sub-Threshold Evaluation
-  let display = "";
-  let isBelowThreshold = false;
-
-  if (isZero) {
-    display = displayDecimals > 0 ? `0.${"0".repeat(displayDecimals)}` : "0";
-  } else if (decimals >= displayDecimals) {
-    const scaleDiff = decimals - displayDecimals;
-    const thresholdBase = 10n ** BigInt(scaleDiff);
-
-    if (raw < thresholdBase && roundingMode === "trunc") {
-      isBelowThreshold = true;
-      const subThresholdVal =
-        displayDecimals > 0 ? `0.${"0".repeat(displayDecimals - 1)}1` : "1";
-      display = `< ${subThresholdVal}`;
-    } else {
-      display = formatBaseUnitsToString(
-        raw,
-        decimals,
-        displayDecimals,
-        displayDecimals,
-        roundingMode
-      );
-    }
-  } else {
-    // decimals < displayDecimals (e.g. 0-decimal token with displayDecimals=2)
-    display = formatBaseUnitsToString(
-      raw,
-      decimals,
-      displayDecimals,
-      displayDecimals,
-      roundingMode
-    );
-  }
-
-  // 3. Display with Currency Prefix/Suffix
-  let displayWithCurrency = "";
-  if (config.isFiatPrefix) {
-    if (isBelowThreshold) {
-      displayWithCurrency = `< $${display.replace("< ", "")} ${config.symbol}`;
-    } else {
-      displayWithCurrency = `$${display} ${config.symbol}`;
-    }
-  } else {
-    displayWithCurrency = `${display} ${config.symbol}`;
-  }
-
-  return {
-    display,
-    displayWithCurrency,
-    full,
-    fullWithCurrency,
-    isBelowThreshold,
-    isSubCent: isBelowThreshold,
-    isZero,
-    rawBaseUnits: raw,
-  };
 }
 
 /**
@@ -956,9 +977,9 @@ export interface FormatTokenOptions {
   maxFractionDigits?: number;
 }
 
-/** Format base-unit amount to human-readable string with commas. */
+/** Format base-unit amount to human-readable string with commas and strict floor truncation. */
 export function formatTokenAmount(
-  amount: number | bigint,
+  amount: number | bigint | string | null | undefined,
   decimalsOrOptions?: number | FormatTokenOptions,
   minFractionDigits: number = 2,
   maxFractionDigits?: number
@@ -974,23 +995,23 @@ export function formatTokenAmount(
 
   const decimals = options.decimals ?? USDC_DECIMALS;
   const minFrac = options.minFractionDigits ?? 2;
-  const numAmount = typeof amount === "number" ? amount : Number(amount);
-  if (!Number.isFinite(numAmount)) {
-    if (process.env.NODE_ENV === "development") {
-      console.warn(
-        `[formatTokenAmount] Invalid non-finite amount received: ${amount}. Defaulting to 0.`
-      );
-    }
-  }
-  const safeAmount = Number.isFinite(numAmount) ? numAmount : 0;
+  const maxFrac =
+    options.maxFractionDigits ??
+    (options.minFractionDigits !== undefined && options.minFractionDigits < 2
+      ? options.minFractionDigits
+      : Math.max(options.minFractionDigits ?? 2, 6));
 
-  const finalMax =
-    options.maxFractionDigits ?? (minFrac < 2 ? minFrac : Math.max(minFrac, 6));
+  const raw = toSafeBigInt(amount ?? 0);
+  const absRaw = raw < 0n ? -raw : raw;
+  const prefix = raw < 0n ? "-" : "";
 
-  return (safeAmount / 10 ** decimals).toLocaleString("en-US", {
-    minimumFractionDigits: minFrac,
-    maximumFractionDigits: finalMax,
-  });
+  return `${prefix}${formatBaseUnitsToString(
+    absRaw,
+    decimals,
+    minFrac,
+    maxFrac,
+    "trunc"
+  )}`;
 }
 
 /** Map tier index to a Tailwind color class. */

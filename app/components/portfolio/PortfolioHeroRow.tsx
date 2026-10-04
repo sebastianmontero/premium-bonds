@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  formatCurrency,
+  createCurrencyFormatter,
   calculateAnnualDrawEntries,
 } from "@/app/lib/formatters";
 import {
@@ -11,15 +11,15 @@ import {
 import { useTranslations } from "next-intl";
 
 interface PortfolioHeroRowProps {
-  netWorth: number;
-  investedAmount: number;
-  redeemingAmount: number;
-  unclaimedAmount?: number;
+  netWorth: number | bigint;
+  investedAmount: number | bigint;
+  redeemingAmount: number | bigint;
+  unclaimedAmount?: number | bigint;
   activeTickets: number;
   pendingTickets: number;
-  lifetimeWinnings: number;
-  autoReinvestedTotal: number;
-  nonReinvestedWinnings: number;
+  lifetimeWinnings: number | bigint;
+  autoReinvestedTotal: number | bigint;
+  nonReinvestedWinnings: number | bigint;
   tokenSymbol: string;
   tokenDecimals: number;
   currentDrawCycleId?: number;
@@ -30,7 +30,7 @@ export function PortfolioHeroRow({
   netWorth,
   investedAmount,
   redeemingAmount,
-  unclaimedAmount = 0,
+  unclaimedAmount = 0n,
   activeTickets,
   pendingTickets,
   lifetimeWinnings,
@@ -42,6 +42,7 @@ export function PortfolioHeroRow({
   stakeCycleDurationHrs = 168,
 }: PortfolioHeroRowProps) {
   const t = useTranslations("Portfolio");
+  const fmt = createCurrencyFormatter({ tokenSymbol, tokenDecimals });
 
   const totalTickets = activeTickets + pendingTickets;
   const cycleId =
@@ -94,10 +95,7 @@ export function PortfolioHeroRow({
             </InteractiveTooltip>
           </div>
           <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
-            {formatCurrency(netWorth, {
-              tokenSymbol,
-              decimals: tokenDecimals,
-            })}
+            {fmt(netWorth)}
           </p>
         </div>
 
@@ -110,10 +108,7 @@ export function PortfolioHeroRow({
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-white/25 hover:bg-white/[0.08] transition-all">
               <span className="font-mono font-medium text-on-surface">
-                {formatCurrency(investedAmount, {
-                  tokenSymbol,
-                  decimals: tokenDecimals,
-                })}
+                {fmt(investedAmount)}
               </span>
               <span>{t("bonds")}</span>
             </span>
@@ -127,10 +122,7 @@ export function PortfolioHeroRow({
             >
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-secondary/20 bg-secondary/10 px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-secondary/40 hover:bg-secondary/20 transition-all">
                 <span className="font-mono font-medium text-on-surface">
-                  {formatCurrency(redeemingAmount, {
-                    tokenSymbol,
-                    decimals: tokenDecimals,
-                  })}
+                  {fmt(redeemingAmount)}
                 </span>
                 <span>{t("redeeming")}</span>
               </span>
@@ -145,10 +137,7 @@ export function PortfolioHeroRow({
             >
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[11px] leading-tight text-amber-300 backdrop-blur-sm cursor-help hover:border-amber-500/45 hover:bg-amber-500/20 transition-all">
                 <span className="font-mono font-semibold text-amber-200">
-                  {formatCurrency(unclaimedAmount, {
-                    tokenSymbol,
-                    decimals: tokenDecimals,
-                  })}
+                  {fmt(unclaimedAmount)}
                 </span>
                 <span>{t("unclaimed")}</span>
               </span>
@@ -252,10 +241,7 @@ export function PortfolioHeroRow({
             </InteractiveTooltip>
           </div>
           <p className="font-display text-3xl font-bold tracking-tight text-gradient">
-            {formatCurrency(lifetimeWinnings, {
-              tokenSymbol,
-              decimals: tokenDecimals,
-            })}
+            {fmt(lifetimeWinnings)}
           </p>
         </div>
 
@@ -268,10 +254,7 @@ export function PortfolioHeroRow({
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-tertiary/20 bg-tertiary/10 px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-tertiary/40 hover:bg-tertiary/20 transition-all">
               <span className="font-mono font-medium text-on-surface">
-                {formatCurrency(autoReinvestedTotal, {
-                  tokenSymbol,
-                  decimals: tokenDecimals,
-                })}
+                {fmt(autoReinvestedTotal)}
               </span>
               <span>{t("reinvested")}</span>
             </span>
@@ -283,10 +266,7 @@ export function PortfolioHeroRow({
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-white/25 hover:bg-white/[0.08] transition-all">
               <span className="font-mono font-medium text-on-surface">
-                {formatCurrency(nonReinvestedWinnings, {
-                  tokenSymbol,
-                  decimals: tokenDecimals,
-                })}
+                {fmt(nonReinvestedWinnings)}
               </span>
               <span>{t("nonReinvested")}</span>
             </span>

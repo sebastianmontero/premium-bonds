@@ -35,6 +35,7 @@ export function TransactionFeeSummary({
             tokenSymbol: "SOL",
             prefix: "~",
             maxFractionDigits: 5,
+            roundingMode: "ceil",
           })}
         </span>
       </div>
@@ -69,6 +70,7 @@ export function TransactionFeeSummary({
                 tokenSymbol: "SOL",
                 prefix: "~",
                 maxFractionDigits: 5,
+                roundingMode: "ceil",
               })}
             </span>
           </div>
@@ -79,6 +81,7 @@ export function TransactionFeeSummary({
                 tokenSymbol: "SOL",
                 prefix: "~",
                 maxFractionDigits: 6,
+                roundingMode: "ceil",
               })}
             </span>
           </div>

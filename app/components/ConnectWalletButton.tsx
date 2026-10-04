@@ -64,16 +64,16 @@ export function ConnectWalletButton() {
           {/* Balance pill on sm+ screens */}
           <span
             className="hidden sm:inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary border-e border-outline-variant/30 pe-2.5 cursor-help"
-            title={usdc.formatted.fullWithCurrency}
+            title={usdc.formatted.fullWithSymbol}
             aria-label={t("balanceAriaLabel", {
-              display: usdc.formatted.displayWithCurrency,
-              full: usdc.formatted.fullWithCurrency,
+              display: usdc.formatted.formatted,
+              full: usdc.formatted.fullWithSymbol,
             })}
           >
             {isLoading ? (
               <span className="h-3.5 w-12 animate-pulse rounded bg-surface-container-highest inline-block" />
             ) : (
-              usdc.formatted.displayWithCurrency
+              usdc.formatted.formatted
             )}
           </span>
 
@@ -124,12 +124,12 @@ export function ConnectWalletButton() {
                 <>
                   <p
                     className="font-mono text-base font-bold text-on-surface mt-0.5 cursor-help"
-                    title={usdc.formatted.fullWithCurrency}
+                    title={usdc.formatted.fullWithSymbol}
                   >
-                    {usdc.formatted.displayWithCurrency}
+                    {usdc.formatted.formatted}
                   </p>
                   <p className="text-[11px] font-mono text-on-surface-variant/70 mt-0.5">
-                    ({usdc.formatted.fullWithCurrency})
+                    ({usdc.formatted.fullWithSymbol})
                   </p>
                 </>
               )}
@@ -145,9 +145,9 @@ export function ConnectWalletButton() {
               ) : (
                 <p
                   className="font-mono text-xs font-semibold text-on-surface mt-0.5 cursor-help"
-                  title={sol.formatted.fullWithCurrency}
+                  title={sol.formatted.fullWithSymbol}
                 >
-                  {sol.formatted.displayWithCurrency}
+                  {sol.formatted.formatted}
                 </p>
               )}
             </div>

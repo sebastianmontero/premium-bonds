@@ -3,13 +3,14 @@
 import React from "react";
 import { formatCurrency } from "@/app/lib/formatters";
 import { calculatePriorDustApplied } from "@/app/lib/draw-helpers";
+import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { useTranslations } from "next-intl";
 
 interface BonusBondDustBadgeProps {
   bondsBought: number;
-  amountWon: number;
-  bondPrice?: number;
-  usedPriorDust?: number;
+  amountWon: number | bigint;
+  bondPrice?: number | bigint;
+  usedPriorDust?: number | bigint;
   tokenDecimals?: number;
   tokenSymbol?: string;
   className?: string;
@@ -33,22 +34,15 @@ export function BonusBondDustBadge({
 
   const priorDustApplied = calculatePriorDustApplied(
     bondsBought,
-    amountWon,
-    bondPrice,
-    usedPriorDust
+    typeof amountWon === "bigint" ? Number(amountWon) : amountWon,
+    typeof bondPrice === "bigint" ? Number(bondPrice) : bondPrice,
+    typeof usedPriorDust === "bigint" ? Number(usedPriorDust) : usedPriorDust
   );
 
   const formattedPriorDust = formatCurrency(priorDustApplied, {
     tokenSymbol,
     decimals: tokenDecimals,
   });
-
-  const alignClass =
-    tooltipAlign === "left"
-      ? "start-0"
-      : tooltipAlign === "center"
-        ? "start-1/2 -translate-x-1/2"
-        : "end-0";
 
   return (
     <div
@@ -61,33 +55,31 @@ export function BonusBondDustBadge({
       </span>
 
       {priorDustApplied > 0 && (
-        <div className="relative group/priorDust shrink-0 inline-flex items-center">
-          <span
-            className="inline-flex items-center gap-0.5 border border-tertiary/30 bg-tertiary/15 px-1 py-0.5 text-[9px] font-semibold text-tertiary rounded cursor-help whitespace-nowrap"
-            title={tInspector("bonusDustTitle", {
-              amount: formattedPriorDust,
-            })}
-            aria-label={tInspector("bonusDustAria", {
-              bonds: bondsBought,
-              amount: formattedPriorDust,
-            })}
-          >
-            <span className="text-tertiary-bright font-bold">
-              {tInspector("bonusBondWithDust")}
-            </span>
+        <InteractiveTooltip
+          ariaLabel={tInspector("bonusDustAria", {
+            bonds: bondsBought,
+            amount: formattedPriorDust,
+          })}
+          align={tooltipAlign}
+          side="top"
+          triggerClassName="inline-flex items-center gap-0.5 border border-tertiary/30 bg-tertiary/15 px-1 py-0.5 text-[9px] font-semibold text-tertiary rounded cursor-help whitespace-nowrap hover:bg-tertiary/25 transition-colors p-0"
+          content={
+            <div className="space-y-0.5 text-start">
+              <strong className="text-tertiary block mb-0.5 font-semibold">
+                {tLedger("bonusTicket")}
+              </strong>
+              <p className="text-[10px] leading-normal text-on-surface-variant">
+                {tInspector("bonusBondDustNotice", {
+                  priorDust: formattedPriorDust,
+                })}
+              </p>
+            </div>
+          }
+        >
+          <span className="text-tertiary-bright font-bold">
+            {tInspector("bonusBondWithDust")}
           </span>
-
-          <div
-            className={`absolute bottom-full ${alignClass} mb-2 w-56 max-w-[calc(100vw-32px)] p-2.5 rounded-lg bg-[#0F111A] border border-tertiary/20 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/priorDust:opacity-100 group-focus/priorDust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-start whitespace-normal`}
-          >
-            <strong className="text-tertiary block mb-0.5">
-              {tLedger("bonusTicket")}
-            </strong>
-            {tInspector("bonusBondDustNotice", {
-              priorDust: formattedPriorDust,
-            })}
-          </div>
-        </div>
+        </InteractiveTooltip>
       )}
     </div>
   );

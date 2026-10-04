@@ -2,9 +2,10 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
-import { formatCurrency, formatBalanceAmount } from "@/app/lib/formatters";
+import { formatCurrency, formatTokenBalance } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
+import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { isInFlightStage } from "./TransactionProgressModal";
 import {
   useTransactionRunner,
@@ -61,13 +62,10 @@ export function WithdrawModal({
     userTickets.activeTicketsCount + userTickets.pendingTicketsCount;
   const parsedTickets = parseInt(ticketAmount, 10) || 0;
   const withdrawValue = parsedTickets * pool.bondPrice;
-  const bondBalanceFormatted = formatBalanceAmount(
-    maxTickets * pool.bondPrice,
-    {
-      decimals: pool.tokenDecimals,
-      tokenSymbol: pool.tokenSymbol,
-    }
-  );
+  const bondBalanceFormatted = formatTokenBalance(maxTickets * pool.bondPrice, {
+    decimals: pool.tokenDecimals,
+    tokenSymbol: pool.tokenSymbol,
+  });
   const canWithdraw =
     parsedTickets > 0 &&
     parsedTickets <= maxTickets &&
@@ -237,12 +235,26 @@ export function WithdrawModal({
               {t("availableBalance")}
             </span>
             <div className="text-right">
-              <p
-                className="font-display text-lg font-bold text-on-surface cursor-help"
-                title={bondBalanceFormatted.fullWithCurrency}
+              <InteractiveTooltip
+                ariaLabel={`${t("availableBalance")}: ${bondBalanceFormatted.formatted} (${bondBalanceFormatted.fullWithSymbol})`}
+                align="right"
+                side="top"
+                triggerClassName="cursor-help p-0 hover:text-primary transition-colors text-right"
+                content={
+                  <div className="text-left text-xs">
+                    <p className="font-semibold text-primary">
+                      {bondBalanceFormatted.fullWithSymbol}
+                    </p>
+                    <p className="text-[11px] text-on-surface-variant">
+                      {t("availableBalance")}
+                    </p>
+                  </div>
+                }
               >
-                {bondBalanceFormatted.displayWithCurrency}
-              </p>
+                <p className="font-display text-lg font-bold text-on-surface border-b border-dotted border-current/40">
+                  {bondBalanceFormatted.formatted}
+                </p>
+              </InteractiveTooltip>
               <p className="text-[10px] text-on-surface-variant">
                 {tPools("bondsBalanceSummary", {
                   count: maxTickets,
