@@ -611,7 +611,12 @@
     "ariaInspectDraw": "Inspect draw cycle #{cycleId}, status: {status}",
     "crankModalTitle": "Auto-Reinvest Winner Crank",
     "crankSuccessMsg": "Winner winnings were successfully processed and reinvested into new active bonds!",
-    "estimatedPrefix": "Est."
+    "estimatedPrefix": "Est.",
+    "badgeRolledOver": "Rolled Over",
+    "badgeRevoked": "Revoked",
+    "tooltipRolledOver": "Oracle VRF timed out; accrued yield was rolled over into reserves.",
+    "tooltipRevoked": "Draw cycle was voided; all prize allocations were returned to reserves.",
+    "srUnawardedPot": "Unawarded prize pot of {amount}, marked as {status}. {reason}"
   },
   "DrawInspector": {
     "modalTitle": "Draw Cycle #{cycleId} Inspector",
@@ -706,6 +711,7 @@
     "cryptographicProofFooter": "YieldBonds Cryptographic Proofs v1.0"
   },
   "Common": {
+    "subCentDustNote": "Sub-cent dust automatically rolls over into subsequent draws.",
     "tiers": {
       "tierN": "Tier {tier}",
       "grand": "Grand Prize",

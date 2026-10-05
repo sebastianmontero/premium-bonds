@@ -3,6 +3,10 @@
 import React from "react";
 import { formatCurrency } from "@/app/lib/formatters";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
+import {
+  DrawPrizePotBadge,
+  DrawPrizePotDisplay,
+} from "@/app/components/draws/DrawPrizePotDisplay";
 import type { DetailedDrawCycle, DrawDisplayConfig } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -103,15 +107,23 @@ export function DrawStatusAuditView({
       {/* ── 2. On-Chain Telemetry Grid ───────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
         <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
-          <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-            {t("prizePot")}
-          </p>
-          <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-            {formatCurrency(draw.prizePot, {
-              tokenSymbol,
-              decimals: tokenDecimals,
-            })}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-1">
+            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+              {t("prizePot")}
+            </p>
+            <DrawPrizePotBadge
+              status={draw.status}
+              prizePot={draw.prizePot}
+            />
+          </div>
+          <div className="text-base font-bold font-mono text-on-surface mt-1 truncate">
+            <DrawPrizePotDisplay
+              draw={draw}
+              tokenSymbol={tokenSymbol}
+              tokenDecimals={tokenDecimals}
+              layout="amount-only"
+            />
+          </div>
         </div>
 
         <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">

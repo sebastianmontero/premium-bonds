@@ -7,6 +7,7 @@ import {
   type CurrencyTokenInfo,
 } from "@/app/lib/formatters";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
+import { useTranslations } from "next-intl";
 
 export interface CurrencyAmountProps {
   amount: bigint | number | string | null | undefined;
@@ -29,6 +30,7 @@ export function CurrencyAmount({
   className = "",
   amountClassName = "",
 }: CurrencyAmountProps) {
+  const t = useTranslations("Common");
   const result = formatTokenBalance(amount, pool, options);
 
   // If tooltip is disabled or value is zero/fallback, render plain span
@@ -56,7 +58,7 @@ export function CurrencyAmount({
             </p>
             {result.isBelowThreshold && (
               <p className="text-[11px] text-on-surface-variant">
-                Sub-cent dust automatically rolls over into subsequent draws.
+                {t("subCentDustNote")}
               </p>
             )}
           </div>

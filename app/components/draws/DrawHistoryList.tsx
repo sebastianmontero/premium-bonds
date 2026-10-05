@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useTransition } from "react";
-import { formatCurrency } from "@/app/lib/formatters";
 import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
@@ -12,6 +11,7 @@ import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { PaginationControls } from "@/app/components/common/PaginationControls";
 import { DrawPayoutProgressBadge } from "@/app/components/draws/DrawPayoutProgressBadge";
+import { DrawPrizePotDisplay } from "@/app/components/draws/DrawPrizePotDisplay";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { SearchInput } from "@/app/components/common/SearchInput";
 import type { DrawCycleSummary, DrawStatusCountMap } from "@/app/types";
@@ -378,12 +378,14 @@ export function DrawHistoryList({
                     <p className="text-[10px] uppercase font-semibold text-on-surface-variant/70">
                       {t("colPrizePot")}
                     </p>
-                    <p className="font-mono text-sm font-bold text-on-surface mt-0.5">
-                      {formatCurrency(draw.prizePot, {
-                        tokenSymbol,
-                        decimals: tokenDecimals,
-                      })}
-                    </p>
+                    <div className="font-mono text-sm font-bold text-on-surface mt-0.5">
+                      <DrawPrizePotDisplay
+                        draw={draw}
+                        tokenSymbol={tokenSymbol}
+                        tokenDecimals={tokenDecimals}
+                        layout="wrap"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -460,7 +462,7 @@ export function DrawHistoryList({
                   </th>
                   <th
                     scope="col"
-                    className="py-3.5 px-4 text-right whitespace-nowrap"
+                    className="py-3.5 px-4 text-right whitespace-nowrap min-w-[170px]"
                   >
                     {t("colPrizePot")}
                   </th>
@@ -510,10 +512,12 @@ export function DrawHistoryList({
 
                     {/* Prize Pot */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-right font-mono font-bold text-on-surface">
-                      {formatCurrency(draw.prizePot, {
-                        tokenSymbol,
-                        decimals: tokenDecimals,
-                      })}
+                      <DrawPrizePotDisplay
+                        draw={draw}
+                        tokenSymbol={tokenSymbol}
+                        tokenDecimals={tokenDecimals}
+                        layout="inline-right"
+                      />
                     </td>
 
                     {/* Participating Bonds */}

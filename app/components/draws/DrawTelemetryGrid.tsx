@@ -7,6 +7,10 @@ import {
   InteractiveTooltip,
   InfoIcon,
 } from "@/app/components/common/InteractiveTooltip";
+import {
+  DrawPrizePotBadge,
+  DrawPrizePotDisplay,
+} from "@/app/components/draws/DrawPrizePotDisplay";
 import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import type { DetailedDrawCycle } from "@/app/types";
@@ -36,15 +40,23 @@ export function DrawTelemetryGrid({
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {/* 1. Prize Pot */}
       <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
-        <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-          {t("prizePot")}
-        </p>
-        <p className="text-base font-bold font-mono text-primary mt-1 truncate">
-          {formatCurrency(draw.prizePot, {
-            tokenSymbol,
-            decimals: tokenDecimals,
-          })}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+            {t("prizePot")}
+          </p>
+            <DrawPrizePotBadge
+              status={draw.status}
+              prizePot={draw.prizePot}
+            />
+        </div>
+        <div className="text-base font-bold font-mono text-primary mt-1 truncate">
+          <DrawPrizePotDisplay
+            draw={draw}
+            tokenSymbol={tokenSymbol}
+            tokenDecimals={tokenDecimals}
+            layout="amount-only"
+          />
+        </div>
       </div>
 
       {/* 2. Protocol Fee */}

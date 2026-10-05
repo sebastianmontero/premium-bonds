@@ -30,16 +30,22 @@ export const MOCK_HUMA_ERROR__INVALID_ACCOUNT_OWNER = 0x1775; // 6005
 export const MOCK_HUMA_ERROR__INVALID_POOL_STATE_DATA = 0x1776; // 6006
 /** InvalidLenderStateData: MockHuma: Lender state account data is too short (expected at least 16 bytes) */
 export const MOCK_HUMA_ERROR__INVALID_LENDER_STATE_DATA = 0x1777; // 6007
+/** NoEscrowedTokens: MockHuma: No escrowed PST tokens available for settlement */
+export const MOCK_HUMA_ERROR__NO_ESCROWED_TOKENS = 0x1778; // 6008
+/** ZeroSharesMinted: MockHuma: Zero shares minted for deposit */
+export const MOCK_HUMA_ERROR__ZERO_SHARES_MINTED = 0x1779; // 6009
 
 export type MockHumaError =
   | typeof MOCK_HUMA_ERROR__INVALID_ACCOUNT_OWNER
   | typeof MOCK_HUMA_ERROR__INVALID_LENDER_STATE_DATA
   | typeof MOCK_HUMA_ERROR__INVALID_POOL_STATE_DATA
   | typeof MOCK_HUMA_ERROR__MATH_OVERFLOW
+  | typeof MOCK_HUMA_ERROR__NO_ESCROWED_TOKENS
   | typeof MOCK_HUMA_ERROR__SIMULATED_CREATE_LENDER_FAILURE
   | typeof MOCK_HUMA_ERROR__SIMULATED_DEPOSIT_FAILURE
   | typeof MOCK_HUMA_ERROR__SIMULATED_DISBURSE_FAILURE
-  | typeof MOCK_HUMA_ERROR__SIMULATED_REDEMPTION_FAILURE;
+  | typeof MOCK_HUMA_ERROR__SIMULATED_REDEMPTION_FAILURE
+  | typeof MOCK_HUMA_ERROR__ZERO_SHARES_MINTED;
 
 let mockHumaErrorMessages: Record<MockHumaError, string> | undefined;
 if (process.env["NODE_ENV"] !== "production") {
@@ -48,10 +54,12 @@ if (process.env["NODE_ENV"] !== "production") {
     [MOCK_HUMA_ERROR__INVALID_LENDER_STATE_DATA]: `MockHuma: Lender state account data is too short (expected at least 16 bytes)`,
     [MOCK_HUMA_ERROR__INVALID_POOL_STATE_DATA]: `MockHuma: Pool state account data is too short (expected at least 46 bytes)`,
     [MOCK_HUMA_ERROR__MATH_OVERFLOW]: `MockHuma: Math overflow occurred`,
+    [MOCK_HUMA_ERROR__NO_ESCROWED_TOKENS]: `MockHuma: No escrowed PST tokens available for settlement`,
     [MOCK_HUMA_ERROR__SIMULATED_CREATE_LENDER_FAILURE]: `MockHuma: simulated create lender failure`,
     [MOCK_HUMA_ERROR__SIMULATED_DEPOSIT_FAILURE]: `MockHuma: simulated deposit failure`,
     [MOCK_HUMA_ERROR__SIMULATED_DISBURSE_FAILURE]: `MockHuma: simulated disburse failure`,
     [MOCK_HUMA_ERROR__SIMULATED_REDEMPTION_FAILURE]: `MockHuma: simulated redemption failure`,
+    [MOCK_HUMA_ERROR__ZERO_SHARES_MINTED]: `MockHuma: Zero shares minted for deposit`,
   };
 }
 

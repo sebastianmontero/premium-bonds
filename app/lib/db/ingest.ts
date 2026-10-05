@@ -12,7 +12,8 @@ import {
 import { ParsedProgramEvent, resolveEventMetadata } from "../anchor-events";
 import { sql, Table, eq, and } from "drizzle-orm";
 import {
-  ZERO_PRIZE_DRAW_STATUSES,
+  isZeroYieldDrawStatus,
+  isRolledBackDrawStatus,
   TERMINAL_DRAW_STATUSES,
   isUnoverridableDrawStatus,
 } from "../draw-helpers";
@@ -267,9 +268,20 @@ export function foldDrawHistoryRows(
         existing.status = r.status;
       }
 
-      if (ZERO_PRIZE_DRAW_STATUSES.includes(existing.status as never)) {
+      if (isZeroYieldDrawStatus(existing.status)) {
         existing.prizePot = 0n;
         existing.cycleFeeCollected = 0n;
+        existing.totalDistributed = 0n;
+      } else if (isRolledBackDrawStatus(existing.status)) {
+        // Protect authoritative harvest pot from dust truncation in DrawVoided
+        if (r.prizePot && r.prizePot > (existing.prizePot ?? 0n))
+          existing.prizePot = r.prizePot;
+        if (
+          r.cycleFeeCollected &&
+          r.cycleFeeCollected > (existing.cycleFeeCollected ?? 0n)
+        )
+          existing.cycleFeeCollected = r.cycleFeeCollected;
+        existing.totalDistributed = 0n;
       } else {
         if (r.prizePot > 0n) existing.prizePot = r.prizePot;
         if (r.cycleFeeCollected && r.cycleFeeCollected > 0n)
@@ -307,8 +319,14 @@ export function foldDrawHistoryRows(
       }
       if (r.winnersCount && r.winnersCount > 0)
         existing.winnersCount = r.winnersCount;
-      if (r.totalDistributed && r.totalDistributed > 0n)
+      if (
+        isRolledBackDrawStatus(existing.status) ||
+        isZeroYieldDrawStatus(existing.status)
+      ) {
+        existing.totalDistributed = 0n;
+      } else if (r.totalDistributed && r.totalDistributed > 0n) {
         existing.totalDistributed = r.totalDistributed;
+      }
       if (r.winnersSynced !== undefined) {
         existing.winnersSynced = Boolean(
           existing.winnersSynced || r.winnersSynced
@@ -514,13 +532,15 @@ export async function upsertDrawHistoryTx(
             ELSE EXCLUDED.status
           END`,
           prizePot: sql`CASE
-            WHEN ${drawHistory.status} IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
-            WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            WHEN ${drawHistory.status} IN ('Skipped', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            WHEN EXCLUDED.status IN ('Skipped', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            WHEN ${drawHistory.status} = 'Voided' AND ${drawHistory.prizePot} > 0 THEN GREATEST(${drawHistory.prizePot}, COALESCE(EXCLUDED.prize_pot, 0))
+            WHEN EXCLUDED.status = 'Voided' AND ${drawHistory.prizePot} > 0 THEN ${drawHistory.prizePot}
             ELSE COALESCE(NULLIF(EXCLUDED.prize_pot, 0), ${drawHistory.prizePot})
           END`,
           cycleFeeCollected: sql`CASE
-            WHEN ${drawHistory.status} IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
-            WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            WHEN ${drawHistory.status} IN ('Skipped', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            WHEN EXCLUDED.status IN ('Skipped', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
             ELSE COALESCE(NULLIF(EXCLUDED.cycle_fee_collected, 0), ${drawHistory.cycleFeeCollected})
           END`,
           lockedTicketCount: sql`CASE
@@ -534,7 +554,11 @@ export async function upsertDrawHistoryTx(
             ELSE ${drawHistory.randomnessAccount}
           END`,
           winnersCount: sql`COALESCE(NULLIF(EXCLUDED.winners_count, 0), ${drawHistory.winnersCount})`,
-          totalDistributed: sql`COALESCE(NULLIF(EXCLUDED.total_distributed, 0), ${drawHistory.totalDistributed})`,
+          totalDistributed: sql`CASE
+            WHEN ${drawHistory.status} IN ('Voided', 'ForceUnlocked', 'Skipped', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            WHEN EXCLUDED.status IN ('Voided', 'ForceUnlocked', 'Skipped', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            ELSE COALESCE(NULLIF(EXCLUDED.total_distributed, 0), ${drawHistory.totalDistributed})
+          END`,
           winnersSynced: sql`CASE
             WHEN ${drawHistory.winnersSynced} = true THEN true
             WHEN EXCLUDED.winners_synced = true THEN true
@@ -1000,6 +1024,7 @@ export function reduceBatchEvents(
             status: "ForceUnlocked",
             prizePot: BigInt(evt.data.prizePot),
             cycleFeeCollected: BigInt(evt.data.cycleFeeCollected),
+            totalDistributed: 0n,
             winnersSynced: true,
             completedAt: unlockedTimestamp,
             signature: context.signature,
@@ -1017,8 +1042,9 @@ export function reduceBatchEvents(
             poolId: evt.data.poolId,
             cycleId: evt.data.cycleId,
             status: "Voided",
-            prizePot: 0n,
-            cycleFeeCollected: 0n,
+            prizePot: BigInt(evt.data.prizesReversed || 0),
+            cycleFeeCollected: BigInt(evt.data.feesReversed || 0),
+            totalDistributed: 0n,
             winnersSynced: true,
             completedAt: voidedTimestamp,
             signature: context.signature,

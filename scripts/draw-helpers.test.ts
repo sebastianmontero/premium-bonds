@@ -20,6 +20,11 @@ import {
   hasPayoutRegistryPda,
   isHaltedStatus,
   isDrawStatusName,
+  isZeroYieldDrawStatus,
+  isRolledBackDrawStatus,
+  getDrawPrizePotPresentation,
+  ZERO_YIELD_DRAW_STATUSES,
+  ROLLED_BACK_DRAW_STATUSES,
   getSkippedDrawReason,
   normalizeRawSkipReason,
   getNoRandomnessExplanationKey,
@@ -955,5 +960,82 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     assert.strictEqual(options[0].value, "all");
     assert.strictEqual(options[1].value, "Complete");
     assert.ok(options[1].label.includes("(5)"));
+  });
+
+  it("should evaluate zero-yield and rolled-back draw statuses and prize pot presentations", () => {
+    // 1. Rolled-back status type guard
+    assert.strictEqual(isRolledBackDrawStatus("Voided"), true);
+    assert.strictEqual(isRolledBackDrawStatus("ForceUnlocked"), true);
+    assert.strictEqual(isRolledBackDrawStatus("Complete"), false);
+    assert.strictEqual(isRolledBackDrawStatus("Skipped"), false);
+    assert.strictEqual(isRolledBackDrawStatus("HaltedInsolvent"), false);
+    assert.strictEqual(isRolledBackDrawStatus(null), false);
+    assert.strictEqual(isRolledBackDrawStatus(undefined), false);
+
+    // 2. Zero-yield status type guard
+    assert.strictEqual(isZeroYieldDrawStatus("Skipped"), true);
+    assert.strictEqual(isZeroYieldDrawStatus("HaltedInsolvent"), true);
+    assert.strictEqual(isZeroYieldDrawStatus("HaltedYieldSpike"), true);
+    assert.strictEqual(isZeroYieldDrawStatus("Voided"), false);
+    assert.strictEqual(isZeroYieldDrawStatus("ForceUnlocked"), false);
+    assert.strictEqual(isZeroYieldDrawStatus("Complete"), false);
+    assert.strictEqual(isZeroYieldDrawStatus(null), false);
+
+    // 3. getDrawPrizePotPresentation for Voided
+    const voidedPres = getDrawPrizePotPresentation("Voided");
+    assert.deepStrictEqual(voidedPres, {
+      disposition: "rolled_back_revoked",
+      isStrikethrough: true,
+      badgeVariant: "revoked",
+      badgeKey: "badgeRevoked",
+      tooltipKey: "tooltipRevoked",
+      srKey: "srUnawardedPot",
+    });
+
+    // 4. getDrawPrizePotPresentation for ForceUnlocked
+    const forceUnlockedPres = getDrawPrizePotPresentation("ForceUnlocked");
+    assert.deepStrictEqual(forceUnlockedPres, {
+      disposition: "rolled_back_rollover",
+      isStrikethrough: true,
+      badgeVariant: "rolled_over",
+      badgeKey: "badgeRolledOver",
+      tooltipKey: "tooltipRolledOver",
+      srKey: "srUnawardedPot",
+    });
+
+    // 5. getDrawPrizePotPresentation for Zero-Yield statuses
+    for (const status of ZERO_YIELD_DRAW_STATUSES) {
+      const zeroPres = getDrawPrizePotPresentation(status);
+      assert.deepStrictEqual(zeroPres, {
+        disposition: "zero_yield",
+        isStrikethrough: false,
+        badgeVariant: null,
+        badgeKey: null,
+        tooltipKey: null,
+        srKey: null,
+      });
+    }
+
+    // 6. getDrawPrizePotPresentation for Complete
+    const completePres = getDrawPrizePotPresentation("Complete");
+    assert.deepStrictEqual(completePres, {
+      disposition: "awarded",
+      isStrikethrough: false,
+      badgeVariant: null,
+      badgeKey: null,
+      tooltipKey: null,
+      srKey: null,
+    });
+
+    // 7. getDrawPrizePotPresentation for In-Flight
+    const awaitingPres = getDrawPrizePotPresentation("AwaitingYield");
+    assert.deepStrictEqual(awaitingPres, {
+      disposition: "in_flight",
+      isStrikethrough: false,
+      badgeVariant: null,
+      badgeKey: null,
+      tooltipKey: null,
+      srKey: null,
+    });
   });
 });

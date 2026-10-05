@@ -71,14 +71,104 @@ export const TERMINAL_DRAW_STATUSES = [
 
 export type TerminalDrawStatus = (typeof TERMINAL_DRAW_STATUSES)[number];
 
-export const ZERO_PRIZE_DRAW_STATUSES = [
+/** Statuses where yield was never committed or was 0 (Skipped, Halted) */
+export const ZERO_YIELD_DRAW_STATUSES = [
   "Skipped",
-  "Voided",
   "HaltedInsolvent",
   "HaltedYieldSpike",
 ] as const satisfies readonly DrawStatusName[];
 
-export type ZeroPrizeDrawStatus = (typeof ZERO_PRIZE_DRAW_STATUSES)[number];
+export type ZeroYieldDrawStatus = (typeof ZERO_YIELD_DRAW_STATUSES)[number];
+
+/** Statuses where yield was harvested, but prize liabilities were rolled back to reserves */
+export const ROLLED_BACK_DRAW_STATUSES = [
+  "Voided",
+  "ForceUnlocked",
+] as const satisfies readonly DrawStatusName[];
+
+export type RolledBackDrawStatus = (typeof ROLLED_BACK_DRAW_STATUSES)[number];
+
+const ZERO_YIELD_SET: ReadonlySet<string> = new Set(ZERO_YIELD_DRAW_STATUSES);
+const ROLLED_BACK_SET: ReadonlySet<string> = new Set(ROLLED_BACK_DRAW_STATUSES);
+
+export function isZeroYieldDrawStatus(
+  status: unknown
+): status is ZeroYieldDrawStatus {
+  return typeof status === "string" && ZERO_YIELD_SET.has(status);
+}
+
+export function isRolledBackDrawStatus(
+  status: unknown
+): status is RolledBackDrawStatus {
+  return typeof status === "string" && ROLLED_BACK_SET.has(status);
+}
+
+export interface DrawPrizePotPresentation {
+  disposition:
+    | "awarded"
+    | "rolled_back_revoked"
+    | "rolled_back_rollover"
+    | "zero_yield"
+    | "in_flight";
+  isStrikethrough: boolean;
+  badgeVariant: "revoked" | "rolled_over" | null;
+  badgeKey: "badgeRevoked" | "badgeRolledOver" | null;
+  tooltipKey: "tooltipRevoked" | "tooltipRolledOver" | null;
+  srKey: "srUnawardedPot" | null;
+}
+
+export function getDrawPrizePotPresentation(
+  status: DrawStatusName | string
+): DrawPrizePotPresentation {
+  if (status === "Voided") {
+    return {
+      disposition: "rolled_back_revoked",
+      isStrikethrough: true,
+      badgeVariant: "revoked",
+      badgeKey: "badgeRevoked",
+      tooltipKey: "tooltipRevoked",
+      srKey: "srUnawardedPot",
+    };
+  }
+  if (status === "ForceUnlocked") {
+    return {
+      disposition: "rolled_back_rollover",
+      isStrikethrough: true,
+      badgeVariant: "rolled_over",
+      badgeKey: "badgeRolledOver",
+      tooltipKey: "tooltipRolledOver",
+      srKey: "srUnawardedPot",
+    };
+  }
+  if (isZeroYieldDrawStatus(status)) {
+    return {
+      disposition: "zero_yield",
+      isStrikethrough: false,
+      badgeVariant: null,
+      badgeKey: null,
+      tooltipKey: null,
+      srKey: null,
+    };
+  }
+  if (status === "Complete") {
+    return {
+      disposition: "awarded",
+      isStrikethrough: false,
+      badgeVariant: null,
+      badgeKey: null,
+      tooltipKey: null,
+      srKey: null,
+    };
+  }
+  return {
+    disposition: "in_flight",
+    isStrikethrough: false,
+    badgeVariant: null,
+    badgeKey: null,
+    tooltipKey: null,
+    srKey: null,
+  };
+}
 
 const TERMINAL_SET: ReadonlySet<string> = new Set(TERMINAL_DRAW_STATUSES);
 const UNOVERRIDABLE_SET: ReadonlySet<string> = new Set(

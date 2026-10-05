@@ -566,6 +566,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         cycleId: 10,
         status: "Complete",
         prizePot: 500_000_000n,
+        cycleFeeCollected: 50_000_000n,
         winnersCount: 3,
         totalDistributed: 450_000_000n,
         winnersSynced: false,
@@ -579,6 +580,8 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         cycleId: 10,
         status: "Voided",
         prizePot: 0n,
+        cycleFeeCollected: 0n,
+        totalDistributed: 0n,
         winnersSynced: true,
         signature: "sig3",
         blockTime: 1700000200,
@@ -594,8 +597,63 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         "Voided",
         "Complete must transition to Voided upon admin void"
       );
+      assert.strictEqual(
+        folded[0].prizePot,
+        500_000_000n,
+        "Preserves committed harvest prizePot on Voided"
+      );
+      assert.strictEqual(
+        folded[0].cycleFeeCollected,
+        50_000_000n,
+        "Preserves cycleFeeCollected on Voided"
+      );
+      assert.strictEqual(
+        folded[0].totalDistributed,
+        0n,
+        "Strictly zeroes totalDistributed on Voided"
+      );
       assert.strictEqual(folded[0].winnersSynced, true);
       assert.strictEqual(folded[0].blockTime, 1700000200);
+    });
+
+    it("should preserve Voided status, harvest prizePot, and 0n totalDistributed when Complete arrives out-of-order", () => {
+      const voidRow = {
+        poolId: 1,
+        cycleId: 10,
+        status: "Voided",
+        prizePot: 500_000_000n,
+        cycleFeeCollected: 50_000_000n,
+        totalDistributed: 0n,
+        winnersSynced: true,
+        signature: "sigVoid",
+        blockTime: 1700000200,
+      };
+
+      const completeRow = {
+        poolId: 1,
+        cycleId: 10,
+        status: "Complete",
+        prizePot: 500_000_000n,
+        cycleFeeCollected: 50_000_000n,
+        winnersCount: 3,
+        totalDistributed: 450_000_000n,
+        winnersSynced: false,
+        completedAt: 1700000100,
+        signature: "sigComplete",
+        blockTime: 1700000100,
+      };
+
+      const folded = foldDrawHistoryRows([
+        voidRow as never,
+        completeRow as never,
+      ]);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "Voided");
+      assert.strictEqual(folded[0].prizePot, 500_000_000n);
+      assert.strictEqual(folded[0].cycleFeeCollected, 50_000_000n);
+      assert.strictEqual(folded[0].totalDistributed, 0n);
+      assert.strictEqual(folded[0].winnersCount, 3);
+      assert.strictEqual(folded[0].winnersSynced, true);
     });
 
     it("should enforce immutability for terminal statuses (Voided, Skipped, ForceUnlocked)", () => {
@@ -1070,7 +1128,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       );
     });
 
-    it("should preserve lockedTicketCount when DrawVoided is folded with YieldHarvested", () => {
+    it("should preserve lockedTicketCount, harvest prizePot, and cycleFeeCollected when DrawVoided is folded with YieldHarvested", () => {
       const harvestRow = {
         poolId: 1,
         cycleId: 102,
@@ -1087,6 +1145,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         status: "Voided",
         prizePot: 0n,
         cycleFeeCollected: 0n,
+        totalDistributed: 0n,
         lockedTicketCount: undefined,
         signature: "sigVoid",
         blockTime: 1700000200,
@@ -1098,13 +1157,110 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       ]);
       assert.strictEqual(folded.length, 1);
       assert.strictEqual(folded[0].status, "Voided");
-      assert.strictEqual(folded[0].prizePot, 0n);
-      assert.strictEqual(folded[0].cycleFeeCollected, 0n);
+      assert.strictEqual(
+        folded[0].prizePot,
+        500_000_000n,
+        "Retains harvest prizePot upon DrawVoided"
+      );
+      assert.strictEqual(
+        folded[0].cycleFeeCollected,
+        50_000_000n,
+        "Retains cycleFeeCollected upon DrawVoided"
+      );
+      assert.strictEqual(
+        folded[0].totalDistributed,
+        0n,
+        "totalDistributed is strictly 0n"
+      );
       assert.strictEqual(
         folded[0].lockedTicketCount,
         500n,
         "Retains lockedTicketCount upon DrawVoided"
       );
+    });
+
+    it("should preserve harvest prizePot against dust truncation in DrawVoided regardless of folding order (commutativity)", () => {
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 105,
+        status: "AwaitingRandomness",
+        prizePot: 10_001n,
+        cycleFeeCollected: 1_000n,
+        signature: "sigHarvest",
+        blockTime: 1700000000,
+      };
+      const voidRow = {
+        poolId: 1,
+        cycleId: 105,
+        status: "Voided",
+        prizePot: 10_000n, // Truncated/reversed prizes
+        cycleFeeCollected: 1_000n,
+        totalDistributed: 0n,
+        signature: "sigVoid",
+        blockTime: 1700000100,
+      };
+
+      // Order A: YieldHarvested -> DrawVoided
+      const foldedA = foldDrawHistoryRows([
+        harvestRow as never,
+        voidRow as never,
+      ]);
+      assert.strictEqual(foldedA.length, 1);
+      assert.strictEqual(
+        foldedA[0].prizePot,
+        10_001n,
+        "Preserves full harvest pot (10,001n) over truncated reversal (10,000n) in Order A"
+      );
+      assert.strictEqual(foldedA[0].status, "Voided");
+      assert.strictEqual(foldedA[0].totalDistributed, 0n);
+
+      // Order B: DrawVoided -> YieldHarvested (out-of-order)
+      const foldedB = foldDrawHistoryRows([
+        voidRow as never,
+        harvestRow as never,
+      ]);
+      assert.strictEqual(foldedB.length, 1);
+      assert.strictEqual(
+        foldedB[0].prizePot,
+        10_001n,
+        "Preserves full harvest pot (10,001n) over truncated reversal (10,000n) in Order B"
+      );
+      assert.strictEqual(foldedB[0].status, "Voided");
+      assert.strictEqual(foldedB[0].totalDistributed, 0n);
+    });
+
+    it("should preserve harvest prizePot and 0n totalDistributed when DrawForceUnlocked is folded out-of-order", () => {
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 106,
+        status: "AwaitingRandomness",
+        prizePot: 50_000_000n,
+        cycleFeeCollected: 5_000_000n,
+        lockedTicketCount: 1_000n,
+        signature: "sigHarvest",
+        blockTime: 1700000000,
+      };
+      const forceUnlockedRow = {
+        poolId: 1,
+        cycleId: 106,
+        status: "ForceUnlocked",
+        prizePot: 50_000_000n,
+        cycleFeeCollected: 0n,
+        totalDistributed: 0n,
+        signature: "sigForceUnlock",
+        blockTime: 1700000200,
+      };
+
+      const folded = foldDrawHistoryRows([
+        forceUnlockedRow as never,
+        harvestRow as never,
+      ]);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "ForceUnlocked");
+      assert.strictEqual(folded[0].prizePot, 50_000_000n);
+      assert.strictEqual(folded[0].cycleFeeCollected, 5_000_000n);
+      assert.strictEqual(folded[0].totalDistributed, 0n);
+      assert.strictEqual(folded[0].lockedTicketCount, 1_000n);
     });
 
     it("should record accurate lockedTicketCount for DrawSkipped with 0n and positive count", () => {

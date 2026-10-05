@@ -611,7 +611,12 @@
     "ariaInspectDraw": "Inspeccionar sorteo #{cycleId}, estado: {status}",
     "crankModalTitle": "Ejecución de Auto-Reinversión",
     "crankSuccessMsg": "¡Las ganancias fueron procesadas y reinvertidas exitosamente en nuevos bonos activos!",
-    "estimatedPrefix": "Est."
+    "estimatedPrefix": "Est.",
+    "badgeRolledOver": "Transferido",
+    "badgeRevoked": "Anulado",
+    "tooltipRolledOver": "Tiempo de espera del oráculo; el rendimiento acumulado se reintegró a las reservas.",
+    "tooltipRevoked": "Sorteo anulado; todas las asignaciones de premios fueron devueltas a las reservas.",
+    "srUnawardedPot": "Bolsa de premios no adjudicada de {amount}, marcada como {status}. {reason}"
   },
   "DrawInspector": {
     "modalTitle": "Inspector del Sorteo #{cycleId}",
@@ -706,6 +711,7 @@
     "cryptographicProofFooter": "Pruebas Criptográficas YieldBonds v1.0"
   },
   "Common": {
+    "subCentDustNote": "El remanente menor a un centavo se acumula automáticamente para los siguientes sorteos.",
     "tiers": {
       "tierN": "Nivel {tier}",
       "grand": "Gran Premio",
