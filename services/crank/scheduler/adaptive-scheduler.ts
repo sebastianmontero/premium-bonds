@@ -9,7 +9,7 @@ import {
   createResilientRpc,
   isRetryableRpcError,
   isRateLimitRpcError,
-  getRetryAfterMs,
+  RateLimitCoordinator,
   type ResilientRpcClient,
 } from "../../../app/lib/rpc-transport";
 import { CrankConfig } from "../config";
@@ -52,7 +52,10 @@ export class AdaptiveCrankScheduler {
   private readonly context: CrankExecutionContext;
   private readonly inFlightPools: Set<number> = new Set();
   private readonly nextEligibleTickMs: Map<number, number> = new Map();
-  private globalRpcCooldownUntil = 0;
+  private readonly rateLimiter = new RateLimitCoordinator({
+    defaultFallbackCooldownMs: DEFAULT_RATE_LIMIT_COOLDOWN_MS,
+    defaultJitterMs: DEFAULT_RATE_LIMIT_JITTER_MS,
+  });
   private readonly maxConcurrentPools = 3;
   private authorizationVerified = false;
   private readonly activeCyclesObserved: Map<number, number> = new Map();
@@ -61,6 +64,14 @@ export class AdaptiveCrankScheduler {
     rpc: ResilientRpcClient,
     poolId: number
   ) => Promise<PoolStateSnapshot | null>;
+
+  get globalRpcCooldownUntil(): number {
+    return this.rateLimiter.getCooldownUntil();
+  }
+
+  set globalRpcCooldownUntil(targetMs: number) {
+    this.rateLimiter.setCooldownUntil(targetMs);
+  }
 
   constructor(
     private readonly config: CrankConfig,
@@ -79,6 +90,7 @@ export class AdaptiveCrankScheduler {
     this.rpc =
       rpc ??
       createResilientRpc(config.rpcUrl, {
+        rateLimitCoordinator: this.rateLimiter,
         onRetry: (err, attempt, delayMs) => {
           this.metrics.incrementError("rpc", "retry");
           const msg = err instanceof Error ? err.message : String(err);
@@ -160,18 +172,8 @@ export class AdaptiveCrankScheduler {
   }
 
   private applyRateLimitCooldown(poolId: number, err?: unknown): void {
-    const retryAfterMs = err ? getRetryAfterMs(err) : null;
-    const baseDelay =
-      retryAfterMs && retryAfterMs > 0
-        ? retryAfterMs
-        : DEFAULT_RATE_LIMIT_COOLDOWN_MS;
-    const delay = baseDelay + Math.random() * DEFAULT_RATE_LIMIT_JITTER_MS;
-    const cooldownTarget = Date.now() + delay;
-    this.nextEligibleTickMs.set(poolId, cooldownTarget);
-    this.globalRpcCooldownUntil = Math.max(
-      this.globalRpcCooldownUntil,
-      cooldownTarget
-    );
+    const delay = this.rateLimiter.applyCooldown(err);
+    this.nextEligibleTickMs.set(poolId, Date.now() + delay);
   }
 
   private async verifyJobsAccountAuthorization(): Promise<void> {
@@ -223,7 +225,7 @@ export class AdaptiveCrankScheduler {
   }
 
   async tickOnce(): Promise<boolean> {
-    if (Date.now() < this.globalRpcCooldownUntil) {
+    if (this.rateLimiter.isCoolingDown()) {
       return false;
     }
 
@@ -256,7 +258,7 @@ export class AdaptiveCrankScheduler {
       { length: Math.min(this.maxConcurrentPools, queue.length) },
       async () => {
         while (queue.length > 0) {
-          if (Date.now() < this.globalRpcCooldownUntil) {
+          if (this.rateLimiter.isCoolingDown()) {
             break; // Stop launching sibling pools if another pool triggered rate limiting
           }
           const poolId = queue.shift();
@@ -306,15 +308,12 @@ export class AdaptiveCrankScheduler {
       try {
         const hadActiveWork = await this.tickOnce();
 
-        const isCoolingDown = Date.now() < this.globalRpcCooldownUntil;
+        const isCoolingDown = this.rateLimiter.isCoolingDown();
         if (!isCoolingDown) {
           await this.updateSignerBalance();
         }
 
-        const cooldownRemaining = Math.max(
-          0,
-          this.globalRpcCooldownUntil - Date.now()
-        );
+        const cooldownRemaining = this.rateLimiter.getRemainingCooldownMs();
         const baseInterval = hadActiveWork
           ? this.config.activeWindowPollIntervalMs
           : this.config.pollIntervalMs;

@@ -9,6 +9,8 @@ import {
   calculateBackoffDelay,
   normalizeRpcPayload,
   createResilientRpc,
+  sleepAbortable,
+  RateLimitCoordinator,
   type BackoffConfig,
 } from "../rpc-transport";
 import {
@@ -30,6 +32,50 @@ function createMockHttpSolanaError(
 }
 
 describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
+  describe("sleepAbortable", () => {
+    it("should return immediately when delayMs is 0 or negative", async () => {
+      const start = Date.now();
+      await sleepAbortable(0);
+      await sleepAbortable(-10);
+      assert.ok(Date.now() - start < 50);
+    });
+
+    it("should reject immediately if signal is already aborted", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      await assert.rejects(
+        async () => {
+          await sleepAbortable(1000, controller.signal);
+        },
+        { name: "AbortError" }
+      );
+    });
+
+    it("should resolve normally after delay and clean up event listener", async () => {
+      const controller = new AbortController();
+      const start = Date.now();
+      await sleepAbortable(20, controller.signal);
+      const elapsed = Date.now() - start;
+      assert.ok(elapsed >= 15);
+    });
+
+    it("should reject immediately when signal aborts mid-sleep and clean up timer", async () => {
+      const controller = new AbortController();
+      const start = Date.now();
+      setTimeout(() => controller.abort(), 20);
+
+      await assert.rejects(
+        async () => {
+          await sleepAbortable(5000, controller.signal);
+        },
+        { name: "AbortError" }
+      );
+
+      const elapsed = Date.now() - start;
+      assert.ok(elapsed < 1000);
+    });
+  });
+
   describe("getErrorChain", () => {
     it("should traverse cause chain in order", () => {
       const err3 = new Error("Root cause");
@@ -85,6 +131,45 @@ describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
       assert.ok(ms !== null && ms > 10000 && ms <= 16000);
     });
 
+    it("should parse direct retry-after-ms header", () => {
+      const solanaErr = createMockHttpSolanaError(429, {
+        "retry-after-ms": "3500",
+      });
+      assert.strictEqual(getRetryAfterMs(solanaErr), 3500);
+    });
+
+    it("should parse x-ratelimit-reset relative seconds", () => {
+      const solanaErr = createMockHttpSolanaError(429, {
+        "x-ratelimit-reset": "8",
+      });
+      assert.strictEqual(getRetryAfterMs(solanaErr), 8000);
+    });
+
+    it("should parse x-ratelimit-reset epoch seconds", () => {
+      const futureEpochSec = Math.floor(Date.now() / 1000) + 15;
+      const solanaErr = createMockHttpSolanaError(429, {
+        "x-ratelimit-reset": String(futureEpochSec),
+      });
+      const ms = getRetryAfterMs(solanaErr);
+      assert.ok(ms !== null && ms > 10000 && ms <= 16000);
+    });
+
+    it("should parse x-ratelimit-reset epoch milliseconds", () => {
+      const futureEpochMs = Date.now() + 20000;
+      const solanaErr = createMockHttpSolanaError(429, {
+        "x-ratelimit-reset": String(futureEpochMs),
+      });
+      const ms = getRetryAfterMs(solanaErr);
+      assert.ok(ms !== null && ms > 15000 && ms <= 21000);
+    });
+
+    it("should enforce 1000ms minimum floor on parsed delays", () => {
+      const solanaErr = createMockHttpSolanaError(429, {
+        "retry-after-ms": "50",
+      });
+      assert.strictEqual(getRetryAfterMs(solanaErr), 1000);
+    });
+
     it("should find retry-after nested in error cause", () => {
       const httpErr = createMockHttpSolanaError(429, { "Retry-After": "8" });
       const wrapperErr = new Error("Transport failed", { cause: httpErr });
@@ -95,6 +180,96 @@ describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
       const httpErr = createMockHttpSolanaError(429, {});
       assert.strictEqual(getRetryAfterMs(httpErr), null);
       assert.strictEqual(getRetryAfterMs(new Error("generic error")), null);
+    });
+  });
+
+  describe("RateLimitCoordinator", () => {
+    it("should manage cooldown window and report cooling down status correctly", () => {
+      let simulatedTime = 1000;
+      const coordinator = new RateLimitCoordinator({
+        defaultFallbackCooldownMs: 5000,
+        defaultJitterMs: 0,
+        minCooldownFloorMs: 1000,
+        now: () => simulatedTime,
+      });
+
+      assert.strictEqual(coordinator.isCoolingDown(), false);
+      assert.strictEqual(coordinator.getRemainingCooldownMs(), 0);
+
+      const delay = coordinator.applyCooldown();
+      assert.strictEqual(delay, 5000);
+      assert.strictEqual(coordinator.isCoolingDown(), true);
+      assert.strictEqual(coordinator.getCooldownUntil(), 6000);
+      assert.strictEqual(coordinator.getRemainingCooldownMs(), 5000);
+
+      simulatedTime = 4000;
+      assert.strictEqual(coordinator.isCoolingDown(), true);
+      assert.strictEqual(coordinator.getRemainingCooldownMs(), 2000);
+
+      simulatedTime = 6000;
+      assert.strictEqual(coordinator.isCoolingDown(), false);
+      assert.strictEqual(coordinator.getRemainingCooldownMs(), 0);
+    });
+
+    it("should allow setCooldownUntil to modify cooldown target directly", () => {
+      const coordinator = new RateLimitCoordinator();
+      coordinator.setCooldownUntil(50000);
+      assert.strictEqual(coordinator.getCooldownUntil(), 50000);
+
+      coordinator.reset();
+      assert.strictEqual(coordinator.getCooldownUntil(), 0);
+      assert.strictEqual(coordinator.isCoolingDown(), false);
+    });
+
+    it("should take max target timestamp across concurrent applyCooldown calls", () => {
+      const simulatedTime = 1000;
+      const coordinator = new RateLimitCoordinator({
+        defaultJitterMs: 0,
+        now: () => simulatedTime,
+      });
+
+      coordinator.recordCooldown(3000); // target 4000
+      assert.strictEqual(coordinator.getCooldownUntil(), 4000);
+
+      coordinator.recordCooldown(2000); // target 3000 < 4000
+      assert.strictEqual(coordinator.getCooldownUntil(), 4000);
+
+      coordinator.recordCooldown(5000); // target 6000 > 4000
+      assert.strictEqual(coordinator.getCooldownUntil(), 6000);
+    });
+
+    it("should abort waitForCooldown immediately if signal is aborted", async () => {
+      const coordinator = new RateLimitCoordinator();
+      coordinator.setCooldownUntil(Date.now() + 10000);
+
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 20);
+
+      const start = Date.now();
+      await assert.rejects(
+        async () => {
+          await coordinator.waitForCooldown(controller.signal);
+        },
+        { name: "AbortError" }
+      );
+      assert.ok(Date.now() - start < 1000);
+    });
+
+    it("should loop in waitForCooldown and wait longer if another request extends cooldown", async () => {
+      const coordinator = new RateLimitCoordinator({
+        defaultStaggerJitterMs: 0,
+      });
+      coordinator.setCooldownUntil(Date.now() + 40);
+
+      // Extend cooldown while waiting
+      setTimeout(() => {
+        coordinator.setCooldownUntil(Date.now() + 80);
+      }, 20);
+
+      const start = Date.now();
+      await coordinator.waitForCooldown();
+      const elapsed = Date.now() - start;
+      assert.ok(elapsed >= 70, `Expected elapsed >= 70ms, got ${elapsed}ms`);
     });
   });
 
@@ -158,6 +333,7 @@ describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
       const err503 = createMockHttpSolanaError(503);
       assert.strictEqual(isRetryableRpcError(err408), true);
       assert.strictEqual(isRetryableRpcError(err500), true);
+      assert.strictEqual(isRetryableRpcError(err500), true);
       assert.strictEqual(isRetryableRpcError(err503), true);
     });
 
@@ -219,7 +395,6 @@ describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
     };
 
     it("should enforce Equal Jitter bounds (50% floor and 100% ceiling)", () => {
-      // Attempt 1: exponentialDelay = 500ms -> delay range [250ms, 500ms]
       for (let i = 0; i < 50; i++) {
         const delay = calculateBackoffDelay(1, config);
         assert.ok(
@@ -228,7 +403,6 @@ describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
         );
       }
 
-      // Attempt 2: exponentialDelay = 1000ms -> delay range [500ms, 1000ms]
       for (let i = 0; i < 50; i++) {
         const delay = calculateBackoffDelay(2, config);
         assert.ok(
@@ -237,7 +411,6 @@ describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
         );
       }
 
-      // Attempt 3: exponentialDelay = 2000ms -> delay range [1000ms, 2000ms]
       for (let i = 0; i < 50; i++) {
         const delay = calculateBackoffDelay(3, config);
         assert.ok(
@@ -353,8 +526,16 @@ describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
         };
       };
 
+      const coordinator = new RateLimitCoordinator({
+        defaultFallbackCooldownMs: 20,
+        defaultJitterMs: 0,
+        defaultStaggerJitterMs: 0,
+        minCooldownFloorMs: 10,
+      });
+
       const rpc = createResilientRpc("http://mock-rpc", {
         transport: mockTransport,
+        rateLimitCoordinator: coordinator,
         initialDelayMs: 10,
         maxDelayMs: 50,
         onRetry: (_err, attempt) => {
@@ -371,13 +552,63 @@ describe("RPC Resilient Transport Unit Tests (rpc-transport.test.ts)", () => {
       assert.strictEqual(res.value, null);
     });
 
+    it("should pause concurrent requests when one request hits 429", async () => {
+      const coordinator = new RateLimitCoordinator({
+        defaultFallbackCooldownMs: 80,
+        defaultJitterMs: 0,
+        defaultStaggerJitterMs: 0,
+        minCooldownFloorMs: 50,
+      });
+
+      let callCount = 0;
+      const timestamps: { req: string; time: number }[] = [];
+
+      const mockTransport: any = async (req: any) => {
+        callCount++;
+        timestamps.push({ req: req.payload.params[0], time: Date.now() });
+        if (callCount === 1) {
+          // First call triggers 429
+          throw createMockHttpSolanaError(429);
+        }
+        return {
+          jsonrpc: "2.0",
+          id: req.payload?.id ?? 1,
+          result: { context: { slot: 123 }, value: null },
+        };
+      };
+
+      const rpc = createResilientRpc("http://mock-rpc", {
+        transport: mockTransport,
+        rateLimitCoordinator: coordinator,
+      });
+
+      // Dispatch Request A and Request B concurrently
+      const [resA, resB] = await Promise.all([
+        rpc.getAccountInfo(address("11111111111111111111111111111111")).send(),
+        (async () => {
+          // Slightly offset dispatch of B
+          await new Promise((r) => setTimeout(r, 10));
+          return rpc
+            .getAccountInfo(
+              address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+            )
+            .send();
+        })(),
+      ]);
+
+      assert.strictEqual(resA.value, null);
+      assert.strictEqual(resB.value, null);
+      // 3 network attempts total: A (failed 429), A (retry ok after 80ms), B (waited until cooldown expired, ok on 1st attempt)
+      assert.strictEqual(callCount, 3);
+    });
+
     it("should abort immediately and reject with AbortError when AbortSignal triggers during backoff sleep", async () => {
       const controller = new AbortController();
       let callCount = 0;
 
       const mockTransport: any = async () => {
         callCount++;
-        throw createMockHttpSolanaError(429);
+        throw createMockHttpSolanaError(500); // 500 uses backoff sleep
       };
 
       const rpc = createResilientRpc("http://mock-rpc", {

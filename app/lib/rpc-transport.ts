@@ -16,15 +16,49 @@ export interface BackoffConfig {
   readonly jitter: boolean;
 }
 
-export interface ResilientRpcConfig {
-  readonly maxRetries?: number;
-  readonly initialDelayMs?: number;
-  readonly maxDelayMs?: number;
-  readonly backoffFactor?: number;
-  readonly jitter?: boolean;
-  readonly onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
-  readonly headers?: Record<string, string>;
-  readonly transport?: Parameters<typeof createSolanaRpcFromTransport>[0];
+export interface RateLimitCoordinatorOptions {
+  readonly defaultFallbackCooldownMs?: number;
+  readonly defaultJitterMs?: number;
+  readonly defaultStaggerJitterMs?: number;
+  readonly minCooldownFloorMs?: number;
+  readonly now?: () => number;
+}
+
+export interface CooldownOverrideOptions {
+  readonly fallbackMs?: number;
+  readonly jitterMs?: number;
+}
+
+/**
+ * Centrally manages abortable timer delays, guaranteeing listener cleanup.
+ */
+export async function sleepAbortable(
+  delayMs: number,
+  signal?: AbortSignal
+): Promise<void> {
+  if (delayMs <= 0) return;
+  if (signal?.aborted) {
+    throw new DOMException("The operation was aborted.", "AbortError");
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let onAbort: (() => void) | undefined;
+    const timer = setTimeout(() => {
+      if (signal && onAbort) {
+        signal.removeEventListener("abort", onAbort);
+      }
+      resolve();
+    }, delayMs);
+
+    if (signal) {
+      onAbort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort!);
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
 }
 
 /**
@@ -41,8 +75,30 @@ export function* getErrorChain(err: unknown): Generator<unknown> {
   }
 }
 
+function parseHeaderValue(
+  headers: Headers | Record<string, string> | Map<string, string>,
+  targetName: string
+): string | null {
+  if (typeof (headers as Headers).get === "function") {
+    const val = (headers as Headers).get(targetName);
+    if (val !== null && val !== undefined) return val;
+  }
+  const target = targetName.toLowerCase();
+  const entries =
+    headers instanceof Map
+      ? headers.entries()
+      : Object.entries(headers as Record<string, string>);
+  for (const [key, value] of entries) {
+    if (key.toLowerCase() === target) {
+      return String(value);
+    }
+  }
+  return null;
+}
+
 /**
  * Extracts Retry-After delay in milliseconds from HTTP transport error headers if present.
+ * Inspects retry-after-ms, retry-after (seconds or HTTP date), and x-ratelimit-reset (relative or epoch).
  */
 export function getRetryAfterMs(err: unknown): number | null {
   for (const item of getErrorChain(err)) {
@@ -50,28 +106,121 @@ export function getRetryAfterMs(err: unknown): number | null {
       continue;
     }
     const context = item.context as
-      | { headers?: Headers | Record<string, string> }
+      | { headers?: Headers | Record<string, string> | Map<string, string> }
       | undefined;
     const headers = context?.headers;
     if (!headers) continue;
 
-    const headerVal =
-      typeof (headers as Headers).get === "function"
-        ? (headers as Headers).get("retry-after")
-        : ((headers as Record<string, string>)["retry-after"] ??
-          (headers as Record<string, string>)["Retry-After"]);
-    if (!headerVal) continue;
-
-    const seconds = Number(headerVal);
-    if (!isNaN(seconds) && seconds > 0) {
-      return seconds * 1000;
+    // 1. Direct milliseconds header
+    const msVal = parseHeaderValue(headers, "retry-after-ms");
+    if (msVal && !isNaN(Number(msVal))) {
+      return Math.max(1000, Number(msVal));
     }
-    const dateMs = Date.parse(headerVal);
-    if (!isNaN(dateMs)) {
-      return Math.max(0, dateMs - Date.now());
+
+    // 2. Standard Retry-After (seconds or HTTP-date)
+    const retryAfter = parseHeaderValue(headers, "retry-after");
+    if (retryAfter) {
+      const seconds = Number(retryAfter);
+      if (!isNaN(seconds) && seconds > 0) {
+        return Math.max(1000, seconds * 1000);
+      }
+      const dateMs = Date.parse(retryAfter);
+      if (!isNaN(dateMs)) {
+        return Math.max(1000, dateMs - Date.now());
+      }
+    }
+
+    // 3. x-ratelimit-reset (relative seconds, epoch seconds, or epoch ms)
+    const resetVal = parseHeaderValue(headers, "x-ratelimit-reset");
+    if (resetVal && !isNaN(Number(resetVal))) {
+      const num = Number(resetVal);
+      if (num > 10_000_000_000) {
+        // Epoch milliseconds (> 10 billion)
+        return Math.max(1000, num - Date.now());
+      } else if (num > 1_000_000_000) {
+        // Epoch seconds (1 billion to 10 billion)
+        return Math.max(1000, num * 1000 - Date.now());
+      } else if (num > 0) {
+        // Relative seconds
+        return Math.max(1000, num * 1000);
+      }
     }
   }
   return null;
+}
+
+/**
+ * Shared coordinator for RPC rate-limiting cooldown windows.
+ */
+export class RateLimitCoordinator {
+  private cooldownUntil = 0;
+  private readonly fallbackCooldownMs: number;
+  private readonly jitterMs: number;
+  private readonly defaultStaggerJitterMs: number;
+  private readonly minCooldownFloorMs: number;
+  private readonly now: () => number;
+
+  constructor(options?: RateLimitCoordinatorOptions) {
+    this.fallbackCooldownMs = options?.defaultFallbackCooldownMs ?? 10_000;
+    this.jitterMs = options?.defaultJitterMs ?? 500;
+    this.defaultStaggerJitterMs = options?.defaultStaggerJitterMs ?? 500;
+    this.minCooldownFloorMs = options?.minCooldownFloorMs ?? 1_000;
+    this.now = options?.now ?? Date.now;
+  }
+
+  applyCooldown(err?: unknown, overrides?: CooldownOverrideOptions): number {
+    const serverRetryAfterMs = err ? getRetryAfterMs(err) : null;
+    const baseDelay =
+      serverRetryAfterMs !== null && serverRetryAfterMs > 0
+        ? Math.max(this.minCooldownFloorMs, serverRetryAfterMs)
+        : (overrides?.fallbackMs ?? this.fallbackCooldownMs);
+    return this.recordCooldown(baseDelay, overrides?.jitterMs);
+  }
+
+  recordCooldown(baseDelayMs: number, customJitterMs?: number): number {
+    const jitter = Math.random() * (customJitterMs ?? this.jitterMs);
+    const effectiveDelay =
+      Math.max(this.minCooldownFloorMs, baseDelayMs) + jitter;
+    const target = this.now() + effectiveDelay;
+    this.cooldownUntil = Math.max(this.cooldownUntil, target);
+    return effectiveDelay;
+  }
+
+  setCooldownUntil(targetMs: number): void {
+    this.cooldownUntil = targetMs;
+  }
+
+  async waitForCooldown(
+    signal?: AbortSignal,
+    staggerJitterMs?: number
+  ): Promise<void> {
+    // Re-checking loop prevents premature wakeups if another request extended cooldownUntil
+    while (this.now() < this.cooldownUntil) {
+      if (signal?.aborted) {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+      const stagger =
+        Math.random() * (staggerJitterMs ?? this.defaultStaggerJitterMs);
+      const sleepMs = Math.max(0, this.cooldownUntil - this.now()) + stagger;
+      await sleepAbortable(sleepMs, signal);
+    }
+  }
+
+  isCoolingDown(): boolean {
+    return this.now() < this.cooldownUntil;
+  }
+
+  getRemainingCooldownMs(): number {
+    return Math.max(0, this.cooldownUntil - this.now());
+  }
+
+  getCooldownUntil(): number {
+    return this.cooldownUntil;
+  }
+
+  reset(): void {
+    this.cooldownUntil = 0;
+  }
 }
 
 /**
@@ -221,6 +370,18 @@ export function normalizeRpcPayload(payload: any): any {
   return payload;
 }
 
+export interface ResilientRpcConfig {
+  readonly maxRetries?: number;
+  readonly initialDelayMs?: number;
+  readonly maxDelayMs?: number;
+  readonly backoffFactor?: number;
+  readonly jitter?: boolean;
+  readonly onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
+  readonly headers?: Record<string, string>;
+  readonly transport?: Parameters<typeof createSolanaRpcFromTransport>[0];
+  readonly rateLimitCoordinator?: RateLimitCoordinator;
+}
+
 /**
  * Creates a Solana RPC client wrapped with a resilient transport that automatically
  * normalizes account queries to base64 encoding and retries transient network, socket,
@@ -238,9 +399,12 @@ export function createResilientRpc(
       headers: config?.headers as any,
     });
 
+  const coordinator =
+    config?.rateLimitCoordinator ?? new RateLimitCoordinator();
+
   const maxRetries = config?.maxRetries ?? 5;
   const initialDelayMs = config?.initialDelayMs ?? 500;
-  const maxDelayMs = config?.maxDelayMs ?? 8000;
+  const maxDelayMs = config?.maxDelayMs ?? 30000;
   const backoffFactor = config?.backoffFactor ?? 2;
   const useJitter = config?.jitter ?? true;
   const backoffConfig: BackoffConfig = {
@@ -259,12 +423,21 @@ export function createResilientRpc(
     };
     let attempt = 0;
     while (true) {
+      await coordinator.waitForCooldown(normalizedRequest.signal);
+
       if (normalizedRequest.signal?.aborted) {
         throw new DOMException("The operation was aborted.", "AbortError");
       }
       try {
         return (await defaultTransport(normalizedRequest)) as TResponse;
       } catch (err) {
+        let delayMs: number;
+        if (isRateLimitRpcError(err)) {
+          delayMs = coordinator.applyCooldown(err);
+        } else {
+          delayMs = calculateBackoffDelay(attempt + 1, backoffConfig);
+        }
+
         if (
           normalizedRequest.signal?.aborted ||
           !isRetryableRpcError(err) ||
@@ -274,12 +447,6 @@ export function createResilientRpc(
         }
 
         attempt++;
-        const retryAfterMs = getRetryAfterMs(err);
-        const delayMs = calculateBackoffDelay(
-          attempt,
-          backoffConfig,
-          retryAfterMs
-        );
 
         if (config?.onRetry) {
           config.onRetry(err, attempt, delayMs);
@@ -292,25 +459,11 @@ export function createResilientRpc(
           );
         }
 
-        // Abortable sleep timer: cancels immediately upon AbortSignal
-        await new Promise<void>((resolve, reject) => {
-          if (normalizedRequest.signal?.aborted) {
-            return reject(
-              new DOMException("The operation was aborted.", "AbortError")
-            );
-          }
-          const timer = setTimeout(resolve, delayMs);
-          normalizedRequest.signal?.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(timer);
-              reject(
-                new DOMException("The operation was aborted.", "AbortError")
-              );
-            },
-            { once: true }
-          );
-        });
+        if (isRateLimitRpcError(err)) {
+          // Skip calculateBackoffDelay sleep! Loop back to waitForCooldown as single delay source.
+        } else {
+          await sleepAbortable(delayMs, normalizedRequest.signal);
+        }
       }
     }
   };

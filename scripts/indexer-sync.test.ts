@@ -6,6 +6,10 @@ import {
 } from "./indexer-sync";
 import { DatabaseNotConfiguredError } from "../app/lib/db";
 import { resolveNetwork } from "../app/lib/network";
+import {
+  createResilientRpc,
+  RateLimitCoordinator,
+} from "../app/lib/rpc-transport";
 
 describe("Indexer Sync Suite", () => {
   describe("CLI Argument Parsing", () => {
@@ -16,6 +20,9 @@ describe("Indexer Sync Suite", () => {
         maxTransactions: undefined,
         rpcUrl: undefined,
         network: undefined,
+        batchSize: undefined,
+        batchDelayMs: undefined,
+        maxRetries: undefined,
       });
     });
 
@@ -43,6 +50,20 @@ describe("Indexer Sync Suite", () => {
       assert.strictEqual(options.rpcUrl, "https://api.devnet.solana.com");
       assert.strictEqual(options.network, "devnet");
       assert.strictEqual(options.backfill, true);
+    });
+
+    it("should parse --batch-size, --batch-delay, and --max-retries flags", () => {
+      const options = parseIndexerSyncArgs([
+        "--batch-size",
+        "2",
+        "--batch-delay",
+        "150",
+        "--max-retries",
+        "4",
+      ]);
+      assert.strictEqual(options.batchSize, 2);
+      assert.strictEqual(options.batchDelayMs, 150);
+      assert.strictEqual(options.maxRetries, 4);
     });
   });
 
@@ -81,7 +102,8 @@ describe("Indexer Sync Suite", () => {
 
   describe("Mock RPC & Execution Telemetry", () => {
     function createMockDb(
-      cursorRow: { contiguousSignature: string } | null = null
+      cursorRow: { contiguousSignature: string } | null = null,
+      onInsert?: (values: any) => void
     ) {
       return {
         select: () => ({
@@ -92,9 +114,12 @@ describe("Indexer Sync Suite", () => {
           }),
         }),
         insert: () => ({
-          values: () => ({
-            onConflictDoUpdate: async () => ({}),
-          }),
+          values: (v: any) => {
+            if (onInsert) onInsert(v);
+            return {
+              onConflictDoUpdate: async () => ({}),
+            };
+          },
         }),
       } as any;
     }
@@ -154,6 +179,242 @@ describe("Indexer Sync Suite", () => {
         result.contiguousWatermark,
         "existing_watermark_sig_123"
       );
+    });
+
+    it("should NOT advance watermark on partial sync with maxTransactions before genesis is reached", async () => {
+      // Simulate 100 signatures returned (so genesis is not reached)
+      const mockSigs = Array.from({ length: 100 }, (_, i) => ({
+        signature: `sig_${i}`,
+        slot: 1000 + i,
+        blockTime: 1700000000 + i,
+        err: null,
+      }));
+
+      let insertedWatermark: string | null = null;
+      const mockDb = createMockDb(null, (values) => {
+        insertedWatermark = values.contiguousSignature;
+      });
+
+      const mockRpc = {
+        getSignaturesForAddress: () => ({
+          send: async () => mockSigs,
+        }),
+        getTransaction: () => ({
+          send: async () => ({
+            slot: 1000,
+            meta: { logMessages: [] },
+          }),
+        }),
+        getAccountInfo: () => ({
+          send: async () => ({ value: null }),
+        }),
+      } as any;
+
+      const result = await syncHistoricalTransactions({
+        isDatabaseConfigured: true,
+        db: mockDb,
+        rpc: mockRpc,
+        rpcUrl: "http://127.0.0.1:8899",
+        network: "localnet",
+        maxTransactions: 1,
+        batchSize: 1,
+        batchDelayMs: 0,
+        workerStaggerMs: 0,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(
+        insertedWatermark,
+        null,
+        "Watermark must NOT advance when genesis/until is not reached"
+      );
+      assert.strictEqual(result.contiguousWatermark, null);
+    });
+
+    it("should advance watermark when genesis is reached (sigs < 100)", async () => {
+      const mockSigs = [
+        {
+          signature: "newest_sig_abc",
+          slot: 1050,
+          blockTime: 1700000050,
+          err: null,
+        },
+        {
+          signature: "oldest_sig_genesis",
+          slot: 1000,
+          blockTime: 1700000000,
+          err: null,
+        },
+      ];
+
+      let insertedWatermark: string | null = null;
+      const mockDb = createMockDb(null, (values) => {
+        insertedWatermark = values.contiguousSignature;
+      });
+
+      const mockRpc = {
+        getSignaturesForAddress: () => ({
+          send: async () => mockSigs,
+        }),
+        getTransaction: () => ({
+          send: async () => ({
+            slot: 1000,
+            meta: { logMessages: [] },
+          }),
+        }),
+        getAccountInfo: () => ({
+          send: async () => ({ value: null }),
+        }),
+      } as any;
+
+      const result = await syncHistoricalTransactions({
+        isDatabaseConfigured: true,
+        db: mockDb,
+        rpc: mockRpc,
+        rpcUrl: "http://127.0.0.1:8899",
+        network: "localnet",
+        batchSize: 2,
+        batchDelayMs: 0,
+        workerStaggerMs: 0,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(insertedWatermark, "newest_sig_abc");
+      assert.strictEqual(result.contiguousWatermark, "newest_sig_abc");
+    });
+
+    it("should recover from 429 rate limit errors on getTransaction using resilient RPC", async () => {
+      const mockSigs = [
+        {
+          signature: "sig_429_test",
+          slot: 1000,
+          blockTime: 1700000000,
+          err: null,
+        },
+      ];
+
+      let txAttempts = 0;
+      const mockTransport: any = async (req: any) => {
+        if (req.payload.method === "getSignaturesForAddress") {
+          return {
+            jsonrpc: "2.0",
+            id: req.payload.id ?? 1,
+            result: mockSigs,
+          };
+        }
+        if (req.payload.method === "getTransaction") {
+          txAttempts++;
+          if (txAttempts === 1) {
+            // First attempt hits 429
+            throw new Error("HTTP error (429): Too Many Requests");
+          }
+          return {
+            jsonrpc: "2.0",
+            id: req.payload.id ?? 1,
+            result: {
+              slot: 1000,
+              meta: { logMessages: [] },
+            },
+          };
+        }
+        return {
+          jsonrpc: "2.0",
+          id: req.payload.id ?? 1,
+          result: null,
+        };
+      };
+
+      const coordinator = new RateLimitCoordinator({
+        defaultFallbackCooldownMs: 10,
+        defaultJitterMs: 0,
+        defaultStaggerJitterMs: 0,
+        minCooldownFloorMs: 5,
+      });
+
+      const resilientRpc = createResilientRpc("http://mock-rpc", {
+        transport: mockTransport,
+        rateLimitCoordinator: coordinator,
+        initialDelayMs: 5,
+        maxDelayMs: 20,
+      });
+
+      const mockDb = createMockDb();
+
+      const result = await syncHistoricalTransactions({
+        isDatabaseConfigured: true,
+        db: mockDb,
+        rpc: resilientRpc,
+        rpcUrl: "http://127.0.0.1:8899",
+        network: "localnet",
+        batchSize: 1,
+        batchDelayMs: 0,
+        workerStaggerMs: 0,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(
+        txAttempts,
+        2,
+        "Should have retried getTransaction and succeeded on 2nd attempt"
+      );
+      assert.strictEqual(result.contiguousWatermark, "sig_429_test");
+    });
+
+    it("should recover from 429 rate limit errors on getSignaturesForAddress using resilient RPC", async () => {
+      let sigAttempts = 0;
+      const mockTransport: any = async (req: any) => {
+        if (req.payload.method === "getSignaturesForAddress") {
+          sigAttempts++;
+          if (sigAttempts === 1) {
+            throw new Error("HTTP error (429): Too Many Requests");
+          }
+          return {
+            jsonrpc: "2.0",
+            id: req.payload.id ?? 1,
+            result: [],
+          };
+        }
+        return {
+          jsonrpc: "2.0",
+          id: req.payload.id ?? 1,
+          result: null,
+        };
+      };
+
+      const coordinator = new RateLimitCoordinator({
+        defaultFallbackCooldownMs: 10,
+        defaultJitterMs: 0,
+        defaultStaggerJitterMs: 0,
+        minCooldownFloorMs: 5,
+      });
+
+      const resilientRpc = createResilientRpc("http://mock-rpc", {
+        transport: mockTransport,
+        rateLimitCoordinator: coordinator,
+        initialDelayMs: 5,
+        maxDelayMs: 20,
+      });
+
+      const mockDb = createMockDb();
+
+      const result = await syncHistoricalTransactions({
+        isDatabaseConfigured: true,
+        db: mockDb,
+        rpc: resilientRpc,
+        rpcUrl: "http://127.0.0.1:8899",
+        network: "localnet",
+        batchSize: 1,
+        batchDelayMs: 0,
+        workerStaggerMs: 0,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(
+        sigAttempts,
+        2,
+        "Should have retried getSignaturesForAddress and succeeded on 2nd attempt"
+      );
+      assert.strictEqual(result.totalIngested, 0);
     });
   });
 });

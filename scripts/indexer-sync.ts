@@ -21,16 +21,26 @@ import { PayoutHydratorService } from "../app/lib/indexer/payout-hydrator";
 import { SettlementMonitorService } from "../app/lib/indexer/settlement-monitor";
 import { eq } from "drizzle-orm";
 import { PROGRAM_ID } from "../app/lib/bonds-sdk";
+import {
+  createResilientRpc,
+  RateLimitCoordinator,
+  type ResilientRpcClient,
+} from "../app/lib/rpc-transport";
 
 export interface SyncHistoricalTransactionsOptions {
   backfill?: boolean;
   maxTransactions?: number;
   rpcUrl?: string;
   network?: SolanaNetworkCluster | string;
-  rpc?: ReturnType<typeof createSolanaRpc>;
+  rpc?: ResilientRpcClient | ReturnType<typeof createSolanaRpc>;
   isDatabaseConfigured?: boolean;
   db?: typeof db;
   humaPoolStateAddress?: string;
+  batchSize?: number;
+  batchDelayMs?: number;
+  workerStaggerMs?: number;
+  maxRetries?: number;
+  rateLimitCoordinator?: RateLimitCoordinator;
 }
 
 export interface SyncHistoricalTransactionsResult {
@@ -46,6 +56,9 @@ export function parseIndexerSyncArgs(
   let maxTransactions: number | undefined;
   let rpcUrl: string | undefined;
   let network: SolanaNetworkCluster | string | undefined;
+  let batchSize: number | undefined;
+  let batchDelayMs: number | undefined;
+  let maxRetries: number | undefined;
 
   for (let i = 0; i < args.length; i++) {
     if (
@@ -57,6 +70,12 @@ export function parseIndexerSyncArgs(
       rpcUrl = args[++i];
     } else if (args[i] === "--network" && args[i + 1]) {
       network = args[++i];
+    } else if (args[i] === "--batch-size" && args[i + 1]) {
+      batchSize = parseInt(args[++i], 10);
+    } else if (args[i] === "--batch-delay" && args[i + 1]) {
+      batchDelayMs = parseInt(args[++i], 10);
+    } else if (args[i] === "--max-retries" && args[i + 1]) {
+      maxRetries = parseInt(args[++i], 10);
     }
   }
 
@@ -65,43 +84,10 @@ export function parseIndexerSyncArgs(
     maxTransactions,
     rpcUrl,
     network,
+    batchSize,
+    batchDelayMs,
+    maxRetries,
   };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchTransactionWithRetry(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rpc: any,
-  signature: string,
-  maxRetries = 3
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any> {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const tx = await rpc
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .getTransaction(signature as any, {
-          encoding: "json",
-          maxSupportedTransactionVersion: 0,
-          commitment: "confirmed",
-        })
-        .send();
-      return tx;
-    } catch (err) {
-      if (attempt === maxRetries) {
-        console.error(
-          `[Indexer Sync Error] Failed to fetch tx ${signature} after ${maxRetries} attempts:`,
-          err
-        );
-        throw err;
-      }
-      const delay = Math.min(
-        1000 * Math.pow(2, attempt) + Math.random() * 200,
-        5000
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
 }
 
 export async function syncHistoricalTransactions(
@@ -124,7 +110,20 @@ export async function syncHistoricalTransactions(
       process.env.NEXT_PUBLIC_ENVIRONMENT || process.env.NEXT_PUBLIC_NETWORK,
       rpcUrl
     ).cluster;
-  const rpc = options.rpc || createSolanaRpc(rpcUrl);
+
+  const coordinator =
+    options.rateLimitCoordinator ?? new RateLimitCoordinator();
+  const batchSize = options.batchSize ?? 3;
+  const batchDelayMs = options.batchDelayMs ?? 200;
+  const workerStaggerMs = options.workerStaggerMs ?? 50;
+  const maxRetries = options.maxRetries ?? 5;
+
+  const rpc =
+    options.rpc ||
+    createResilientRpc(rpcUrl, {
+      rateLimitCoordinator: coordinator,
+      maxRetries,
+    });
   const hydrator = new PayoutHydratorService(rpc);
   const settlementMonitor = new SettlementMonitorService();
 
@@ -154,6 +153,7 @@ export async function syncHistoricalTransactions(
   let newestSlotScanned = 0;
   let newestBlockTime = 0;
   let totalIngested = 0;
+  let totalTransactionsScanned = 0;
   let hasMore = true;
   let syncEncounteredErrors = false;
   let reachedTargetWatermark = false;
@@ -199,22 +199,41 @@ export async function syncHistoricalTransactions(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const validSigs = sigs.filter((s: any) => s.err === null).reverse();
     const batch: IngestTransactionItem[] = [];
-    const BATCH_SIZE = 5;
 
-    for (let i = 0; i < validSigs.length; i += BATCH_SIZE) {
-      const chunk = validSigs.slice(i, i + BATCH_SIZE);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let txResults: any[] = [];
+    for (let i = 0; i < validSigs.length; i += batchSize) {
+      if (i > 0 && batchDelayMs > 0) {
+        await new Promise((r) => setTimeout(r, batchDelayMs));
+      }
+      const chunk = validSigs.slice(i, i + batchSize);
 
-      try {
-        txResults = await Promise.all(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          chunk.map(async (s: any) => {
-            const tx = await fetchTransactionWithRetry(rpc, s.signature);
-            return { s, tx };
-          })
+      const txResults = await Promise.all(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        chunk.map(async (s: any, idx: number) => {
+          try {
+            if (workerStaggerMs > 0 && idx > 0) {
+              await new Promise((r) => setTimeout(r, idx * workerStaggerMs));
+            }
+            const tx = await rpc
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              .getTransaction(s.signature as any, {
+                encoding: "json",
+                maxSupportedTransactionVersion: 0,
+                commitment: "confirmed",
+              })
+              .send();
+            return { s, tx, error: null };
+          } catch (err) {
+            return { s, tx: null, error: err };
+          }
+        })
+      );
+
+      const failure = txResults.find((r) => r.error !== null);
+      if (failure) {
+        console.error(
+          `[Indexer Sync Error] Failed to fetch tx ${failure.s.signature}:`,
+          failure.error
         );
-      } catch {
         syncEncounteredErrors = true;
         break;
       }
@@ -248,6 +267,7 @@ export async function syncHistoricalTransactions(
     });
     const count = ingestResult.insertedCount;
     totalIngested += count;
+    totalTransactionsScanned += validSigs.length;
     console.log(
       `[Indexer Sync] Processed batch of ${sigs.length} signatures (${count} events).`
     );
@@ -265,7 +285,9 @@ export async function syncHistoricalTransactions(
     beforeSig = sigs[sigs.length - 1].signature;
     if (
       sigs.length < 100 ||
-      (options.maxTransactions && totalIngested >= options.maxTransactions)
+      (options.maxTransactions &&
+        (totalIngested >= options.maxTransactions ||
+          totalTransactionsScanned >= options.maxTransactions))
     ) {
       hasMore = false;
       if (sigs.length < 100) {
@@ -275,11 +297,12 @@ export async function syncHistoricalTransactions(
   }
 
   // Advance contiguous watermark once contiguous range is confirmed without errors
+  const canAdvanceWatermark = reachedTargetWatermark;
   if (
     newestSignatureScanned &&
     !options.backfill &&
     !syncEncounteredErrors &&
-    (reachedTargetWatermark || !untilSig)
+    canAdvanceWatermark
   ) {
     await dbClient
       .insert(indexerCursor)
@@ -356,7 +379,10 @@ export async function syncHistoricalTransactions(
     success: !syncEncounteredErrors,
     totalIngested,
     contiguousWatermark:
-      newestSignatureScanned && !options.backfill && !syncEncounteredErrors
+      newestSignatureScanned &&
+      !options.backfill &&
+      !syncEncounteredErrors &&
+      canAdvanceWatermark
         ? newestSignatureScanned
         : cursorRow?.contiguousSignature || null,
   };
