@@ -1,16 +1,15 @@
 "use client";
 
 import React from "react";
-import { formatCurrency } from "@/app/lib/formatters";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import {
   InteractiveTooltip,
   InfoIcon,
 } from "@/app/components/common/InteractiveTooltip";
 import {
-  DrawPrizePotBadge,
   DrawPrizePotDisplay,
-} from "@/app/components/draws/DrawPrizePotDisplay";
+  DrawFeeDisplay,
+} from "@/app/components/draws/DrawSettlementDisplay";
 import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import type { DetailedDrawCycle } from "@/app/types";
@@ -39,38 +38,40 @@ export function DrawTelemetryGrid({
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {/* 1. Prize Pot */}
-      <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
-        <div className="flex flex-wrap items-center justify-between gap-1">
-          <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-            {t("prizePot")}
-          </p>
-          <DrawPrizePotBadge status={draw.status} prizePot={draw.prizePot} />
-        </div>
-        <div className="text-base font-bold font-mono text-primary mt-1 truncate">
+      <div className="min-w-0 p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+        <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+          {t("prizePot")}
+        </p>
+        <div className="text-base font-bold font-mono text-primary mt-1">
           <DrawPrizePotDisplay
             draw={draw}
             tokenSymbol={tokenSymbol}
             tokenDecimals={tokenDecimals}
-            layout="amount-only"
+            layout="wrap"
+            badgePlacement="after"
           />
         </div>
       </div>
 
       {/* 2. Protocol Fee */}
-      <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+      <div className="min-w-0 p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
         <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
           {t("protocolFee")}
         </p>
-        <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-          {formatCurrency(draw.cycleFeeCollected, {
-            tokenSymbol,
-            decimals: tokenDecimals,
-          })}
-        </p>
+        <div className="text-base font-bold font-mono text-on-surface mt-1">
+          <DrawFeeDisplay
+            status={draw.status}
+            fee={draw.cycleFeeCollected}
+            tokenSymbol={tokenSymbol}
+            tokenDecimals={tokenDecimals}
+            layout="wrap"
+            badgePlacement="after"
+          />
+        </div>
       </div>
 
       {/* 3. Locked Bonds Denominator */}
-      <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+      <div className="min-w-0 p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
         <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
           {t("participatingBonds")}
         </p>
@@ -80,7 +81,7 @@ export function DrawTelemetryGrid({
       </div>
 
       {/* 4. Payout Progress */}
-      <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+      <div className="min-w-0 p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
         <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
           {t("payoutProgress")}
         </p>
@@ -97,7 +98,7 @@ export function DrawTelemetryGrid({
 
       {/* 5. Settlement Timelock */}
       <div
-        className={`col-span-2 sm:col-span-1 p-2.5 sm:p-3.5 rounded-xl border flex flex-col justify-between transition-colors ${
+        className={`min-w-0 col-span-2 sm:col-span-1 p-2.5 sm:p-3.5 rounded-xl border flex flex-col justify-between transition-colors ${
           timelockState.isTimelocked
             ? "bg-amber-500/10 border-amber-500/30"
             : "bg-surface-container/20 border-surface-bright/5"

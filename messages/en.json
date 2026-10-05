@@ -616,7 +616,10 @@
     "badgeRevoked": "Revoked",
     "tooltipRolledOver": "Oracle VRF timed out; accrued yield was rolled over into reserves.",
     "tooltipRevoked": "Draw cycle was voided; all prize allocations were returned to reserves.",
-    "srUnawardedPot": "Unawarded prize pot of {amount}, marked as {status}. {reason}"
+    "tooltipRolledOverFee": "Oracle VRF timed out; protocol fee was rolled over into reserves.",
+    "tooltipRevokedFee": "Draw cycle was voided; protocol fee was returned to reserves.",
+    "srUnawardedPot": "Unawarded prize pot of {amount}, marked as {status}. {reason}",
+    "srUnawardedFee": "Uncollected protocol fee of {amount}, marked as {status}. {reason}"
   },
   "DrawInspector": {
     "modalTitle": "Draw Cycle #{cycleId} Inspector",

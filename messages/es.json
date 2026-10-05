@@ -616,7 +616,10 @@
     "badgeRevoked": "Anulado",
     "tooltipRolledOver": "Tiempo de espera del oráculo; el rendimiento acumulado se reintegró a las reservas.",
     "tooltipRevoked": "Sorteo anulado; todas las asignaciones de premios fueron devueltas a las reservas.",
-    "srUnawardedPot": "Bolsa de premios no adjudicada de {amount}, marcada como {status}. {reason}"
+    "tooltipRolledOverFee": "Tiempo de espera del oráculo; la tarifa de protocolo se reintegró a las reservas.",
+    "tooltipRevokedFee": "Sorteo anulado; la tarifa de protocolo se reintegró a las reservas.",
+    "srUnawardedPot": "Bolsa de premios no adjudicada de {amount}, marcada como {status}. {reason}",
+    "srUnawardedFee": "Tarifa de protocolo no cobrada de {amount}, marcada como {status}. {reason}"
   },
   "DrawInspector": {
     "modalTitle": "Inspector del Sorteo #{cycleId}",

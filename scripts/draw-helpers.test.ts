@@ -22,7 +22,9 @@ import {
   isDrawStatusName,
   isZeroYieldDrawStatus,
   isRolledBackDrawStatus,
+  getDrawSettlementPresentation,
   getDrawPrizePotPresentation,
+  getDrawFeePresentation,
   ZERO_YIELD_DRAW_STATUSES,
   ROLLED_BACK_DRAW_STATUSES,
   getSkippedDrawReason,
@@ -981,7 +983,7 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     assert.strictEqual(isZeroYieldDrawStatus("Complete"), false);
     assert.strictEqual(isZeroYieldDrawStatus(null), false);
 
-    // 3. getDrawPrizePotPresentation for Voided
+    // 3. getDrawPrizePotPresentation & getDrawFeePresentation for Voided
     const voidedPres = getDrawPrizePotPresentation("Voided");
     assert.deepStrictEqual(voidedPres, {
       disposition: "rolled_back_revoked",
@@ -992,7 +994,17 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
       srKey: "srUnawardedPot",
     });
 
-    // 4. getDrawPrizePotPresentation for ForceUnlocked
+    const voidedFeePres = getDrawFeePresentation("Voided");
+    assert.deepStrictEqual(voidedFeePres, {
+      disposition: "rolled_back_revoked",
+      isStrikethrough: true,
+      badgeVariant: "revoked",
+      badgeKey: "badgeRevoked",
+      tooltipKey: "tooltipRevokedFee",
+      srKey: "srUnawardedFee",
+    });
+
+    // 4. getDrawPrizePotPresentation & getDrawFeePresentation for ForceUnlocked
     const forceUnlockedPres = getDrawPrizePotPresentation("ForceUnlocked");
     assert.deepStrictEqual(forceUnlockedPres, {
       disposition: "rolled_back_rollover",
@@ -1003,10 +1015,30 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
       srKey: "srUnawardedPot",
     });
 
-    // 5. getDrawPrizePotPresentation for Zero-Yield statuses
+    const forceUnlockedFeePres = getDrawFeePresentation("ForceUnlocked");
+    assert.deepStrictEqual(forceUnlockedFeePres, {
+      disposition: "rolled_back_rollover",
+      isStrikethrough: true,
+      badgeVariant: "rolled_over",
+      badgeKey: "badgeRolledOver",
+      tooltipKey: "tooltipRolledOverFee",
+      srKey: "srUnawardedFee",
+    });
+
+    // 5. getDrawSettlementPresentation for Zero-Yield statuses
     for (const status of ZERO_YIELD_DRAW_STATUSES) {
-      const zeroPres = getDrawPrizePotPresentation(status);
+      const zeroPres = getDrawSettlementPresentation(status, "pot");
       assert.deepStrictEqual(zeroPres, {
+        disposition: "zero_yield",
+        isStrikethrough: false,
+        badgeVariant: null,
+        badgeKey: null,
+        tooltipKey: null,
+        srKey: null,
+      });
+
+      const zeroFeePres = getDrawSettlementPresentation(status, "fee");
+      assert.deepStrictEqual(zeroFeePres, {
         disposition: "zero_yield",
         isStrikethrough: false,
         badgeVariant: null,
@@ -1016,8 +1048,8 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
       });
     }
 
-    // 6. getDrawPrizePotPresentation for Complete
-    const completePres = getDrawPrizePotPresentation("Complete");
+    // 6. getDrawSettlementPresentation for Complete
+    const completePres = getDrawSettlementPresentation("Complete", "pot");
     assert.deepStrictEqual(completePres, {
       disposition: "awarded",
       isStrikethrough: false,
@@ -1027,8 +1059,18 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
       srKey: null,
     });
 
-    // 7. getDrawPrizePotPresentation for In-Flight
-    const awaitingPres = getDrawPrizePotPresentation("AwaitingYield");
+    const completeFeePres = getDrawSettlementPresentation("Complete", "fee");
+    assert.deepStrictEqual(completeFeePres, {
+      disposition: "awarded",
+      isStrikethrough: false,
+      badgeVariant: null,
+      badgeKey: null,
+      tooltipKey: null,
+      srKey: null,
+    });
+
+    // 7. getDrawSettlementPresentation for In-Flight
+    const awaitingPres = getDrawSettlementPresentation("AwaitingYield", "pot");
     assert.deepStrictEqual(awaitingPres, {
       disposition: "in_flight",
       isStrikethrough: false,

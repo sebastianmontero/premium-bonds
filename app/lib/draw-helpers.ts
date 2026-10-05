@@ -103,7 +103,25 @@ export function isRolledBackDrawStatus(
   return typeof status === "string" && ROLLED_BACK_SET.has(status);
 }
 
-export interface DrawPrizePotPresentation {
+export type DrawSettlementMetricType = "pot" | "fee";
+
+const SETTLEMENT_TOOLTIP_KEYS = {
+  pot: {
+    rolled_back_revoked: "tooltipRevoked",
+    rolled_back_rollover: "tooltipRolledOver",
+  },
+  fee: {
+    rolled_back_revoked: "tooltipRevokedFee",
+    rolled_back_rollover: "tooltipRolledOverFee",
+  },
+} as const;
+
+const SETTLEMENT_SR_KEYS = {
+  pot: "srUnawardedPot",
+  fee: "srUnawardedFee",
+} as const;
+
+export interface DrawSettlementPresentation {
   disposition:
     | "awarded"
     | "rolled_back_revoked"
@@ -113,31 +131,41 @@ export interface DrawPrizePotPresentation {
   isStrikethrough: boolean;
   badgeVariant: "revoked" | "rolled_over" | null;
   badgeKey: "badgeRevoked" | "badgeRolledOver" | null;
-  tooltipKey: "tooltipRevoked" | "tooltipRolledOver" | null;
-  srKey: "srUnawardedPot" | null;
+  tooltipKey:
+    | "tooltipRevoked"
+    | "tooltipRolledOver"
+    | "tooltipRevokedFee"
+    | "tooltipRolledOverFee"
+    | null;
+  srKey: "srUnawardedPot" | "srUnawardedFee" | null;
 }
 
-export function getDrawPrizePotPresentation(
-  status: DrawStatusName | string
-): DrawPrizePotPresentation {
+export type DrawPrizePotPresentation = DrawSettlementPresentation;
+
+export function getDrawSettlementPresentation(
+  status: DrawStatusName | string,
+  metricType: DrawSettlementMetricType = "pot"
+): DrawSettlementPresentation {
   if (status === "Voided") {
+    const disposition = "rolled_back_revoked";
     return {
-      disposition: "rolled_back_revoked",
+      disposition,
       isStrikethrough: true,
       badgeVariant: "revoked",
       badgeKey: "badgeRevoked",
-      tooltipKey: "tooltipRevoked",
-      srKey: "srUnawardedPot",
+      tooltipKey: SETTLEMENT_TOOLTIP_KEYS[metricType][disposition],
+      srKey: SETTLEMENT_SR_KEYS[metricType],
     };
   }
   if (status === "ForceUnlocked") {
+    const disposition = "rolled_back_rollover";
     return {
-      disposition: "rolled_back_rollover",
+      disposition,
       isStrikethrough: true,
       badgeVariant: "rolled_over",
       badgeKey: "badgeRolledOver",
-      tooltipKey: "tooltipRolledOver",
-      srKey: "srUnawardedPot",
+      tooltipKey: SETTLEMENT_TOOLTIP_KEYS[metricType][disposition],
+      srKey: SETTLEMENT_SR_KEYS[metricType],
     };
   }
   if (isZeroYieldDrawStatus(status)) {
@@ -168,6 +196,18 @@ export function getDrawPrizePotPresentation(
     tooltipKey: null,
     srKey: null,
   };
+}
+
+export function getDrawPrizePotPresentation(
+  status: DrawStatusName | string
+): DrawSettlementPresentation {
+  return getDrawSettlementPresentation(status, "pot");
+}
+
+export function getDrawFeePresentation(
+  status: DrawStatusName | string
+): DrawSettlementPresentation {
+  return getDrawSettlementPresentation(status, "fee");
 }
 
 const TERMINAL_SET: ReadonlySet<string> = new Set(TERMINAL_DRAW_STATUSES);

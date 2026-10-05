@@ -1,12 +1,11 @@
 "use client";
 
 import React from "react";
-import { formatCurrency } from "@/app/lib/formatters";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import {
-  DrawPrizePotBadge,
   DrawPrizePotDisplay,
-} from "@/app/components/draws/DrawPrizePotDisplay";
+  DrawFeeDisplay,
+} from "@/app/components/draws/DrawSettlementDisplay";
 import type { DetailedDrawCycle, DrawDisplayConfig } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -106,24 +105,22 @@ export function DrawStatusAuditView({
 
       {/* ── 2. On-Chain Telemetry Grid ───────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
-        <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
-          <div className="flex flex-wrap items-center justify-between gap-1">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("prizePot")}
-            </p>
-            <DrawPrizePotBadge status={draw.status} prizePot={draw.prizePot} />
-          </div>
-          <div className="text-base font-bold font-mono text-on-surface mt-1 truncate">
+        <div className="min-w-0 p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+          <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+            {t("prizePot")}
+          </p>
+          <div className="text-base font-bold font-mono text-on-surface mt-1">
             <DrawPrizePotDisplay
               draw={draw}
               tokenSymbol={tokenSymbol}
               tokenDecimals={tokenDecimals}
-              layout="amount-only"
+              layout="wrap"
+              badgePlacement="after"
             />
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+        <div className="min-w-0 p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
           <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
             {t("participatingBonds")}
           </p>
@@ -132,7 +129,7 @@ export function DrawStatusAuditView({
           </p>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+        <div className="min-w-0 p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
           <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
             {t("vrfSeedSlot")}
           </p>
@@ -143,16 +140,20 @@ export function DrawStatusAuditView({
           </p>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+        <div className="min-w-0 p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
           <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
             {t("protocolFee")}
           </p>
-          <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-            {formatCurrency(draw.cycleFeeCollected, {
-              tokenSymbol,
-              decimals: tokenDecimals,
-            })}
-          </p>
+          <div className="text-base font-bold font-mono text-on-surface mt-1">
+            <DrawFeeDisplay
+              status={draw.status}
+              fee={draw.cycleFeeCollected}
+              tokenSymbol={tokenSymbol}
+              tokenDecimals={tokenDecimals}
+              layout="wrap"
+              badgePlacement="after"
+            />
+          </div>
         </div>
       </div>
 
