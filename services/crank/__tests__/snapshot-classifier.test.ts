@@ -517,13 +517,87 @@ describe("Snapshot Classifier", () => {
     assertSnapshotState(snapshot, "POOL_PAUSED");
   });
 
-  it("should classify as POOL_CLOSED when pool.status is Closed and prevent harvest fallthrough", () => {
+  it("should classify as IDLE or YIELD_HARVEST_READY when payoutRegistry is voided even with unprocessed winners", () => {
     const pool = buildMockPrizePool({
-      status: PoolStatus.Closed,
-      currentCycleEndAt: 500n, // Due for harvest
+      isFrozenForDraw: 0,
+      currentCycleEndAt: 2000n,
       ticketRegistry: mockRegistryAddress,
     });
     const registry = buildMockTicketRegistry();
+    const payoutRegistry = buildMockPayoutRegistry({
+      status: 1, // Voided
+      revealedAt: 500n,
+      winners: [
+        {
+          winner: mockPoolAddress,
+          amountOwed: 50_000_000n,
+          bondsBought: 10,
+          processed: 0,
+          tierIndex: 0,
+          version: 1,
+          padding: new Uint8Array(1),
+          reserved: new Uint8Array(8),
+        },
+      ],
+    });
+
+    // Case A: cycle duration not elapsed -> IDLE
+    const snapshotIdle = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      payoutRegistryAddress: mockPoolAddress,
+      payoutRegistry,
+      currentSlot: 500n,
+      currentTimestamp: 1000n, // < 2000n
+    });
+    assertSnapshotState(snapshotIdle, "IDLE");
+
+    // Case B: cycle duration elapsed -> YIELD_HARVEST_READY
+    const snapshotHarvest = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      payoutRegistryAddress: mockPoolAddress,
+      payoutRegistry,
+      currentSlot: 500n,
+      currentTimestamp: 2500n, // >= 2000n
+    });
+    assertSnapshotState(snapshotHarvest, "YIELD_HARVEST_READY");
+  });
+
+  it("should classify as IDLE or YIELD_HARVEST_READY when matching drawCycle status is Voided", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 0,
+      currentCycleEndAt: 2000n,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
+      cycleId: 1,
+      status: DrawStatus.Voided,
+    });
+    const payoutRegistry = buildMockPayoutRegistry({
+      cycleId: 1,
+      status: 0, // Active in registry, but drawCycle is Voided
+      revealedAt: 500n,
+      winners: [
+        {
+          winner: mockPoolAddress,
+          amountOwed: 50_000_000n,
+          bondsBought: 10,
+          processed: 0,
+          tierIndex: 0,
+          version: 1,
+          padding: new Uint8Array(1),
+          reserved: new Uint8Array(8),
+        },
+      ],
+    });
 
     const snapshot = classifyPoolState({
       poolId: 1,
@@ -531,11 +605,222 @@ describe("Snapshot Classifier", () => {
       pool,
       ticketRegistryAddress: mockRegistryAddress,
       ticketRegistry: registry,
+      drawCycle,
+      payoutRegistryAddress: mockPoolAddress,
+      payoutRegistry,
       currentSlot: 500n,
-      currentTimestamp: 1000n, // Timestamp > cycleEnd
+      currentTimestamp: 1000n,
+    });
+    assertSnapshotState(snapshot, "IDLE");
+  });
+
+  it("should NOT treat prevPayoutPda as voided if only latestCycleId drawCycle was voided", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 0,
+      currentDrawCycleId: 2,
+      currentCycleEndAt: 2000n,
+      payoutTimelockSeconds: 0,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
+      cycleId: 2, // Latest draw cycle is voided
+      status: DrawStatus.Voided,
+    });
+    const payoutRegistry = buildMockPayoutRegistry({
+      cycleId: 1, // Previous cycle payout registry is active
+      status: 0,
+      revealedAt: 500n,
+      winners: [
+        {
+          winner: mockPoolAddress,
+          amountOwed: 50_000_000n,
+          bondsBought: 10,
+          processed: 0,
+          tierIndex: 0,
+          version: 1,
+          padding: new Uint8Array(1),
+          reserved: new Uint8Array(8),
+        },
+      ],
     });
 
-    assertSnapshotState(snapshot, "POOL_CLOSED");
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      payoutRegistryAddress: mockPoolAddress,
+      payoutRegistry,
+      currentSlot: 500n,
+      currentTimestamp: 1000n,
+    });
+    assertSnapshotState(snapshot, "REINVESTMENT_PENDING");
+  });
+
+  it("should attach latestPayoutRegistry to BaseSnapshot across IDLE and YIELD_HARVEST_READY states", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 0,
+      currentCycleEndAt: 1000n,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const payoutRegistry = buildMockPayoutRegistry({
+      cycleId: 1,
+      status: 0,
+      revealedAt: 500n,
+      winnersCount: 1,
+      payoutsCompleted: 1,
+      winners: [
+        {
+          winner: mockPoolAddress,
+          amountOwed: 50_000_000n,
+          bondsBought: 10,
+          processed: 1,
+          tierIndex: 0,
+          version: 1,
+          padding: new Uint8Array(1),
+          reserved: new Uint8Array(8),
+        },
+      ],
+    });
+
+    // IDLE state (currentTimestamp < currentCycleEndAt)
+    const snapshotIdle = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      payoutRegistryAddress: mockPoolAddress,
+      payoutRegistry,
+      currentSlot: 500n,
+      currentTimestamp: 800n,
+    });
+    assertSnapshotState(snapshotIdle, "IDLE");
+    assert.ok(snapshotIdle.latestPayoutRegistry);
+    assert.strictEqual(
+      snapshotIdle.latestPayoutRegistry.address,
+      mockPoolAddress
+    );
+
+    // YIELD_HARVEST_READY state (currentTimestamp >= currentCycleEndAt)
+    const snapshotHarvest = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      payoutRegistryAddress: mockPoolAddress,
+      payoutRegistry,
+      currentSlot: 500n,
+      currentTimestamp: 1200n,
+    });
+    assertSnapshotState(snapshotHarvest, "YIELD_HARVEST_READY");
+    assert.ok(snapshotHarvest.latestPayoutRegistry);
+    assert.strictEqual(
+      snapshotHarvest.latestPayoutRegistry.address,
+      mockPoolAddress
+    );
+  });
+
+  it("should never classify as YIELD_HARVEST_READY or REINVESTMENT_PENDING when pool.isFrozenForDraw === 1", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 1,
+      currentCycleEndAt: 500n, // Timestamp is past due
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry({
+      userCount: 10,
+      drawPreparedUpTo: 10,
+    });
+    // DrawCycle in non-standard or complete status while frozen
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.Complete,
+    });
+    const payoutRegistry = buildMockPayoutRegistry({
+      revealedAt: 100n,
+      winners: [
+        {
+          winner: mockPoolAddress,
+          amountOwed: 50_000_000n,
+          bondsBought: 10,
+          processed: 0,
+          tierIndex: 0,
+          version: 1,
+          padding: new Uint8Array(1),
+          reserved: new Uint8Array(8),
+        },
+      ],
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      payoutRegistryAddress: mockPoolAddress,
+      payoutRegistry,
+      currentSlot: 500n,
+      currentTimestamp: 1000n,
+    });
+
+    // Must be sealed in IDLE and NEVER fall through to REINVESTMENT_PENDING or YIELD_HARVEST_READY
+    assertSnapshotState(snapshot, "IDLE");
+  });
+
+  it("should classify as IDLE when drawCycle status is Skipped and not frozen", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 0,
+      currentCycleEndAt: 2000n,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.Skipped,
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 500n,
+      currentTimestamp: 1000n, // < 2000n
+    });
+
+    assertSnapshotState(snapshot, "IDLE");
+  });
+
+  it("should classify as IDLE when previous draw was ForceUnlocked", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 0,
+      currentCycleEndAt: 2000n,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.ForceUnlocked,
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 500n,
+      currentTimestamp: 1000n,
+    });
+
+    assertSnapshotState(snapshot, "IDLE");
   });
 });
 

@@ -2,7 +2,7 @@ import { Address, Instruction, KeyPairSigner } from "@solana/kit";
 import type {
   PrizePool,
   TicketRegistry,
-  PayoutRegistry,
+  ParsedPayoutRegistry,
 } from "../../app/lib/bonds-sdk";
 import type { CrankConfig } from "./config";
 import type { ParsedTransactionError } from "../../app/lib/errors";
@@ -95,6 +95,11 @@ export function generateRandomnessSeed(): RandomnessSeed {
 
 // ─── Discriminated Pool State Snapshot ───────────────────────────────────────
 
+export interface PayoutRegistrySnapshot {
+  readonly address: Address;
+  readonly account: ParsedPayoutRegistry;
+}
+
 export interface BaseSnapshot {
   readonly poolId: PoolId;
   readonly poolAddress: Address;
@@ -103,6 +108,7 @@ export interface BaseSnapshot {
   readonly ticketRegistry: TicketRegistry;
   readonly currentSlot: bigint;
   readonly currentTimestamp: UnixTimestamp;
+  readonly latestPayoutRegistry?: PayoutRegistrySnapshot;
 }
 
 export type PoolStateSnapshot =
@@ -119,11 +125,6 @@ export type PoolStateSnapshot =
   | (BaseSnapshot & {
       readonly state: "YIELD_HARVEST_READY";
       readonly currentCycleId: DrawCycleId;
-    })
-  | (BaseSnapshot & {
-      readonly state: "DRAW_SKIPPED";
-      readonly cycleId: DrawCycleId;
-      readonly reason: string;
     })
   | (BaseSnapshot & {
       readonly state: "PREPARE_BATCHING";
@@ -147,12 +148,12 @@ export type PoolStateSnapshot =
       readonly state: "TIMELOCK_WAITING";
       readonly cycleId: DrawCycleId;
       readonly readyAt: UnixTimestamp;
+      readonly payoutRegistry?: PayoutRegistrySnapshot;
     })
   | (BaseSnapshot & {
       readonly state: "REINVESTMENT_PENDING";
       readonly cycleId: DrawCycleId;
-      readonly payoutRegistryAddress: Address;
-      readonly payoutRegistry: PayoutRegistry;
+      readonly payoutRegistry: PayoutRegistrySnapshot;
       readonly unprocessedWinners: { winner: Address; winnerIndex: number }[];
     })
   | (BaseSnapshot & {

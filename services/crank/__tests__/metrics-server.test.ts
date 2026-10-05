@@ -47,4 +47,41 @@ describe("Metrics Server Unit Tests", () => {
       await server.stop();
     }
   });
+
+  it("should evict payout registry claimable metric when clearPayoutRegistryClaimable is called", async () => {
+    const server = new MetricsServer(0);
+    await server.start();
+    const testPort = server.getPort();
+
+    try {
+      server.setPayoutRegistryClaimable(1, 10, true);
+      server.setPayoutRegistryClaimable(2, 5, false);
+
+      let res = await fetch(`http://127.0.0.1:${testPort}/metrics`);
+      let text = await res.text();
+      assert.match(
+        text,
+        /yieldbonds_crank_payout_registry_claimable\{pool_id="1",cycle_id="10"\} 1/
+      );
+      assert.match(
+        text,
+        /yieldbonds_crank_payout_registry_claimable\{pool_id="2",cycle_id="5"\} 0/
+      );
+
+      server.clearPayoutRegistryClaimable(1);
+
+      res = await fetch(`http://127.0.0.1:${testPort}/metrics`);
+      text = await res.text();
+      assert.doesNotMatch(
+        text,
+        /yieldbonds_crank_payout_registry_claimable\{pool_id="1",cycle_id="10"\}/
+      );
+      assert.match(
+        text,
+        /yieldbonds_crank_payout_registry_claimable\{pool_id="2",cycle_id="5"\} 0/
+      );
+    } finally {
+      await server.stop();
+    }
+  });
 });

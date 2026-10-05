@@ -880,7 +880,9 @@ import {
   PayoutRegistryStatus,
   type PayoutRegistryStatusName,
   formatPayoutRegistryStatus,
+  isEnumStatus,
   isPayoutRegistryVoided,
+  isPayoutRegistryActive,
   canClosePayoutRegistry,
   payoutRegistrySpace,
   getPayoutRegistryAccountSize,
@@ -893,7 +895,9 @@ export {
   parsePayoutRegistry,
   PayoutRegistryStatus,
   formatPayoutRegistryStatus,
+  isEnumStatus,
   isPayoutRegistryVoided,
+  isPayoutRegistryActive,
   canClosePayoutRegistry,
   payoutRegistrySpace,
   getPayoutRegistryAccountSize,
@@ -902,6 +906,20 @@ export {
   MAX_TOTAL_WINNERS,
 };
 export type { ParsedPayoutRegistry, ParsedWinner, PayoutRegistryStatusName };
+
+export function isDrawStatus(
+  drawCycle?: Pick<DrawCycle, "status"> | { status?: unknown } | null,
+  target?: DrawStatus
+): boolean {
+  if (target === undefined) return false;
+  return isEnumStatus(drawCycle?.status, DrawStatus, target);
+}
+
+export function isDrawVoided(
+  drawCycle?: Pick<DrawCycle, "status"> | { status?: unknown } | null
+): boolean {
+  return isEnumStatus(drawCycle?.status, DrawStatus, DrawStatus.Voided);
+}
 
 export function parseUserWinnings(data: Uint8Array): UserWinnings {
   return decodedData<UserWinnings>(decodeUserWinnings(mockAccount(data)));

@@ -20,18 +20,98 @@ describe("TxExecutor Unit Tests", () => {
       true
     );
 
-    // 6000 = PoolClosed
+    // 6040 = PoolClosed (0x1798)
     assert.strictEqual(
       isBenignConcurrencyRace({
-        InstructionError: [0, { Custom: 6000 }],
+        InstructionError: [0, { Custom: 6040 }],
       }),
       true
     );
 
-    // 6001 = PoolPaused
+    // 6039 = PoolPaused (0x1797)
     assert.strictEqual(
       isBenignConcurrencyRace({
-        InstructionError: [0, { Custom: 6001 }],
+        InstructionError: [0, { Custom: 6039 }],
+      }),
+      true
+    );
+
+    // 6041 = DrawVoided (0x1799)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 6041 }],
+      }),
+      true
+    );
+
+    // 6042 = DrawAlreadyVoided (0x179a)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 6042 }],
+      }),
+      true
+    );
+
+    // 6016 = InvalidDrawState (0x1780)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 6016 }],
+      }),
+      true
+    );
+
+    // 6015 = InvalidDrawStatus (0x177f)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 6015 }],
+      }),
+      true
+    );
+
+    // 6002 = CycleNotEnded (0x1772)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 6002 }],
+      }),
+      true
+    );
+
+    // 6035 = PoolNotFrozen (0x1793)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 6035 }],
+      }),
+      true
+    );
+
+    // 6044 = PayoutTimelockActive (0x179c)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 6044 }],
+      }),
+      true
+    );
+
+    // 6063 = PayoutsPending (0x17af)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 6063 }],
+      }),
+      true
+    );
+
+    // 3000 = AccountAlreadyInitialized (0xbb8)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 3000 }],
+      }),
+      true
+    );
+
+    // 3012 = AccountNotInitialized (0xbc4)
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0, { Custom: 3012 }],
       }),
       true
     );
@@ -41,6 +121,28 @@ describe("TxExecutor Unit Tests", () => {
       isBenignConcurrencyRace(new Error("custom program error: 0x1778")),
       true
     );
+    assert.strictEqual(
+      isBenignConcurrencyRace(new Error("custom program error: 0x1799")),
+      true
+    );
+    assert.strictEqual(
+      isBenignConcurrencyRace(new Error("This draw has been voided")),
+      true
+    );
+    assert.strictEqual(isBenignConcurrencyRace(new Error("DrawVoided")), true);
+    assert.strictEqual(
+      isBenignConcurrencyRace(new Error("InvalidDrawState")),
+      true
+    );
+    assert.strictEqual(
+      isBenignConcurrencyRace(new Error("CycleNotEnded")),
+      true
+    );
+    assert.strictEqual(
+      isBenignConcurrencyRace(new Error("AccountAlreadyInitialized")),
+      true
+    );
+    assert.strictEqual(isBenignConcurrencyRace(new Error("0xbb8")), true);
     assert.strictEqual(
       isBenignConcurrencyRace(
         new Error("State already revealed by competitor")

@@ -425,12 +425,14 @@ describe("Strategy Workers Unit Tests", () => {
       currentTimestamp: toUnixTimestamp(1000),
       state: "REINVESTMENT_PENDING" as const,
       cycleId: toDrawCycleId(1),
-      payoutRegistryAddress: mockAddress,
-      payoutRegistry: buildMockPayoutRegistry({
-        winnersCount: 0,
-        payoutsCompleted: 0,
-        revealedAt: 0n,
-      }),
+      payoutRegistry: {
+        address: mockAddress,
+        account: buildMockPayoutRegistry({
+          winnersCount: 0,
+          payoutsCompleted: 0,
+          revealedAt: 0n,
+        }),
+      },
       unprocessedWinners: [
         { winner: mockAddress, winnerIndex: 0 },
         { winner: mockAddress, winnerIndex: 1 },
@@ -449,6 +451,38 @@ describe("Strategy Workers Unit Tests", () => {
       assert.strictEqual(outcome.computeUnitLimit, 400_000);
       assert.strictEqual(outcome.instructions.length, 5);
     }
+  });
+
+  it("ReinvestWinningsWorker should reject execution if payoutRegistry is voided", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const worker = new ReinvestWinningsWorker();
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool(),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "REINVESTMENT_PENDING" as const,
+      cycleId: toDrawCycleId(1),
+      payoutRegistry: {
+        address: mockAddress,
+        account: buildMockPayoutRegistry({
+          status: 1, // Voided
+          winnersCount: 1,
+          payoutsCompleted: 0,
+          revealedAt: 100n,
+        }),
+      },
+      unprocessedWinners: [{ winner: mockAddress, winnerIndex: 0 }],
+    };
+
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.match(outcome.reason, /PayoutRegistry is voided/);
   });
 
   it("CapacitySentinelWorker should trigger only above 85% utilization when not frozen", async () => {

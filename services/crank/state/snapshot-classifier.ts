@@ -7,10 +7,15 @@ import {
   ParsedPayoutRegistry,
   DrawStatus,
   PoolStatus,
+  isEnumStatus,
+  isPayoutRegistryVoided,
+  isPayoutRegistryActive,
+  isDrawVoided,
 } from "../../../app/lib/bonds-sdk";
 import { isRandomnessExpired } from "../constants";
 import {
   PoolStateSnapshot,
+  PayoutRegistrySnapshot,
   toPoolId,
   toDrawCycleId,
   toUnixTimestamp,
@@ -21,15 +26,7 @@ import {
  * Safely checks if an actual status matches a target PoolStatus variant (numeric, string, or Codama __kind object).
  */
 export function isPoolStatus(actual: unknown, target: PoolStatus): boolean {
-  if (actual === target) return true;
-  const name = PoolStatus[target];
-  return (
-    actual === name ||
-    (typeof actual === "object" &&
-      actual !== null &&
-      "__kind" in actual &&
-      (actual as { __kind: string }).__kind === name)
-  );
+  return isEnumStatus(actual, PoolStatus, target);
 }
 
 /**
@@ -88,6 +85,14 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     currentTimestamp,
   } = input;
 
+  const latestPayoutRegistry: PayoutRegistrySnapshot | undefined =
+    payoutRegistry && payoutRegistryAddress
+      ? {
+          address: payoutRegistryAddress,
+          account: payoutRegistry as ParsedPayoutRegistry,
+        }
+      : undefined;
+
   const base = {
     poolId: toPoolId(poolId),
     poolAddress,
@@ -96,6 +101,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     ticketRegistry,
     currentSlot,
     currentTimestamp: toUnixTimestamp(currentTimestamp),
+    latestPayoutRegistry,
   };
 
   const currentCycleId = toDrawCycleId(pool.currentDrawCycleId);
@@ -123,7 +129,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     };
   }
 
-  // 3. Frozen for Draw (Drawing in progress)
+  // 2. Frozen for Draw (Drawing in progress)
   if (pool.isFrozenForDraw === 1) {
     const activeFrozenCycleId = toDrawCycleId(
       drawCycle?.cycleId ?? Math.max(0, pool.currentDrawCycleId - 1)
@@ -162,22 +168,29 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
       };
     }
 
-    if (drawCycle?.status === DrawStatus.Skipped) {
-      return {
-        ...base,
-        state: "DRAW_SKIPPED",
-        cycleId: activeFrozenCycleId,
-        reason: "Draw skipped during harvest",
-      };
-    }
+    // Sealed frozen block: if drawCycle is in an unexpected or non-actionable phase while frozen,
+    // hold in IDLE and NEVER fall through to Section 3 (reinvestment) or Section 4 (harvest).
+    return {
+      ...base,
+      state: "IDLE",
+      nextDrawAt: toUnixTimestamp(pool.currentCycleEndAt),
+    };
   }
 
   // 3. PRIORITY INVERSION: Check for Pending Reinvestments from previous/current payout registry
   // Must drain all pending winners BEFORE triggering next harvest to avoid AwaitingRandomnessFreeze
+  const matchingDrawCycle =
+    drawCycle && payoutRegistry && drawCycle.cycleId === payoutRegistry.cycleId
+      ? drawCycle
+      : undefined;
+
   if (
     payoutRegistry &&
     payoutRegistryAddress &&
-    payoutRegistry.revealedAt > 0n
+    payoutRegistry.revealedAt > 0n &&
+    !isPayoutRegistryVoided(payoutRegistry) &&
+    isPayoutRegistryActive(payoutRegistry) &&
+    !isDrawVoided(matchingDrawCycle)
   ) {
     const timelockDuration = BigInt(pool.payoutTimelockSeconds);
     const timelockReadyAt = toUnixTimestamp(
@@ -205,12 +218,18 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
 
     if (unprocessedWinners.length > 0) {
       const payoutCycleId = toDrawCycleId(payoutRegistry.cycleId);
+      const payoutSnapshot: PayoutRegistrySnapshot = {
+        address: payoutRegistryAddress,
+        account: payoutRegistry as ParsedPayoutRegistry,
+      };
+
       if (currentTimestamp < BigInt(timelockReadyAt)) {
         return {
           ...base,
           state: "TIMELOCK_WAITING",
           cycleId: payoutCycleId,
           readyAt: timelockReadyAt,
+          payoutRegistry: payoutSnapshot,
         };
       }
 
@@ -218,15 +237,15 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
         ...base,
         state: "REINVESTMENT_PENDING",
         cycleId: payoutCycleId,
-        payoutRegistryAddress,
-        payoutRegistry,
+        payoutRegistry: payoutSnapshot,
         unprocessedWinners,
       };
     }
   }
 
-  // 4. Yield Harvest Ready (only when previous draw payouts are resolved)
+  // 4. Yield Harvest Ready (only when previous draw payouts are resolved and pool is not frozen)
   if (
+    pool.isFrozenForDraw === 0 &&
     currentTimestamp >= BigInt(pool.currentCycleEndAt) &&
     isPoolStatus(pool.status, PoolStatus.Active)
   ) {

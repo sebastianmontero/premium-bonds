@@ -19,6 +19,20 @@ import {
 import {
   parseTransactionError,
   matchAnchorError,
+  ANCHOR_ERROR__POOL_NOT_ACTIVE,
+  ANCHOR_ERROR__CYCLE_NOT_ENDED,
+  ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE,
+  ANCHOR_ERROR__ALREADY_CLAIMED,
+  ANCHOR_ERROR__INVALID_DRAW_STATUS,
+  ANCHOR_ERROR__INVALID_DRAW_STATE,
+  ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED,
+  ANCHOR_ERROR__POOL_NOT_FROZEN,
+  ANCHOR_ERROR__POOL_PAUSED,
+  ANCHOR_ERROR__POOL_CLOSED,
+  ANCHOR_ERROR__DRAW_VOIDED,
+  ANCHOR_ERROR__DRAW_ALREADY_VOIDED,
+  ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE,
+  ANCHOR_ERROR__PAYOUTS_PENDING,
 } from "../../../app/lib/errors";
 import { normalizeInstructionSigners } from "../../../app/lib/tx-utils";
 import { CrankConfig } from "../config";
@@ -71,16 +85,66 @@ export function createSystemTransferInstruction(params: {
  * Known benign concurrency race error codes & messages.
  * When a competing replica progresses state first, simulation fails with these errors.
  */
-const BENIGN_RACE_ERROR_CODES = new Set([
-  6008, // AlreadyClaimed
-  6000, // PoolClosed
-  6001, // PoolPaused
-  6003, // InvalidState
-  6021, // DrawAlreadyPrepared
-  6022, // RandomnessAlreadyRevealed
-  6023, // CycleAlreadyHarvested
-  6024, // WinnersAlreadyPicked
+const BENIGN_RACE_ERROR_CODES = new Set<number>([
+  3000, // AccountAlreadyInitialized (0xbb8 - competing reveal or harvest init PDA race)
+  3012, // AccountNotInitialized (0xbc4 - closed by competing crank or CLI)
+  ANCHOR_ERROR__POOL_NOT_ACTIVE, // 6000 (0x1770)
+  ANCHOR_ERROR__CYCLE_NOT_ENDED, // 6002 (0x1772 - competing harvest advanced cycle)
+  ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE, // 6007 (0x1777)
+  ANCHOR_ERROR__ALREADY_CLAIMED, // 6008 (0x1778)
+  ANCHOR_ERROR__INVALID_DRAW_STATUS, // 6015 (0x177f - admin force-unlocked/voided in flight)
+  ANCHOR_ERROR__INVALID_DRAW_STATE, // 6016 (0x1780 - draw preparation cursor race)
+  ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED, // 6031 (0x178f)
+  ANCHOR_ERROR__POOL_NOT_FROZEN, // 6035 (0x1793 - draw concluded in flight)
+  ANCHOR_ERROR__POOL_PAUSED, // 6039 (0x1797)
+  ANCHOR_ERROR__POOL_CLOSED, // 6040 (0x1798)
+  ANCHOR_ERROR__DRAW_VOIDED, // 6041 (0x1799)
+  ANCHOR_ERROR__DRAW_ALREADY_VOIDED, // 6042 (0x179a)
+  ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE, // 6044 (0x179c)
+  ANCHOR_ERROR__PAYOUTS_PENDING, // 6063 (0x17af)
 ]);
+
+const BENIGN_RACE_PATTERNS: readonly string[] = [
+  "already claimed",
+  "already prepared",
+  "already revealed",
+  "already harvested",
+  "already processed",
+  "already in use",
+  "accountalreadyinitialized",
+  "0xbb8",
+  "accountnotinitialized",
+  "0xbc4",
+  "invaliddrawstate",
+  "0x1780",
+  "cyclenotended",
+  "0x1772",
+  "this draw has been voided",
+  "drawvoided",
+  "0x1799",
+  "invalid draw status",
+  "invaliddrawstatus",
+  "0x177f",
+  "pool is paused",
+  "poolpaused",
+  "0x1797",
+  "pool is closed",
+  "poolclosed",
+  "0x1798",
+  "poolnotfrozen",
+  "0x1793",
+  "payouttimelockactive",
+  "0x179c",
+  "payoutspending",
+  "0x17af",
+  "0x1778",
+  "custom program error: 0x1778",
+];
+
+export function matchesBenignPattern(text: string): boolean {
+  const lower = text.toLowerCase();
+  return BENIGN_RACE_PATTERNS.some((pattern) => lower.includes(pattern));
+}
 
 export function isBenignConcurrencyRace(
   err: unknown,
@@ -92,16 +156,7 @@ export function isBenignConcurrencyRace(
     if (matched && BENIGN_RACE_ERROR_CODES.has(matched.code)) {
       return true;
     }
-    const str = String(err).toLowerCase();
-    if (
-      str.includes("already claimed") ||
-      str.includes("already prepared") ||
-      str.includes("already revealed") ||
-      str.includes("already harvested") ||
-      str.includes("already processed") ||
-      str.includes("0x1778") || // 6008 in hex
-      str.includes("custom program error: 0x1778")
-    ) {
+    if (matchesBenignPattern(String(err))) {
       return true;
     }
   }
@@ -110,16 +165,7 @@ export function isBenignConcurrencyRace(
     if (matchedLog && BENIGN_RACE_ERROR_CODES.has(matchedLog.code)) {
       return true;
     }
-    const fullLogs = logs.join(" ").toLowerCase();
-    if (
-      fullLogs.includes("already claimed") ||
-      fullLogs.includes("already prepared") ||
-      fullLogs.includes("already revealed") ||
-      fullLogs.includes("already harvested") ||
-      fullLogs.includes("already processed") ||
-      fullLogs.includes("0x1778") ||
-      fullLogs.includes("custom program error: 0x1778")
-    ) {
+    if (matchesBenignPattern(logs.join(" "))) {
       return true;
     }
   }

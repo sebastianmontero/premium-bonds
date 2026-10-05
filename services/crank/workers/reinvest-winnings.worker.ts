@@ -1,5 +1,8 @@
 import { Instruction } from "@solana/kit";
-import { buildPackedReinvestWinningsInstructions } from "../../../app/lib/bonds-sdk";
+import {
+  buildPackedReinvestWinningsInstructions,
+  isPayoutRegistryVoided,
+} from "../../../app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
   PoolStateSnapshot,
@@ -25,6 +28,13 @@ export class ReinvestWinningsWorker implements ICrankTask {
       };
     }
 
+    if (isPayoutRegistryVoided(snapshot.payoutRegistry.account)) {
+      return {
+        shouldExecute: false,
+        reason: "PayoutRegistry is voided; cannot reinvest winners",
+      };
+    }
+
     const count = snapshot.unprocessedWinners.length;
     if (count === 0) {
       return {
@@ -44,7 +54,7 @@ export class ReinvestWinningsWorker implements ICrankTask {
       priorityFeeTier: "medium",
       writableAccounts: [
         snapshot.poolAddress,
-        snapshot.payoutRegistryAddress,
+        snapshot.payoutRegistry.address,
         snapshot.ticketRegistryAddress,
       ],
     };

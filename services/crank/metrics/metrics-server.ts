@@ -64,6 +64,14 @@ export class MetricsServer {
     this.payoutRegistryClaimable.set(key, { poolId, cycleId, claimable });
   }
 
+  clearPayoutRegistryClaimable(poolId: number): void {
+    for (const [key, item] of this.payoutRegistryClaimable.entries()) {
+      if (item.poolId === poolId) {
+        this.payoutRegistryClaimable.delete(key);
+      }
+    }
+  }
+
   updateSolBalance(balance: number): void {
     this.crankSolBalance = balance;
   }

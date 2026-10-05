@@ -426,13 +426,15 @@ export class AdaptiveCrankScheduler {
     }
 
     // 4. Telemetry: Check if PayoutRegistry can be closed manually to reclaim rent
-    if (snapshot.state === "REINVESTMENT_PENDING" && snapshot.payoutRegistry) {
-      const claimable = canClosePayoutRegistry(snapshot.payoutRegistry);
+    if (snapshot.latestPayoutRegistry) {
+      const { account } = snapshot.latestPayoutRegistry;
       this.metrics.setPayoutRegistryClaimable(
         poolId,
-        snapshot.payoutRegistry.cycleId,
-        claimable
+        account.cycleId,
+        canClosePayoutRegistry(account)
       );
+    } else {
+      this.metrics.clearPayoutRegistryClaimable(poolId);
     }
 
     // 5. Evaluate unified polymorphic tasks

@@ -44,10 +44,7 @@ export function DrawTelemetryGrid({
           <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
             {t("prizePot")}
           </p>
-            <DrawPrizePotBadge
-              status={draw.status}
-              prizePot={draw.prizePot}
-            />
+          <DrawPrizePotBadge status={draw.status} prizePot={draw.prizePot} />
         </div>
         <div className="text-base font-bold font-mono text-primary mt-1 truncate">
           <DrawPrizePotDisplay

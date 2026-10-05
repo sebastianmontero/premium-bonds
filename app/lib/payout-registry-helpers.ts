@@ -98,21 +98,62 @@ export function formatPayoutRegistryStatus(
   return PayoutRegistryStatus[status] ?? `Unknown (${status})`;
 }
 
-export function isPayoutRegistryVoided(
-  registry: Pick<PayoutRegistry, "status">
+export function isEnumStatus<TEnum extends Record<string, string | number>>(
+  actual: unknown,
+  enumObj: TEnum,
+  target: number
 ): boolean {
-  return registry.status === PayoutRegistryStatus.Voided;
+  if (actual == null) return false;
+  if (typeof actual === "bigint") actual = Number(actual);
+  if (actual === target) return true;
+  const targetName = enumObj[target];
+  if (typeof targetName === "string" && actual === targetName) return true;
+  if (
+    typeof actual === "object" &&
+    actual !== null &&
+    "__kind" in actual &&
+    (actual as { __kind: string }).__kind === targetName
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function isPayoutRegistryVoided(
+  registry?: Pick<PayoutRegistry, "status"> | { status?: unknown } | null
+): boolean {
+  return isEnumStatus(
+    registry?.status,
+    PayoutRegistryStatus,
+    PayoutRegistryStatus.Voided
+  );
+}
+
+export function isPayoutRegistryActive(
+  registry?: Pick<PayoutRegistry, "status"> | { status?: unknown } | null
+): boolean {
+  return isEnumStatus(
+    registry?.status,
+    PayoutRegistryStatus,
+    PayoutRegistryStatus.Active
+  );
 }
 
 export function canClosePayoutRegistry(
-  registry: Pick<PayoutRegistry, "winnersCount" | "payoutsCompleted" | "status">
+  registry?: {
+    status?: unknown;
+    winnersCount?: number | bigint;
+    payoutsCompleted?: number | bigint;
+  } | null
 ): boolean {
-  return (
-    isPayoutRegistryVoided(registry) ||
-    (registry.status === PayoutRegistryStatus.Active &&
-      registry.winnersCount > 0 &&
-      registry.payoutsCompleted === registry.winnersCount)
-  );
+  if (!registry) return false;
+  if (isPayoutRegistryVoided(registry)) return true;
+  if (isPayoutRegistryActive(registry)) {
+    const winners = Number(registry.winnersCount ?? 0);
+    const completed = Number(registry.payoutsCompleted ?? 0);
+    return winners > 0 && completed === winners;
+  }
+  return false;
 }
 
 export function payoutRegistrySpace(winnersCount: number): number {
