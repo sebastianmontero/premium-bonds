@@ -115,6 +115,7 @@ import {
   getCreateLenderAccountsV2InstructionDataEncoder,
   parseTokenAccountBalance,
   PrizeTierInput,
+  REGISTRY_INITIAL_SIZE,
 } from "../app/lib/bonds-sdk";
 
 export interface ProgramDeployConfig extends ProgramKeypairConfig {
@@ -888,7 +889,7 @@ async function handleInit(args: string[]) {
   }
 
   if (!ticketRegistryInfo?.value) {
-    const space = 262248n;
+    const space = BigInt(REGISTRY_INITIAL_SIZE);
     const rentExempt = await rpc
       .getMinimumBalanceForRentExemption(space)
       .send();

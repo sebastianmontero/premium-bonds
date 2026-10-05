@@ -2,6 +2,8 @@ import { Instruction } from "@solana/kit";
 import {
   buildResizeRegistryInstruction,
   PoolStatus,
+  canExpandTicketRegistry,
+  ticketRegistrySpace,
 } from "../../../app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
@@ -9,16 +11,14 @@ import {
   ICrankTask,
   CrankTaskOutcome,
 } from "../types";
-import { IAlertNotifier } from "../alerts/alert-notifier";
-
-export const REGISTRY_HEADER_SIZE = 72;
-export const USER_ENTRY_SIZE = 80;
-export const MAX_REGISTRY_BYTE_LEN = 10_485_760; // 10MB SVM account size limit
+import { IAlertService } from "../alerts/alert-notifier";
 
 export class CapacitySentinelWorker implements ICrankTask {
   readonly name = "CapacitySentinelWorker";
+  private static readonly CRITICAL_ALERT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+  private readonly lastCriticalAlertAt = new Map<number, number>();
 
-  constructor(private readonly alertNotifier?: IAlertNotifier) {}
+  constructor(private readonly alertNotifier?: IAlertService) {}
 
   canHandle(snapshot: PoolStateSnapshot): boolean {
     return (
@@ -56,27 +56,32 @@ export class CapacitySentinelWorker implements ICrankTask {
       };
     }
 
-    const currentByteLen =
-      REGISTRY_HEADER_SIZE + registry.capacity * USER_ENTRY_SIZE;
-
-    // Check 10MB ceiling
-    if (currentByteLen + 10_240 > MAX_REGISTRY_BYTE_LEN) {
-      if (this.alertNotifier) {
-        await this.alertNotifier.notifyAlert(
-          "REGISTRY_CAPACITY_CRITICAL",
-          `Ticket registry for Pool #${snapshot.poolId} has reached maximum 10MB size limit (${currentByteLen} bytes). Cannot expand further!`,
-          snapshot.poolId,
-          "critical"
-        );
-      }
-      return {
-        shouldExecute: false,
-        reason: `Ticket registry is at maximum SVM account size limit (10MB). Cannot expand further.`,
-      };
-    }
-
     const utilization = registry.userCount / registry.capacity;
     if (utilization >= 0.85) {
+      // Check discrete capacity ceiling before triggering expansion
+      if (!canExpandTicketRegistry(registry.capacity)) {
+        const currentByteLen = ticketRegistrySpace(registry.capacity);
+        const now = Date.now();
+        const lastAlert = this.lastCriticalAlertAt.get(snapshot.poolId) ?? 0;
+
+        if (
+          this.alertNotifier &&
+          now - lastAlert >= CapacitySentinelWorker.CRITICAL_ALERT_COOLDOWN_MS
+        ) {
+          this.lastCriticalAlertAt.set(snapshot.poolId, now);
+          await this.alertNotifier.notifyAlert(
+            "REGISTRY_CAPACITY_CRITICAL",
+            `Ticket registry for Pool #${snapshot.poolId} has reached maximum 10MB size limit (${currentByteLen} bytes, ${registry.capacity} users). Cannot expand further!`,
+            snapshot.poolId,
+            "critical"
+          );
+        }
+        return {
+          shouldExecute: false,
+          reason: `Ticket registry is at maximum SVM account size limit (10MB, ${registry.capacity} users). Cannot expand further.`,
+        };
+      }
+
       const instructions = await this.buildInstructions(snapshot, context);
       return {
         shouldExecute: true,

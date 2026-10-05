@@ -890,7 +890,7 @@ export interface BuildCreateAccountParams {
   readonly payer: KeyPairSigner;
   readonly newAccount: KeyPairSigner;
   readonly lamports: bigint;
-  readonly space: bigint;
+  readonly space: bigint | number;
   readonly ownerProgramId: Address;
 }
 
@@ -904,7 +904,7 @@ export function buildCreateAccountInstruction(
   const view = new DataView(data.buffer);
   view.setUint32(0, 0, true); // SystemProgram::CreateAccount opcode (0)
   view.setBigUint64(4, params.lamports, true);
-  view.setBigUint64(12, params.space, true);
+  view.setBigUint64(12, BigInt(params.space), true);
   data.set(getBase58Encoder().encode(params.ownerProgramId), 20);
 
   return {

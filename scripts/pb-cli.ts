@@ -310,6 +310,9 @@ import {
   HUMA_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
   REGISTRY_INITIAL_SIZE,
+  ticketRegistrySpace,
+  canExpandTicketRegistry,
+  isRegistryAtMaxCapacity,
   buildPrepareDrawInstruction,
   buildInitializeGlobalInstruction,
   buildUpdateGlobalConfigInstruction,
@@ -2951,7 +2954,7 @@ export async function executeCreatePool({
     registryAddress = ticketRegistrySigner.address;
     registrySignerToPass = ticketRegistrySigner;
 
-    const space = REGISTRY_INITIAL_SIZE;
+    const space = BigInt(REGISTRY_INITIAL_SIZE);
     const lamports = await rpc.getMinimumBalanceForRentExemption(space).send();
 
     if (mode.kind !== "direct") {
@@ -2999,7 +3002,7 @@ export async function executeCreatePool({
 `);
 
   if (mode.kind === "direct" && registrySignerToPass) {
-    const space = REGISTRY_INITIAL_SIZE;
+    const space = BigInt(REGISTRY_INITIAL_SIZE);
     const lamports = await rpc.getMinimumBalanceForRentExemption(space).send();
 
     const createRegistryIx = {
@@ -3204,10 +3207,16 @@ export async function executeResizeRegistry({
     new Uint8Array(base64Encoder.encode(registryAcc.value.data[0]))
   );
 
+  if (!canExpandTicketRegistry(registryState.capacity)) {
+    throw new Error(
+      `TicketRegistry for Pool ${poolId} cannot be expanded further (current capacity: ${registryState.capacity} users, space: ${ticketRegistrySpace(registryState.capacity)} bytes). Next expansion would exceed 10MB account limit.`
+    );
+  }
+
   console.log(`Resizing Ticket Registry for Pool ${poolId} at ${registryAddr}:
   Current Capacity: ${registryState.capacity} users
   User Count: ${registryState.userCount} users
-  Current Space: ${registryAcc.value.data[0].length} bytes
+  Current Space: ${ticketRegistrySpace(registryState.capacity)} bytes
 `);
 
   const ix = await buildResizeRegistryInstruction({
@@ -3945,14 +3954,14 @@ export async function executeRebindRandomness({
 
 function buildSystemCreateAccountData(
   lamports: bigint,
-  space: bigint,
+  space: bigint | number,
   ownerProgramId: string
 ): Uint8Array {
   const data = new Uint8Array(4 + 8 + 8 + 32);
   const view = new DataView(data.buffer);
   view.setUint32(0, 0, true);
   view.setBigUint64(4, lamports, true);
-  view.setBigUint64(12, space, true);
+  view.setBigUint64(12, BigInt(space), true);
   data.set(getBase58Encoder().encode(address(ownerProgramId)), 20);
   return data;
 }

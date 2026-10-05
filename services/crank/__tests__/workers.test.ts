@@ -541,6 +541,91 @@ describe("Strategy Workers Unit Tests", () => {
     assert.strictEqual(outcomeFrozen.shouldExecute, false);
   });
 
+  it("CapacitySentinelWorker should allow expansion at N=997 capacity (163,616 users) but halt and alert at N=998 max ceiling (163,776 users)", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+
+    const alerts: { eventType: string; message: string; severity?: string }[] =
+      [];
+    const mockNotifier = {
+      notifyAlert: async (
+        eventType: string,
+        message: string,
+        _poolId?: number,
+        severity?: string
+      ) => {
+        alerts.push({ eventType, message, severity });
+      },
+      notifyLowBalance: async () => {},
+    };
+
+    const sentinel = new CapacitySentinelWorker(mockNotifier);
+
+    const baseSnapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      ticketRegistryAddress: mockAddress,
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    // Capacity = 163,616 (N=997), userCount = 140,000 (85.5% utilization)
+    // 104 + 163,616 * 64 + 10,240 = 10,481,768 <= 10,485,760 -> can expand
+    const snapshotNearCeiling = {
+      ...baseSnapshot,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 140_000,
+        capacity: 163_616,
+      }),
+    };
+    const outcomeNearCeiling = await sentinel.evaluate(
+      snapshotNearCeiling,
+      ctx
+    );
+    assert.strictEqual(outcomeNearCeiling.shouldExecute, true);
+    assert.strictEqual(alerts.length, 0);
+
+    // Capacity = 163,776 (N=998 max ceiling), userCount = 140,000 (85.5% utilization)
+    // 104 + 163,776 * 64 + 10,240 = 10,492,008 > 10,485,760 -> cannot expand
+    const snapshotAtMaxCeiling = {
+      ...baseSnapshot,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 140_000,
+        capacity: 163_776,
+      }),
+    };
+    const outcomeAtMaxCeiling = await sentinel.evaluate(
+      snapshotAtMaxCeiling,
+      ctx
+    );
+    assert.strictEqual(outcomeAtMaxCeiling.shouldExecute, false);
+    assert.match(
+      outcomeAtMaxCeiling.reason,
+      /maximum SVM account size limit \(10MB, 163776 users\)/
+    );
+    assert.strictEqual(alerts.length, 1);
+    assert.strictEqual(alerts[0].eventType, "REGISTRY_CAPACITY_CRITICAL");
+    assert.strictEqual(alerts[0].severity, "critical");
+    assert.match(alerts[0].message, /10481768 bytes, 163776 users/);
+
+    // Cooldown verification: evaluate again immediately, alert should NOT be resent
+    const outcomeCooldown = await sentinel.evaluate(snapshotAtMaxCeiling, ctx);
+    assert.strictEqual(outcomeCooldown.shouldExecute, false);
+    assert.strictEqual(alerts.length, 1); // Still 1
+
+    // Verify graceful execution when alertNotifier is undefined
+    const sentinelNoNotifier = new CapacitySentinelWorker();
+    const outcomeNoNotifier = await sentinelNoNotifier.evaluate(
+      snapshotAtMaxCeiling,
+      ctx
+    );
+    assert.strictEqual(outcomeNoNotifier.shouldExecute, false);
+  });
+
   it("DisburseSentinelWorker should short circuit on zero pending redemptions", async () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);

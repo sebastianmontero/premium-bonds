@@ -1,12 +1,15 @@
 import { CrankConfig } from "../config";
 
-export interface IAlertNotifier {
+export interface IAlertService {
   notifyAlert(
     event: string,
     message: string,
     poolId?: number,
     severity?: "info" | "warning" | "error" | "critical"
   ): Promise<void>;
+}
+
+export interface IAlertNotifier extends IAlertService {
   notifyLowBalance(solBalance: number): Promise<void>;
 }
 

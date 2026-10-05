@@ -46,6 +46,15 @@ import {
   UNASSIGNED_REGISTRY_INDEX,
   REGISTRY_HEADER_SIZE,
   USER_ENTRY_SIZE,
+  REGISTRY_REALLOC_STEP,
+  REGISTRY_MAX_SIZE,
+  REGISTRY_INITIAL_SIZE,
+  REGISTRY_INITIAL_CAPACITY,
+  REGISTRY_MAX_CAPACITY,
+  ticketRegistrySpace,
+  ticketRegistryCapacity,
+  canExpandTicketRegistry,
+  isRegistryAtMaxCapacity,
   UserEntryInfo,
   buildNominateAdminInstruction,
   buildCancelAdminNominationInstruction,
@@ -612,7 +621,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
       entries,
     });
 
-    assert.strictEqual(buffer.byteLength, 262248);
+    assert.strictEqual(buffer.byteLength, REGISTRY_INITIAL_SIZE);
     assert.deepStrictEqual(
       Array.from(buffer.subarray(0, 8)),
       Array.from(TICKET_REGISTRY_DISCRIMINATOR)
@@ -620,7 +629,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
 
     const parsed = parseTicketRegistry(buffer);
     assert.strictEqual(parsed.poolId, 1);
-    assert.strictEqual(parsed.capacity, 4096);
+    assert.strictEqual(parsed.capacity, REGISTRY_INITIAL_CAPACITY);
     assert.strictEqual(parsed.userCount, 2);
     assert.strictEqual(parsed.totalActiveTickets, 927);
     assert.strictEqual(parsed.drawCycleId, 3);
@@ -747,30 +756,24 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
       entries: [
         {
           owner: "11111111111111111111111111111111" as Address,
-          activeTickets: 100,
-          pendingTickets: 10,
-          lastActiveCycle: 4,
-          bump: 255,
-          version: 1,
-          reserved: new Uint8Array(18),
+          active: 100,
+          pending: 10,
+          mergedThroughCycle: 4,
+          cumulativeActive: 100,
         },
         {
           owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address,
-          activeTickets: 200,
-          pendingTickets: 20,
-          lastActiveCycle: 4,
-          bump: 254,
-          version: 1,
-          reserved: new Uint8Array(18),
+          active: 200,
+          pending: 20,
+          mergedThroughCycle: 4,
+          cumulativeActive: 300,
         },
         {
           owner: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" as Address,
-          activeTickets: 200,
-          pendingTickets: 20,
-          lastActiveCycle: 3,
-          bump: 253,
-          version: 1,
-          reserved: new Uint8Array(18),
+          active: 200,
+          pending: 20,
+          mergedThroughCycle: 3,
+          cumulativeActive: 500,
         },
       ],
     });
@@ -994,6 +997,134 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
       assert.equal(ix.accounts[0].role, AccountRole.WRITABLE);
       assert.equal(ix.accounts[1].address, newAdmin);
       assert.equal(ix.accounts[1].role, AccountRole.READONLY_SIGNER);
+    });
+  });
+
+  describe("Ticket Registry Constants & Layout Helpers", () => {
+    it("should define canonical on-chain layout constants", () => {
+      assert.strictEqual(REGISTRY_HEADER_SIZE, 104);
+      assert.strictEqual(USER_ENTRY_SIZE, 64);
+      assert.strictEqual(REGISTRY_REALLOC_STEP, 10_240);
+      assert.strictEqual(REGISTRY_MAX_SIZE, 10_485_760);
+      assert.strictEqual(REGISTRY_INITIAL_SIZE, 262_248);
+      assert.strictEqual(REGISTRY_INITIAL_CAPACITY, 4_096);
+      assert.strictEqual(REGISTRY_MAX_CAPACITY, 163_776);
+    });
+
+    it("should calculate exact account byte space from capacity", () => {
+      assert.strictEqual(ticketRegistrySpace(0), 104);
+      assert.strictEqual(ticketRegistrySpace(1), 168);
+      assert.strictEqual(
+        ticketRegistrySpace(REGISTRY_INITIAL_CAPACITY),
+        262_248
+      );
+      assert.strictEqual(ticketRegistrySpace(163_616), 10_471_528);
+      assert.strictEqual(
+        ticketRegistrySpace(REGISTRY_MAX_CAPACITY),
+        10_481_768
+      );
+    });
+
+    it("should calculate exact capacity from account byte length with boundary handling", () => {
+      assert.strictEqual(ticketRegistryCapacity(0), 0);
+      assert.strictEqual(ticketRegistryCapacity(50), 0);
+      assert.strictEqual(ticketRegistryCapacity(103), 0);
+      assert.strictEqual(ticketRegistryCapacity(104), 0);
+      assert.strictEqual(ticketRegistryCapacity(104 + 63), 0);
+      assert.strictEqual(ticketRegistryCapacity(104 + 64), 1);
+      assert.strictEqual(ticketRegistryCapacity(262_248), 4_096);
+      assert.strictEqual(ticketRegistryCapacity(10_481_768), 163_776);
+    });
+
+    it("should satisfy mathematical bijection on valid capacities", () => {
+      const testCapacities = [0, 1, 10, 160, 4_096, 10_000, 163_616, 163_776];
+      for (const cap of testCapacities) {
+        assert.strictEqual(
+          ticketRegistryCapacity(ticketRegistrySpace(cap)),
+          cap
+        );
+      }
+    });
+
+    it("should correctly evaluate discrete expansion feasibility (canExpandTicketRegistry)", () => {
+      assert.strictEqual(canExpandTicketRegistry(0), true);
+      assert.strictEqual(canExpandTicketRegistry(4_096), true);
+      // N=997: 10,471,528 + 10,240 = 10,481,768 <= 10,485,760 -> can expand
+      assert.strictEqual(canExpandTicketRegistry(163_616), true);
+      // N=998: 10,481,768 + 10,240 = 10,492,008 > 10,485,760 -> cannot expand
+      assert.strictEqual(canExpandTicketRegistry(163_776), false);
+    });
+
+    it("should correctly evaluate max capacity threshold (isRegistryAtMaxCapacity)", () => {
+      assert.strictEqual(isRegistryAtMaxCapacity(0), false);
+      assert.strictEqual(isRegistryAtMaxCapacity(4_096), false);
+      assert.strictEqual(isRegistryAtMaxCapacity(163_775), false);
+      assert.strictEqual(isRegistryAtMaxCapacity(163_776), true);
+      assert.strictEqual(isRegistryAtMaxCapacity(200_000), true);
+    });
+
+    it("should defensively validate inputs to layout helpers", () => {
+      assert.throws(() => ticketRegistrySpace(-1), RangeError);
+      assert.throws(() => ticketRegistrySpace(1.5), RangeError);
+      assert.throws(() => ticketRegistrySpace(NaN), RangeError);
+      assert.throws(() => ticketRegistrySpace(Infinity), RangeError);
+
+      assert.throws(() => ticketRegistryCapacity(-1), RangeError);
+      assert.throws(() => ticketRegistryCapacity(104.5), RangeError);
+      assert.throws(() => ticketRegistryCapacity(NaN), RangeError);
+      assert.throws(() => ticketRegistryCapacity(Infinity), RangeError);
+    });
+
+    it("should dynamically size buffer in serializeTicketRegistry when capacity is provided without totalSizeBytes", () => {
+      const customBuffer = serializeTicketRegistry({
+        poolId: 2,
+        capacity: 10,
+      });
+      assert.strictEqual(customBuffer.byteLength, ticketRegistrySpace(10));
+      assert.strictEqual(customBuffer.byteLength, 104 + 10 * 64);
+
+      const parsed = parseTicketRegistry(customBuffer);
+      assert.strictEqual(parsed.capacity, 10);
+      assert.strictEqual(parsed.poolId, 2);
+    });
+
+    it("should verify discrete capacity expansion invariants across all 999 valid reallocation steps", () => {
+      for (let step = 0; step <= 998; step++) {
+        const cap = REGISTRY_INITIAL_CAPACITY + step * 160;
+        const space = ticketRegistrySpace(cap);
+        assert.ok(
+          space <= REGISTRY_MAX_SIZE,
+          `Space ${space} exceeds 10MB limit at step ${step}`
+        );
+        assert.strictEqual(ticketRegistryCapacity(space), cap);
+        if (step < 998) {
+          assert.strictEqual(
+            canExpandTicketRegistry(cap),
+            true,
+            `Step ${step} (cap ${cap}) should be expandable`
+          );
+        } else {
+          // Exactly at discrete maximum ceiling (N=998, 163,776 users)
+          assert.strictEqual(
+            canExpandTicketRegistry(cap),
+            false,
+            `Step 998 (cap ${cap}) must not be expandable`
+          );
+          assert.strictEqual(isRegistryAtMaxCapacity(cap), true);
+        }
+      }
+    });
+
+    it("should safely handle truncated or header-only buffers in parseTicketRegistry", () => {
+      // Valid empty header
+      const emptyHeaderBuffer = serializeTicketRegistry({
+        poolId: 1,
+        capacity: 0,
+        totalSizeBytes: 104,
+      });
+      const parsed = parseTicketRegistry(emptyHeaderBuffer);
+      assert.strictEqual(parsed.capacity, 0);
+      assert.strictEqual(parsed.entries.length, 0);
     });
   });
 });

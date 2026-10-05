@@ -24,6 +24,58 @@ export const PUBKEY_BYTES = 32;
 export const USER_ENTRY_VERSION = 1;
 export const USER_ENTRY_SIZE = 64;
 export const REGISTRY_HEADER_SIZE = 104;
+export const REGISTRY_REALLOC_STEP = 10_240;
+export const REGISTRY_MAX_SIZE = 10_485_760;
+export const REGISTRY_INITIAL_SIZE = 262_248;
+export const REGISTRY_INITIAL_CAPACITY = 4_096;
+export const REGISTRY_MAX_CAPACITY = 163_776;
+
+/**
+ * Calculates the total byte size of a TicketRegistry account for a given user capacity.
+ * Invariant: 104-byte header + capacity * 64-byte entry.
+ * @throws {RangeError} If capacity is not a non-negative safe integer.
+ */
+export function ticketRegistrySpace(capacity: number): number {
+  if (!Number.isSafeInteger(capacity) || capacity < 0) {
+    throw new RangeError(
+      `Capacity must be a non-negative integer, received ${capacity}`
+    );
+  }
+  return REGISTRY_HEADER_SIZE + capacity * USER_ENTRY_SIZE;
+}
+
+/**
+ * Calculates the maximum user capacity that can fit within a given account byte length.
+ * Returns 0 if byteLength is smaller than the 104-byte registry header.
+ * @throws {RangeError} If byteLength is not a non-negative safe integer.
+ */
+export function ticketRegistryCapacity(byteLength: number): number {
+  if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+    throw new RangeError(
+      `byteLength must be a non-negative integer, received ${byteLength}`
+    );
+  }
+  if (byteLength < REGISTRY_HEADER_SIZE) {
+    return 0;
+  }
+  return Math.floor((byteLength - REGISTRY_HEADER_SIZE) / USER_ENTRY_SIZE);
+}
+
+/**
+ * Evaluates whether the ticket registry has reached the maximum discrete SVM account ceiling (163,776 users).
+ */
+export function isRegistryAtMaxCapacity(capacity: number): boolean {
+  return capacity >= REGISTRY_MAX_CAPACITY;
+}
+
+/**
+ * Evaluates whether the registry has enough headroom for another +10KB (160 user) realloc step.
+ */
+export function canExpandTicketRegistry(capacity: number): boolean {
+  return (
+    ticketRegistrySpace(capacity) + REGISTRY_REALLOC_STEP <= REGISTRY_MAX_SIZE
+  );
+}
 
 export const REGISTRY_HEADER_OFFSETS = {
   DISCRIMINATOR: 0,
@@ -222,7 +274,7 @@ export function parseTicketRegistry(data: Uint8Array): ExtendedTicketRegistry {
   const entries: UserEntryInfo[] = [];
   const maxEntries = Math.min(
     header.userCount,
-    Math.floor((data.byteLength - REGISTRY_HEADER_SIZE) / USER_ENTRY_SIZE)
+    ticketRegistryCapacity(data.byteLength)
   );
 
   for (let i = 0; i < maxEntries; i++) {
@@ -271,22 +323,7 @@ export interface SerializeTicketRegistryOptions {
   version?: number;
   totalSizeBytes?: number;
   reserved?: Uint8Array;
-  entries?: (
-    | UserEntryInfo
-    | {
-        owner: Address;
-        active?: number;
-        pending?: number;
-        mergedThroughCycle?: number;
-        cumulativeActive?: number;
-        activeTickets?: number;
-        pendingTickets?: number;
-        lastActiveCycle?: number;
-        bump?: number;
-        version?: number;
-        reserved?: Uint8Array;
-      }
-  )[];
+  entries?: UserEntryInfo[];
 }
 
 /**
@@ -295,10 +332,12 @@ export interface SerializeTicketRegistryOptions {
 export function serializeTicketRegistry(
   options: SerializeTicketRegistryOptions
 ): Uint8Array {
-  const totalSizeBytes = options.totalSizeBytes ?? 262248;
-  const capacity =
-    options.capacity ??
-    Math.floor((totalSizeBytes - REGISTRY_HEADER_SIZE) / USER_ENTRY_SIZE);
+  const totalSizeBytes =
+    options.totalSizeBytes ??
+    (options.capacity !== undefined
+      ? ticketRegistrySpace(options.capacity)
+      : REGISTRY_INITIAL_SIZE);
+  const capacity = options.capacity ?? ticketRegistryCapacity(totalSizeBytes);
   const entries = options.entries ?? [];
   const userCount = options.userCount ?? entries.length;
 
@@ -319,40 +358,10 @@ export function serializeTicketRegistry(
   const fullBuffer = new Uint8Array(totalSizeBytes);
   fullBuffer.set(headerBytes, 0);
 
-  entries.forEach((rawEntry, idx) => {
+  entries.forEach((entry, idx) => {
     const entryOffset = REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;
     if (entryOffset + USER_ENTRY_SIZE <= totalSizeBytes) {
-      const normalizedEntry: UserEntryInfo = {
-        owner: rawEntry.owner,
-        active:
-          "active" in rawEntry && rawEntry.active !== undefined
-            ? rawEntry.active
-            : "activeTickets" in rawEntry &&
-                rawEntry.activeTickets !== undefined
-              ? rawEntry.activeTickets
-              : 0,
-        pending:
-          "pending" in rawEntry && rawEntry.pending !== undefined
-            ? rawEntry.pending
-            : "pendingTickets" in rawEntry &&
-                rawEntry.pendingTickets !== undefined
-              ? rawEntry.pendingTickets
-              : 0,
-        mergedThroughCycle:
-          "mergedThroughCycle" in rawEntry &&
-          rawEntry.mergedThroughCycle !== undefined
-            ? rawEntry.mergedThroughCycle
-            : "lastActiveCycle" in rawEntry &&
-                rawEntry.lastActiveCycle !== undefined
-              ? rawEntry.lastActiveCycle
-              : 0,
-        cumulativeActive:
-          "cumulativeActive" in rawEntry &&
-          rawEntry.cumulativeActive !== undefined
-            ? rawEntry.cumulativeActive
-            : 0,
-      };
-      fullBuffer.set(serializeUserEntry(normalizedEntry), entryOffset);
+      fullBuffer.set(serializeUserEntry(entry), entryOffset);
     }
   });
 

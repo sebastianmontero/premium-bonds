@@ -55,6 +55,8 @@ import {
   type PendingRedemption,
   PROGRAM_ID,
   HUMA_PROGRAM_ID,
+  REGISTRY_INITIAL_SIZE,
+  REGISTRY_INITIAL_CAPACITY,
 } from "../app/lib/bonds-sdk";
 import {
   TICKET_REGISTRY_DISCRIMINATOR,
@@ -770,7 +772,6 @@ export async function injectBaseState(options?: {
 
   // 5e. Ticket Registry
   const regAcc = accMap[4];
-  const REGISTRY_INITIAL_SIZE = 262248;
   const regBytes = regAcc ? decodeAccountBase64Data(regAcc) : null;
   const hasValidRegDiscriminator =
     regBytes &&
@@ -807,7 +808,7 @@ export async function injectBaseState(options?: {
 
     const repairedBuffer = serializeTicketRegistry({
       poolId,
-      capacity: 4096,
+      capacity: REGISTRY_INITIAL_CAPACITY,
       userCount: 0,
       totalActiveTickets: 0,
       totalPendingTickets: 0,

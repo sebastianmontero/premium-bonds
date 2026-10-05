@@ -102,6 +102,15 @@ export {
   USER_ENTRY_VERSION,
   USER_ENTRY_SIZE,
   REGISTRY_HEADER_SIZE,
+  REGISTRY_REALLOC_STEP,
+  REGISTRY_MAX_SIZE,
+  REGISTRY_INITIAL_SIZE,
+  REGISTRY_INITIAL_CAPACITY,
+  REGISTRY_MAX_CAPACITY,
+  ticketRegistrySpace,
+  ticketRegistryCapacity,
+  canExpandTicketRegistry,
+  isRegistryAtMaxCapacity,
   REGISTRY_HEADER_OFFSETS,
   USER_ENTRY_OFFSETS,
   parseUserEntryFromSlice,
@@ -132,7 +141,6 @@ export const USDC_MINT = address(
   process.env.NEXT_PUBLIC_USDC_MINT ||
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
-export const REGISTRY_INITIAL_SIZE = 262_248n;
 
 export function parseOptionalAddress(val?: string | null): Address | undefined {
   if (!val || typeof val !== "string") return undefined;
