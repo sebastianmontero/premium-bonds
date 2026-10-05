@@ -10,6 +10,7 @@ import {
   createResilientRpc,
   RateLimitCoordinator,
 } from "../app/lib/rpc-transport";
+import type { IndexerProgressEvent } from "./indexer-telemetry";
 
 describe("Indexer Sync Suite", () => {
   describe("CLI Argument Parsing", () => {
@@ -17,6 +18,7 @@ describe("Indexer Sync Suite", () => {
       const options = parseIndexerSyncArgs([]);
       assert.deepStrictEqual(options, {
         backfill: false,
+        silent: false,
         maxTransactions: undefined,
         rpcUrl: undefined,
         network: undefined,
@@ -29,6 +31,12 @@ describe("Indexer Sync Suite", () => {
     it("should parse --backfill flag", () => {
       const options = parseIndexerSyncArgs(["--backfill"]);
       assert.strictEqual(options.backfill, true);
+    });
+
+    it("should parse --silent, --quiet, and -q flags", () => {
+      assert.strictEqual(parseIndexerSyncArgs(["--silent"]).silent, true);
+      assert.strictEqual(parseIndexerSyncArgs(["--quiet"]).silent, true);
+      assert.strictEqual(parseIndexerSyncArgs(["-q"]).silent, true);
     });
 
     it("should parse --max and --max-transactions flags", () => {
@@ -142,6 +150,7 @@ describe("Indexer Sync Suite", () => {
         rpc: mockRpc,
         rpcUrl: "http://127.0.0.1:8899",
         network: "localnet",
+        silent: true,
       });
 
       assert.strictEqual(result.success, true);
@@ -171,6 +180,7 @@ describe("Indexer Sync Suite", () => {
         rpc: mockRpc,
         rpcUrl: "http://127.0.0.1:8899",
         network: "localnet",
+        silent: true,
       });
 
       assert.strictEqual(result.success, false);
@@ -220,6 +230,7 @@ describe("Indexer Sync Suite", () => {
         batchSize: 1,
         batchDelayMs: 0,
         workerStaggerMs: 0,
+        silent: true,
       });
 
       assert.strictEqual(result.success, true);
@@ -276,6 +287,7 @@ describe("Indexer Sync Suite", () => {
         batchSize: 2,
         batchDelayMs: 0,
         workerStaggerMs: 0,
+        silent: true,
       });
 
       assert.strictEqual(result.success, true);
@@ -336,6 +348,7 @@ describe("Indexer Sync Suite", () => {
         rateLimitCoordinator: coordinator,
         initialDelayMs: 5,
         maxDelayMs: 20,
+        onRetry: () => {},
       });
 
       const mockDb = createMockDb();
@@ -349,6 +362,7 @@ describe("Indexer Sync Suite", () => {
         batchSize: 1,
         batchDelayMs: 0,
         workerStaggerMs: 0,
+        silent: true,
       });
 
       assert.strictEqual(result.success, true);
@@ -393,6 +407,7 @@ describe("Indexer Sync Suite", () => {
         rateLimitCoordinator: coordinator,
         initialDelayMs: 5,
         maxDelayMs: 20,
+        onRetry: () => {},
       });
 
       const mockDb = createMockDb();
@@ -406,6 +421,7 @@ describe("Indexer Sync Suite", () => {
         batchSize: 1,
         batchDelayMs: 0,
         workerStaggerMs: 0,
+        silent: true,
       });
 
       assert.strictEqual(result.success, true);
@@ -415,6 +431,88 @@ describe("Indexer Sync Suite", () => {
         "Should have retried getSignaturesForAddress and succeeded on 2nd attempt"
       );
       assert.strictEqual(result.totalIngested, 0);
+    });
+
+    it("should emit structured progress events and pass contextual retry information", async () => {
+      const events: IndexerProgressEvent[] = [];
+      let retryContext: string | undefined;
+      let txAttempts = 0;
+
+      const mockTransport: any = async (req: any) => {
+        if (req.payload.method === "getSignaturesForAddress") {
+          return {
+            jsonrpc: "2.0",
+            id: req.payload.id ?? 1,
+            result: [
+              {
+                signature: "sig_telemetry_test_1",
+                slot: 1000,
+                blockTime: 1700000000,
+                err: null,
+              },
+            ],
+          };
+        }
+        if (req.payload.method === "getTransaction") {
+          txAttempts++;
+          if (txAttempts === 1) {
+            throw new Error("HTTP error (429): Too Many Requests");
+          }
+          return {
+            jsonrpc: "2.0",
+            id: req.payload.id ?? 1,
+            result: {
+              slot: 1000,
+              meta: { logMessages: [] },
+            },
+          };
+        }
+        return {
+          jsonrpc: "2.0",
+          id: req.payload.id ?? 1,
+          result: null,
+        };
+      };
+
+      const coordinator = new RateLimitCoordinator({
+        defaultFallbackCooldownMs: 5,
+        defaultJitterMs: 0,
+        defaultStaggerJitterMs: 0,
+        minCooldownFloorMs: 5,
+      });
+
+      const mockDb = createMockDb();
+
+      const result = await syncHistoricalTransactions({
+        isDatabaseConfigured: true,
+        db: mockDb,
+        transport: mockTransport,
+        rateLimitCoordinator: coordinator,
+        rpcUrl: "http://mock-rpc",
+        network: "localnet",
+        batchSize: 1,
+        batchDelayMs: 0,
+        workerStaggerMs: 0,
+        humaPoolStateAddress: "MockHumaPool1111111111111111111111111111111",
+        silent: true,
+        onProgress: (evt) => events.push(evt),
+        onRetry: (_err, _attempt, _delay, context) => {
+          retryContext = context;
+        },
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(retryContext, "Page 1 Chunk 1/1 (txs 1..1/1)");
+
+      const phases = events.map((e) => e.phase);
+      assert.deepStrictEqual(phases, [
+        "querying_signatures",
+        "signatures_discovered",
+        "fetching_transactions",
+        "ingesting_batch",
+        "reconciling_settlements",
+        "complete",
+      ]);
     });
   });
 });

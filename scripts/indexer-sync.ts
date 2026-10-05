@@ -1,5 +1,5 @@
 import "./load-env";
-import { createSolanaRpc } from "@solana/kit";
+import { createSolanaRpc, createSolanaRpcFromTransport } from "@solana/kit";
 import {
   resolveSolanaRpcUrl,
   resolveNetwork,
@@ -26,9 +26,22 @@ import {
   RateLimitCoordinator,
   type ResilientRpcClient,
 } from "../app/lib/rpc-transport";
+import {
+  SyncProgressTracker,
+  type IndexerProgressEvent,
+} from "./indexer-telemetry";
 
 export interface SyncHistoricalTransactionsOptions {
   backfill?: boolean;
+  silent?: boolean;
+  onProgress?: (progress: IndexerProgressEvent) => void;
+  onRetry?: (
+    error: unknown,
+    attempt: number,
+    delayMs: number,
+    context?: string
+  ) => void;
+  transport?: Parameters<typeof createSolanaRpcFromTransport>[0];
   maxTransactions?: number;
   rpcUrl?: string;
   network?: SolanaNetworkCluster | string;
@@ -53,6 +66,10 @@ export function parseIndexerSyncArgs(
   args: string[] = process.argv.slice(2)
 ): SyncHistoricalTransactionsOptions {
   const isBackfill = args.includes("--backfill");
+  const isSilent =
+    args.includes("--silent") ||
+    args.includes("--quiet") ||
+    args.includes("-q");
   let maxTransactions: number | undefined;
   let rpcUrl: string | undefined;
   let network: SolanaNetworkCluster | string | undefined;
@@ -81,6 +98,7 @@ export function parseIndexerSyncArgs(
 
   return {
     backfill: isBackfill,
+    silent: isSilent,
     maxTransactions,
     rpcUrl,
     network,
@@ -101,6 +119,11 @@ export async function syncHistoricalTransactions(
   if (!isDbConfigured) {
     throw new DatabaseNotConfiguredError();
   }
+
+  const tracker = new SyncProgressTracker({
+    silent: options.silent,
+    onProgress: options.onProgress,
+  });
 
   const dbClient = options.db || db;
   const rpcUrl = options.rpcUrl || resolveSolanaRpcUrl();
@@ -123,11 +146,13 @@ export async function syncHistoricalTransactions(
     createResilientRpc(rpcUrl, {
       rateLimitCoordinator: coordinator,
       maxRetries,
+      transport: options.transport,
+      onRetry: tracker.createRetryListener(maxRetries, options.onRetry),
     });
   const hydrator = new PayoutHydratorService(rpc);
   const settlementMonitor = new SettlementMonitorService();
 
-  console.log(
+  tracker.log(
     `[Indexer Sync] Network: ${network} | RPC: ${rpcUrl} | Program: ${PROGRAM_ID}`
   );
 
@@ -141,10 +166,10 @@ export async function syncHistoricalTransactions(
     ? undefined
     : cursorRow?.contiguousSignature || undefined;
 
-  console.log(
+  tracker.log(
     `[Indexer Sync Mode]: ${options.backfill ? "DEEP BACKFILL" : "INCREMENTAL GAP FILL"}`
   );
-  console.log(
+  tracker.log(
     `[Indexer Sync Watermark 'until']: ${untilSig || "GENESIS / INCEPTION"}`
   );
 
@@ -157,8 +182,17 @@ export async function syncHistoricalTransactions(
   let hasMore = true;
   let syncEncounteredErrors = false;
   let reachedTargetWatermark = false;
+  let pageCounter = 0;
 
   while (hasMore) {
+    pageCounter++;
+    tracker.emit({
+      phase: "querying_signatures",
+      page: pageCounter,
+      untilSig,
+      beforeSig,
+    });
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let sigs: any[] = [];
     try {
@@ -173,16 +207,22 @@ export async function syncHistoricalTransactions(
         })
         .send();
     } catch (err) {
-      console.error(
+      tracker.error(
         "[Indexer Sync Error] Failed to fetch signatures for address:",
         err
       );
+      tracker.emit({
+        phase: "aborted",
+        page: pageCounter,
+        reason: "Failed to fetch signatures for address",
+        error: err,
+      });
       syncEncounteredErrors = true;
       break;
     }
 
     if (!sigs || sigs.length === 0) {
-      console.log("[Indexer Sync] Fully synced up to watermark.");
+      tracker.log("[Indexer Sync] Fully synced up to watermark.");
       reachedTargetWatermark = true;
       break;
     }
@@ -198,13 +238,40 @@ export async function syncHistoricalTransactions(
     // Filter out failed transactions and reverse window to process in ascending slot order
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const validSigs = sigs.filter((s: any) => s.err === null).reverse();
+    tracker.emit({
+      phase: "signatures_discovered",
+      page: pageCounter,
+      totalDiscovered: sigs.length,
+      validCount: validSigs.length,
+    });
+
     const batch: IngestTransactionItem[] = [];
+    const totalChunks = Math.max(1, Math.ceil(validSigs.length / batchSize));
 
     for (let i = 0; i < validSigs.length; i += batchSize) {
       if (i > 0 && batchDelayMs > 0) {
         await new Promise((r) => setTimeout(r, batchDelayMs));
       }
       const chunk = validSigs.slice(i, i + batchSize);
+      const chunkNumber = Math.floor(i / batchSize) + 1;
+      const txStartIndex = i + 1;
+      const txEndIndex = Math.min(i + batchSize, validSigs.length);
+
+      tracker.emit({
+        phase: "fetching_transactions",
+        page: pageCounter,
+        chunk: {
+          chunkNumber,
+          totalChunks,
+          txStartIndex,
+          txEndIndex,
+          totalTransactions: validSigs.length,
+        },
+        eventsParsedSoFar: batch.reduce(
+          (sum, item) => sum + item.events.length,
+          0
+        ),
+      });
 
       const txResults = await Promise.all(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -230,7 +297,7 @@ export async function syncHistoricalTransactions(
 
       const failure = txResults.find((r) => r.error !== null);
       if (failure) {
-        console.error(
+        tracker.error(
           `[Indexer Sync Error] Failed to fetch tx ${failure.s.signature}:`,
           failure.error
         );
@@ -256,21 +323,30 @@ export async function syncHistoricalTransactions(
     }
 
     if (syncEncounteredErrors) {
-      console.warn(
-        "[Indexer Sync] Aborting current loop due to fetch failures."
-      );
+      tracker.emit({
+        phase: "aborted",
+        page: pageCounter,
+        reason: "Fetch failures in transaction chunk",
+      });
       break;
     }
 
+    const ingestStartTime = performance.now();
     const ingestResult = await ingestTransactionBatch(batch, {
       updateLatestCursor: false,
     });
+    const ingestDurationMs = Math.round(performance.now() - ingestStartTime);
     const count = ingestResult.insertedCount;
     totalIngested += count;
     totalTransactionsScanned += validSigs.length;
-    console.log(
-      `[Indexer Sync] Processed batch of ${sigs.length} signatures (${count} events).`
-    );
+
+    tracker.emit({
+      phase: "ingesting_batch",
+      page: pageCounter,
+      batchSize: validSigs.length,
+      insertedCount: count,
+      durationMs: ingestDurationMs,
+    });
 
     // Immediately hydrate pending draws if batch contained DrawCompleted, ensuring chronological
     // consistency before downstream reinvestments are processed.
@@ -278,6 +354,10 @@ export async function syncHistoricalTransactions(
       item.events.some((evt) => evt.type === "DrawCompleted")
     );
     if (batchHasDrawCompleted) {
+      tracker.emit({
+        phase: "hydrating_draws",
+        page: pageCounter,
+      });
       await hydrator.hydratePendingDraws();
     }
 
@@ -322,11 +402,11 @@ export async function syncHistoricalTransactions(
           updatedAt: new Date(),
         },
       });
-    console.log(
+    tracker.log(
       `[Indexer Sync] Contiguous watermark updated to: ${newestSignatureScanned}`
     );
   } else if (syncEncounteredErrors) {
-    console.warn(
+    tracker.warn(
       "[Indexer Sync] Watermark advancement skipped due to fetch errors in batch."
     );
   }
@@ -335,45 +415,53 @@ export async function syncHistoricalTransactions(
   try {
     const hydratorResult = await hydrator.hydratePendingDraws(50);
     if (hydratorResult.succeeded > 0) {
-      console.log(
+      tracker.log(
         `[Indexer Sync] Hydrated ${hydratorResult.succeeded} draw payout registries.`
       );
     }
     if (hydratorResult.failed > 0) {
-      console.warn(
+      tracker.warn(
         `[Indexer Sync] Payout hydration encountered ${hydratorResult.failed} failures:`,
         hydratorResult.errors
       );
     }
   } catch (err) {
-    console.warn("[Indexer Sync] Hydrator execution notice:", err);
+    tracker.warn("[Indexer Sync] Hydrator execution notice:", err);
   }
 
   // Run settlement monitor for self-healing reconciliation of Huma pool redemptions
   try {
     const humaPoolStateAddress =
-      options.humaPoolStateAddress ||
-      process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
-      process.env.HUMA_POOL_STATE;
+      options.humaPoolStateAddress !== undefined
+        ? options.humaPoolStateAddress
+        : process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
+          process.env.HUMA_POOL_STATE;
     if (humaPoolStateAddress) {
+      tracker.emit({
+        phase: "reconciling_settlements",
+        poolStateAddress: humaPoolStateAddress,
+      });
       const result = await settlementMonitor.syncHumaPoolSettlements(
         rpc,
         humaPoolStateAddress,
         1
       );
       if (result.success && result.updatedCount > 0) {
-        console.log(
+        tracker.log(
           `[Indexer Sync] Self-healing: Transitioned ${result.updatedCount} ready redemptions from Huma queue state.`
         );
       }
     }
   } catch (err) {
-    console.warn("[Indexer Sync] Huma settlement reconciliation notice:", err);
+    tracker.warn("[Indexer Sync] Huma settlement reconciliation notice:", err);
   }
 
-  console.log(
-    `[Indexer Sync Complete]: Total events ingested = ${totalIngested}`
-  );
+  tracker.emit({
+    phase: "complete",
+    totalIngested,
+    totalScanned: totalTransactionsScanned,
+    totalPages: pageCounter,
+  });
 
   return {
     success: !syncEncounteredErrors,
