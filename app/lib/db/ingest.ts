@@ -562,7 +562,7 @@ export async function upsertDrawHistoryTx(
           winnersSynced: sql`CASE
             WHEN ${drawHistory.winnersSynced} = true THEN true
             WHEN EXCLUDED.winners_synced = true THEN true
-            WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'ForceUnlocked', 'HaltedInsolvent', 'HaltedYieldSpike') THEN true
+            WHEN EXCLUDED.status IN ('Skipped', 'ForceUnlocked', 'HaltedInsolvent', 'HaltedYieldSpike') THEN true
             ELSE false
           END`,
           initiatedAt: sql`CASE
@@ -690,6 +690,7 @@ export interface ReducedBatchEvents {
   redemptionRows: (typeof pendingRedemptions.$inferInsert)[];
   snapshotRows: (typeof poolSnapshots.$inferInsert)[];
   userStatDeltas: UserStatDelta[];
+  payoutRegistryClosedUpdates: { poolId: number; cycleId: number }[];
 }
 
 export function reduceBatchEvents(
@@ -702,6 +703,7 @@ export function reduceBatchEvents(
   const redemptionRows: (typeof pendingRedemptions.$inferInsert)[] = [];
   const snapshotRows: (typeof poolSnapshots.$inferInsert)[] = [];
   const userStatDeltas: UserStatDelta[] = [];
+  const payoutRegistryClosedUpdates: { poolId: number; cycleId: number }[] = [];
 
   for (const { context, events } of batch) {
     events.forEach((evt, eventIndex) => {
@@ -1045,10 +1047,18 @@ export function reduceBatchEvents(
             prizePot: BigInt(evt.data.prizesReversed || 0),
             cycleFeeCollected: BigInt(evt.data.feesReversed || 0),
             totalDistributed: 0n,
-            winnersSynced: true,
+            winnersSynced: false,
             completedAt: voidedTimestamp,
             signature: context.signature,
             blockTime: context.blockTime,
+          });
+          break;
+        }
+
+        case "PayoutRegistryClosed": {
+          payoutRegistryClosedUpdates.push({
+            poolId: evt.data.poolId,
+            cycleId: evt.data.cycleId,
           });
           break;
         }
@@ -1157,6 +1167,7 @@ export function reduceBatchEvents(
     redemptionRows,
     snapshotRows,
     userStatDeltas,
+    payoutRegistryClosedUpdates,
   };
 }
 
@@ -1175,6 +1186,7 @@ export async function ingestTransactionBatch(
     redemptionRows,
     snapshotRows,
     userStatDeltas,
+    payoutRegistryClosedUpdates,
   } = reduceBatchEvents(batch);
 
   // Atomically execute all reducers within a single SQL transaction
@@ -1205,6 +1217,21 @@ export async function ingestTransactionBatch(
     // 3. Upsert Draw History
     if (drawRows.length > 0) {
       await upsertDrawHistoryTx(tx, drawRows);
+    }
+
+    // 3b. Mark Payout Registry closed for draws where PayoutRegistryClosed event occurred
+    if (payoutRegistryClosedUpdates.length > 0) {
+      for (const update of payoutRegistryClosedUpdates) {
+        await tx
+          .update(drawHistory)
+          .set({ winnersSynced: true })
+          .where(
+            and(
+              eq(drawHistory.poolId, update.poolId),
+              eq(drawHistory.cycleId, update.cycleId)
+            )
+          );
+      }
     }
 
     // 4. Upsert Pending Redemptions

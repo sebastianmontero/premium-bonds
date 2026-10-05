@@ -194,13 +194,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Trigger non-blocking Payout Registry hydration for completed draws or unhydrated gaps
-    const hasDrawCompleted = batch.some((item) =>
-      item.events.some((evt) => evt.type === "DrawCompleted")
+    // Trigger non-blocking Payout Registry hydration for completed/voided draws or unhydrated gaps
+    const hasDrawCompletedOrVoided = batch.some((item) =>
+      item.events.some(
+        (evt) => evt.type === "DrawCompleted" || evt.type === "DrawVoided"
+      )
     );
     const hasUnhydratedGaps = ingestResult.unhydratedDraws.length > 0;
 
-    if (hasDrawCompleted || hasUnhydratedGaps) {
+    if (hasDrawCompletedOrVoided || hasUnhydratedGaps) {
       const rpcUrl = resolveSolanaRpcUrl();
       const rpc = createSolanaRpc(rpcUrl);
       const hydrator = new PayoutHydratorService(rpc);
@@ -212,7 +214,7 @@ export async function POST(req: NextRequest) {
               await hydrator.hydrateDraw(target.poolId, target.cycleId);
             }
           }
-          if (hasDrawCompleted) {
+          if (hasDrawCompletedOrVoided) {
             const result = await hydrator.hydratePendingDraws();
             if (result.succeeded > 0) {
               console.log(

@@ -688,6 +688,8 @@
     "voidedPrizesNotice": "Premios Anulados",
     "voidedBannerTitle": "Ciclo de Sorteo Anulado y Revertido",
     "voidedBannerDesc": "Este sorteo fue revocado por la administración del protocolo antes de la liquidación. Todas las asignaciones de premios fueron devueltas a las reservas del fondo para proteger el capital de los depositantes.",
+    "voidedRegistryClosedTitle": "Registro de Pagos Reclamado",
+    "voidedRegistryClosedDesc": "Este ciclo de sorteo fue anulado y su cuenta de Registro de Pagos en cadena se cerró posteriormente para recuperar los lamports de renta hacia las reservas del protocolo. La lista histórica de ganadores ya no está disponible en el almacenamiento en cadena.",
     "voidedCrankTooltip": "El sorteo fue anulado por la administración; los premios fueron devueltos a las reservas del fondo.",
     "skippedTitle": "Traspaso de Rendimiento sin Pérdida y Protección de Capital",
     "skippedExplanation": "El rendimiento generado en este ciclo estuvo por debajo del umbral requerido. El 100% del rendimiento acumulado fue preservado y transferido al siguiente ciclo dentro de Huma Finance ($PST).",

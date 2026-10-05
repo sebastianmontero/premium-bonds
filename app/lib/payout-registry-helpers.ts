@@ -90,7 +90,7 @@ export enum PayoutRegistryStatus {
   Voided = 1,
 }
 
-export type PayoutRegistryStatusName = "Active" | "Voided";
+export type PayoutRegistryStatusName = "Active" | "Voided" | "Closed";
 
 export function formatPayoutRegistryStatus(
   status: number | PayoutRegistryStatus

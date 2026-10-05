@@ -1723,5 +1723,67 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         "WinningsClaimed must not push to userStatDeltas to prevent double-counting"
       );
     });
+
+    it("should process DrawVoided with winnersSynced: false to permit hydrator execution", () => {
+      const batch: IngestTransactionItem[] = [
+        {
+          context: mockContext,
+          events: [
+            {
+              type: "DrawVoided",
+              data: {
+                poolId: 1,
+                cycleId: 7,
+                admin: userAddr,
+                prizesReversed: 50_000_000n,
+                feesReversed: 5_000_000n,
+                timestamp: 1700000000n,
+              },
+            },
+          ],
+        },
+      ];
+
+      const res = reduceBatchEvents(batch);
+      assert.strictEqual(res.drawRows.length, 1);
+      assert.strictEqual(res.drawRows[0].status, "Voided");
+      assert.strictEqual(
+        res.drawRows[0].winnersSynced,
+        false,
+        "DrawVoided must have winnersSynced: false so hydrator extracts payout registry"
+      );
+      assert.strictEqual(res.drawRows[0].prizePot, 50_000_000n);
+      assert.strictEqual(res.drawRows[0].totalDistributed, 0n);
+    });
+
+    it("should capture PayoutRegistryClosed in payoutRegistryClosedUpdates without emitting corrupting draw rows", () => {
+      const batch: IngestTransactionItem[] = [
+        {
+          context: mockContext,
+          events: [
+            {
+              type: "PayoutRegistryClosed",
+              data: {
+                poolId: 1,
+                cycleId: 7,
+                crank: userAddr,
+                rentReclaimedLamports: 10_000_000n,
+                timestamp: 1700000500n,
+              },
+            },
+          ],
+        },
+      ];
+
+      const res = reduceBatchEvents(batch);
+      assert.strictEqual(
+        res.drawRows.length,
+        0,
+        "PayoutRegistryClosed must NOT push corrupting drawRows"
+      );
+      assert.strictEqual(res.payoutRegistryClosedUpdates.length, 1);
+      assert.strictEqual(res.payoutRegistryClosedUpdates[0].poolId, 1);
+      assert.strictEqual(res.payoutRegistryClosedUpdates[0].cycleId, 7);
+    });
   });
 });

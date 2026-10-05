@@ -2,7 +2,11 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { bondsKeys, type PoolId } from "../lib/query-keys";
-import type { DetailedDrawCycle, DrawWinnerRecord } from "../types";
+import type {
+  DetailedDrawCycle,
+  DrawWinnerRecord,
+  PayoutRegistryStatusName,
+} from "../types";
 import type { ReinvestmentBreakdown } from "../lib/draw-helpers";
 import { useCallback, useMemo } from "react";
 
@@ -83,13 +87,19 @@ export function useDrawCycleDetails(
         vrfSeedHex: d.vrfSeedHex,
         winnersCount: d.winnersCount,
         payoutsCompleted: winners.filter((w) => w.processed).length,
-        hasPayoutRegistry: winners.length > 0,
-        payoutRegistryStatus:
-          d.status === "Voided"
+        hasPayoutRegistry:
+          d.status === "Complete" ||
+          d.status === "Voided" ||
+          d.winnersCount > 0,
+        payoutRegistryStatus: (d.status === "Voided"
+          ? winners.length > 0
             ? "Voided"
-            : winners.length > 0
-              ? "Active"
-              : undefined,
+            : "Closed"
+          : winners.length > 0
+            ? "Active"
+            : d.status === "Complete" && d.winnersSynced
+              ? "Closed"
+              : undefined) as PayoutRegistryStatusName | undefined,
         winners,
         initiatedAt: d.initiatedAt,
         revealedAt: d.revealedAt ?? undefined,
@@ -161,12 +171,7 @@ export function useDrawCycleDetails(
 
     return {
       ...data,
-      payoutRegistryStatus:
-        data.status === "Voided"
-          ? "Voided"
-          : data.winners.length > 0
-            ? "Active"
-            : undefined,
+      payoutRegistryStatus: data.payoutRegistryStatus,
       isUserWinner,
       userWinningsTotal,
     };

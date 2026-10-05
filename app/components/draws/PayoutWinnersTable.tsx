@@ -141,14 +141,28 @@ export function PayoutWinnersTable({
       )}
 
       {winners.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-dashed border-surface-bright/10 rounded-xl bg-[#08090E]/40">
-          <p className="text-xs font-semibold text-on-surface-variant">
-            {t("noWinnersRegistered")}
-          </p>
-          <p className="text-[10px] text-on-surface-variant/60 max-w-xs mt-1">
-            {t("noWinnersSub")}
-          </p>
-        </div>
+        isVoided ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-dashed border-red-500/20 rounded-xl bg-red-500/5">
+            <span className="text-2xl mb-2" aria-hidden="true">
+              🏛️
+            </span>
+            <p className="text-xs font-semibold text-red-400">
+              {t("voidedRegistryClosedTitle")}
+            </p>
+            <p className="text-[11px] text-on-surface-variant max-w-md mt-1 leading-relaxed">
+              {t("voidedRegistryClosedDesc")}
+            </p>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-dashed border-surface-bright/10 rounded-xl bg-[#08090E]/40">
+            <p className="text-xs font-semibold text-on-surface-variant">
+              {t("noWinnersRegistered")}
+            </p>
+            <p className="text-[10px] text-on-surface-variant/60 max-w-xs mt-1">
+              {t("noWinnersSub")}
+            </p>
+          </div>
+        )
       ) : (
         <>
           {/* Table Filter Toolbar */}

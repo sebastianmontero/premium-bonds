@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   PayoutHydratorService,
   deriveDrawWinnerRows,
+  buildDrawHistoryCycleUpdate,
+  buildPayoutHydrationBroadcasts,
   type SolanaRpcClient,
 } from "../app/lib/indexer/payout-hydrator";
 import {
@@ -418,6 +420,180 @@ describe("PayoutHydrator Test Hardening Suite", () => {
         3,
         "Should have attempted initial + 2 retries"
       );
+    });
+  });
+
+  describe("Vector 6: Voided & Closed Draw Lifecycle Hydration", () => {
+    it("should hydrate winner rows for Voided draw when payout registry exists", async () => {
+      const activeSeed = new Uint8Array(32).fill(7);
+      const rows = await deriveDrawWinnerRows({
+        poolId: 1,
+        cycleId: 10,
+        payout: {
+          revealedAt: 1700003600n,
+          winnersCount: 2,
+          winners: [
+            {
+              winner: TEST_ADDR_1,
+              tierIndex: 0,
+              amountOwed: 100_000_000n,
+              processed: 0,
+              bondsBought: 0,
+            },
+            {
+              winner: TEST_ADDR_2,
+              tierIndex: 1,
+              amountOwed: 50_000_000n,
+              processed: 0,
+              bondsBought: 0,
+            },
+          ],
+        } as any,
+        cycle: {
+          randomnessSeed: activeSeed,
+          lockedTicketCount: 200,
+        },
+      });
+
+      assert.strictEqual(rows.length, 2);
+      assert.strictEqual(rows[0].winnerAddress, TEST_ADDR_1.toString());
+      assert.strictEqual(rows[1].winnerAddress, TEST_ADDR_2.toString());
+      assert.strictEqual(rows[0].amountOwed, 100_000_000n);
+      assert.strictEqual(rows[1].amountOwed, 50_000_000n);
+      assert.ok(rows[0].winningTicketIdx !== null);
+      assert.ok(rows[1].winningTicketIdx !== null);
+    });
+
+    it("should gracefully handle closed payout registry for Voided draw after confirmation retry", async () => {
+      const payoutPda = await findPayoutRegistryPda(1, 10);
+      const cyclePda = await findDrawCyclePda(1, 10);
+
+      const mockCycleBuf = buildMockDrawCycleEncoded({
+        poolId: 1,
+        cycleId: 10,
+        status: DrawStatus.Voided,
+      });
+
+      // PayoutRegistry is null (account deleted on Solana after rent reclaim)
+      const rpcBuilder = new MockRpcBuilder()
+        .withAccountSequence(payoutPda, [null, null])
+        .withAccountSequence(cyclePda, [mockCycleBuf, mockCycleBuf]);
+
+      const mockRpc = rpcBuilder.build() as unknown as SolanaRpcClient;
+      const service = new PayoutHydratorService(mockRpc, {
+        retryDelays: [10, 10], // Fast confirmation retry to protect against replication lag
+      });
+
+      const startTime = Date.now();
+      const accounts = await service.fetchDrawAccounts(1, 10);
+      const durationMs = Date.now() - startTime;
+
+      assert.ok(accounts !== null, "Accounts should be returned");
+      assert.strictEqual(
+        accounts.payoutData,
+        null,
+        "payoutData should be null for closed registry"
+      );
+      assert.ok(accounts.cycleData !== null, "cycleData should be present");
+      assert.strictEqual(
+        rpcBuilder.getAccountCallCount(payoutPda),
+        2,
+        "Should confirm on attempt 2 to guard against RPC replication lag"
+      );
+      assert.ok(
+        durationMs < 1000,
+        `Expected fast execution (<1000ms), took ${durationMs}ms`
+      );
+
+      const parsedCycle = parseDrawCycle(accounts.cycleData);
+      assert.strictEqual(parsedCycle.status, "Voided");
+    });
+
+    it("should gracefully handle closed payout registry for Complete draw after retry exhaustion", async () => {
+      const payoutPda = await findPayoutRegistryPda(1, 11);
+      const cyclePda = await findDrawCyclePda(1, 11);
+
+      const mockCycleBuf = buildMockDrawCycleEncoded({
+        poolId: 1,
+        cycleId: 11,
+        status: DrawStatus.Complete,
+      });
+
+      const rpcBuilder = new MockRpcBuilder()
+        .withAccountSequence(payoutPda, [null, null, null])
+        .withAccountSequence(cyclePda, [
+          mockCycleBuf,
+          mockCycleBuf,
+          mockCycleBuf,
+        ]);
+
+      const mockRpc = rpcBuilder.build() as unknown as SolanaRpcClient;
+      const service = new PayoutHydratorService(mockRpc, {
+        retryDelays: [0, 0],
+      });
+
+      const accounts = await service.fetchDrawAccounts(1, 11);
+      assert.ok(accounts !== null);
+      assert.strictEqual(accounts.payoutData, null);
+      assert.strictEqual(
+        rpcBuilder.getAccountCallCount(payoutPda),
+        3,
+        "Should check retries before resolving as closed registry"
+      );
+    });
+
+    it("should build authoritative cycle metadata update and mark winnersSynced when registry is closed", () => {
+      const seed = new Uint8Array(32).fill(9);
+      const update = buildDrawHistoryCycleUpdate(
+        {
+          vrfSeedSlot: 99999n,
+          randomnessSeed: seed,
+          initiatedAt: 1700000000n,
+          completedAt: 1700003600n,
+          lockedTicketCount: 500,
+        } as any,
+        {
+          drawBlockTime: 1700000100,
+          fallbackLockedTickets: 100,
+        }
+      );
+
+      assert.strictEqual(update.winnersSynced, true);
+      assert.strictEqual(update.vrfSeedSlot, 99999);
+      assert.ok(update.vrfSeedHex.length > 0);
+      assert.strictEqual(update.initiatedAt, 1700000000);
+      assert.strictEqual(update.completedAt, 1700003600);
+      assert.strictEqual(update.lockedTicketCount, 500n);
+    });
+
+    it("should suppress user-level winning broadcasts when draw is Voided", () => {
+      const broadcasts = buildPayoutHydrationBroadcasts(1, true, {
+        winnersCount: 2,
+        winners: [{ winner: TEST_ADDR_1 }, { winner: TEST_ADDR_2 }],
+      });
+
+      assert.strictEqual(broadcasts.length, 1);
+      assert.strictEqual(broadcasts[0].scope, "draws");
+      assert.strictEqual(broadcasts[0].reason, "payout:hydrated");
+    });
+
+    it("should include user-level winning broadcasts when draw is Complete", () => {
+      const broadcasts = buildPayoutHydrationBroadcasts(1, false, {
+        winnersCount: 3,
+        winners: [
+          { winner: TEST_ADDR_1 },
+          { winner: TEST_ADDR_2 },
+          { winner: TEST_ADDR_1 }, // duplicate winner
+        ],
+      });
+
+      assert.strictEqual(broadcasts.length, 3);
+      assert.strictEqual(broadcasts[0].scope, "draws");
+      assert.strictEqual(broadcasts[0].reason, "payout:hydrated");
+      assert.strictEqual(broadcasts[1].scope, "user");
+      assert.strictEqual(broadcasts[1].userAddress, TEST_ADDR_1.toString());
+      assert.strictEqual(broadcasts[2].scope, "user");
+      assert.strictEqual(broadcasts[2].userAddress, TEST_ADDR_2.toString());
     });
   });
 

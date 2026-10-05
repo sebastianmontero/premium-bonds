@@ -688,6 +688,8 @@
     "voidedPrizesNotice": "Prizes Revoked",
     "voidedBannerTitle": "Draw Cycle Voided & Rolled Back",
     "voidedBannerDesc": "This draw was revoked by protocol administration prior to settlement. All prize allocations were safely returned to pool reserves to protect depositor principal.",
+    "voidedRegistryClosedTitle": "Payout Registry Reclaimed",
+    "voidedRegistryClosedDesc": "This draw cycle was voided and its on-chain Payout Registry account was subsequently closed to reclaim rent lamports to protocol reserves. Historical winner rosters are no longer available in on-chain storage.",
     "voidedCrankTooltip": "Draw was voided by admin; prizes were returned to pool reserves.",
     "skippedTitle": "Lossless Yield Rollover & Principal Protection",
     "skippedExplanation": "Yield generated in this cycle fell below the required threshold. 100% of accrued yield was preserved and rolled over into the next cycle inside Huma Finance ($PST).",

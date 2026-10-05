@@ -290,8 +290,10 @@ export interface DrawCycleSummary {
   reason?: number | string;
 }
 
+export type PayoutRegistryStatusName = "Active" | "Voided" | "Closed";
+
 export interface DetailedDrawCycle extends DrawCycleSummary {
-  payoutRegistryStatus?: "Active" | "Voided";
+  payoutRegistryStatus?: PayoutRegistryStatusName;
   winners: DrawWinnerRecord[];
   isUserWinner?: boolean;
   userWinningsTotal?: number;

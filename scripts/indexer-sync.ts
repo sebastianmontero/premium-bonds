@@ -348,12 +348,14 @@ export async function syncHistoricalTransactions(
       durationMs: ingestDurationMs,
     });
 
-    // Immediately hydrate pending draws if batch contained DrawCompleted, ensuring chronological
+    // Immediately hydrate pending draws if batch contained DrawCompleted or DrawVoided, ensuring chronological
     // consistency before downstream reinvestments are processed.
-    const batchHasDrawCompleted = batch.some((item) =>
-      item.events.some((evt) => evt.type === "DrawCompleted")
+    const batchHasDrawCompletedOrVoided = batch.some((item) =>
+      item.events.some(
+        (evt) => evt.type === "DrawCompleted" || evt.type === "DrawVoided"
+      )
     );
-    if (batchHasDrawCompleted) {
+    if (batchHasDrawCompletedOrVoided) {
       tracker.emit({
         phase: "hydrating_draws",
         page: pageCounter,
