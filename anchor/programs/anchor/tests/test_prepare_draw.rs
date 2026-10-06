@@ -562,7 +562,11 @@ fn test_mtr002_prepare_draw_batch_equivalence() {
         })
         .collect::<Vec<_>>();
 
-    let execute_prepare_run = |batch_size: u32| -> (anchor::state::TicketRegistry, Vec<anchor::state::UserEntry>, Vec<u8>) {
+    let execute_prepare_run = |batch_size: u32| -> (
+        anchor::state::TicketRegistry,
+        Vec<anchor::state::UserEntry>,
+        Vec<u8>,
+    ) {
         let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
         mutate_ticket_registry_header(&mut ctx.svm, ctx.ticket_registry, |hdr| {
             hdr.draw_cycle_id = 2;
@@ -577,7 +581,8 @@ fn test_mtr002_prepare_draw_batch_equivalence() {
 
         let header = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
         let entries = read_ticket_registry_entries(&ctx.svm, ctx.ticket_registry);
-        let raw_data = ctx.svm
+        let raw_data = ctx
+            .svm
             .get_account(&ctx.ticket_registry)
             .expect("registry account")
             .data;
@@ -588,16 +593,21 @@ fn test_mtr002_prepare_draw_batch_equivalence() {
     let (hdr_bulk, entries_bulk, data_bulk) = execute_prepare_run(20);
 
     // 1. Semantic Progress & State Invariants
-    assert_eq!(hdr_inc.draw_prepared_up_to, 20, "Incremental prepare must complete all 20 entries");
-    assert_eq!(hdr_bulk.draw_prepared_up_to, 20, "Bulk prepare must complete all 20 entries");
+    assert_eq!(
+        hdr_inc.draw_prepared_up_to, 20,
+        "Incremental prepare must complete all 20 entries"
+    );
+    assert_eq!(
+        hdr_bulk.draw_prepared_up_to, 20,
+        "Bulk prepare must complete all 20 entries"
+    );
     assert_eq!(hdr_inc.user_count, 20, "Incremental user_count must be 20");
     assert_eq!(hdr_bulk.user_count, 20, "Bulk user_count must be 20");
 
     // 2. Monotonic Cumulative Active Assertions
     for i in 0..20 {
         assert_eq!(
-            entries_inc[i].cumulative_active,
-            entries_bulk[i].cumulative_active,
+            entries_inc[i].cumulative_active, entries_bulk[i].cumulative_active,
             "Cumulative active ticket prefix sum mismatch at entry index {i}"
         );
         if i > 0 {
@@ -615,3 +625,148 @@ fn test_mtr002_prepare_draw_batch_equivalence() {
     );
 }
 
+#[test]
+fn test_prepare_draw_large_batch_500_entries_no_oom() {
+    let entries = (0..500)
+        .map(|i| {
+            UserEntryTestBuilder::new()
+                .with_owner(Keypair::new().pubkey())
+                .with_active((i % 5 + 1) * 2)
+                .with_pending((i % 10 + 1) as u32)
+                .build()
+        })
+        .collect::<Vec<_>>();
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Advance draw_cycle_id to 2 so that merge_cycle_id = 1, ensuring all pending tickets mature via lazy_merge
+    mutate_ticket_registry_header(&mut ctx.svm, ctx.ticket_registry, |hdr| {
+        hdr.draw_cycle_id = 2;
+    });
+
+    let meta =
+        send_prepare(&mut ctx, 500).expect("500-entry prepare_draw must succeed without SBF OOM");
+    let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
+
+    assert_eq!(event.batch_start, 0);
+    assert_eq!(event.batch_end, 500);
+    assert_eq!(event.user_count, 500);
+    assert!(event.is_complete);
+
+    // Compute units consumed regression fence (< 75,000 CUs, well below 200,000 limit)
+    assert!(
+        meta.compute_units_consumed < 75_000,
+        "Compute units consumed ({}) exceeded 75,000 CU regression fence",
+        meta.compute_units_consumed
+    );
+
+    // Prefix sum strictly monotonic and all pending tickets merged to 0
+    let reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let mut prev_cumulative = 0u32;
+    for i in 0..500 {
+        let entry = anchor::utils::registry_get_entry(&reg_acct.data, i).unwrap();
+        assert_eq!(
+            entry.pending, 0,
+            "Entry {i} pending tickets must be 0 after merge"
+        );
+        assert!(
+            entry.cumulative_active > prev_cumulative,
+            "Entry {i} cumulative active ({}) must be strictly greater than previous ({})",
+            entry.cumulative_active,
+            prev_cumulative
+        );
+        prev_cumulative = entry.cumulative_active;
+    }
+}
+
+#[test]
+fn test_prepare_draw_two_batch_lifecycle_continuity() {
+    let entries = (0..600)
+        .map(|i| {
+            UserEntryTestBuilder::new()
+                .with_owner(Keypair::new().pubkey())
+                .with_active((i % 3 + 1) * 5)
+                .with_pending(1)
+                .build()
+        })
+        .collect::<Vec<_>>();
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    mutate_ticket_registry_header(&mut ctx.svm, ctx.ticket_registry, |hdr| {
+        hdr.draw_cycle_id = 2;
+    });
+
+    // Batch 1: 0..300
+    let meta1 = send_prepare(&mut ctx, 300).expect("Batch 1 should succeed");
+    let event1 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta1);
+    assert_eq!(event1.batch_start, 0);
+    assert_eq!(event1.batch_end, 300);
+    assert_eq!(event1.user_count, 600);
+    assert!(!event1.is_complete);
+
+    let reg1 = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
+    assert_eq!(reg1.draw_prepared_up_to, 300);
+
+    // Batch 2: 300..600
+    ctx.svm.expire_blockhash();
+    let meta2 = send_prepare(&mut ctx, 300).expect("Batch 2 should succeed");
+    let event2 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta2);
+    assert_eq!(event2.batch_start, 300);
+    assert_eq!(event2.batch_end, 600);
+    assert_eq!(event2.user_count, 600);
+    assert!(event2.is_complete);
+
+    let reg2 = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
+    assert_eq!(reg2.draw_prepared_up_to, 600);
+}
+
+#[test]
+fn test_prepare_draw_fails_math_overflow_in_lazy_merge() {
+    let user_a = Keypair::new().pubkey();
+    let mut entry = UserEntryTestBuilder::new()
+        .with_owner(user_a)
+        .with_active(u32::MAX)
+        .with_pending(1)
+        .build();
+    entry.merged_through_cycle = 0;
+
+    let entries = vec![entry];
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Advance draw_cycle_id to 2 so merge_cycle_id = 1, triggering lazy_merge overflow
+    mutate_ticket_registry_header(&mut ctx.svm, ctx.ticket_registry, |hdr| {
+        hdr.draw_cycle_id = 2;
+    });
+
+    let res = send_prepare(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
+}
+
+#[test]
+fn test_prepare_draw_empty_registry_rejected() {
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &[]);
+
+    let res = send_prepare(&mut ctx, 10);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawState);
+}
+
+#[test]
+fn test_prepare_draw_batch_clamping() {
+    let entries = (0..5)
+        .map(|_| UserEntryTestBuilder::active(Keypair::new().pubkey(), 10))
+        .collect::<Vec<_>>();
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Call prepare_draw with batch_size = 100 > 5 remaining entries
+    let meta = send_prepare(&mut ctx, 100).expect("Clamped prepare_draw must succeed");
+    let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
+    assert_eq!(event.batch_start, 0);
+    assert_eq!(event.batch_end, 5);
+    assert_eq!(event.user_count, 5);
+    assert!(event.is_complete);
+
+    let reg = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
+    assert_eq!(reg.draw_prepared_up_to, 5);
+}

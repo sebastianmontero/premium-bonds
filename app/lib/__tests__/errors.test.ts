@@ -807,4 +807,134 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
       assert.strictEqual(parsed.code, "DEBIT_NO_PRIOR_CREDIT");
     });
   });
+
+  describe("SBF Out of Memory, Compute Budget & Panic Error Classification Suite", () => {
+    it("Test 1 (Target Regression): should parse SBF out of memory with consumed CU logs as PROGRAM_OUT_OF_MEMORY", () => {
+      const rawErr = new Error(
+        "Transaction simulation failed: Error processing Instruction 0: SBF program panicked"
+      );
+      const logs = [
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
+        "Program log: Error: memory allocation failed, out of memory",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG consumed 69401 of 99700 compute units",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG failed: SBF program panicked",
+      ];
+      const parsed = parseTransactionError(rawErr, logs);
+      assert.strictEqual(parsed.layer, "anchor");
+      assert.strictEqual(parsed.category, "anchor_custom");
+      assert.strictEqual(parsed.code, "PROGRAM_OUT_OF_MEMORY");
+      assert.strictEqual(parsed.title, "Program Out of Memory");
+      assert.strictEqual(
+        parsed.message,
+        "The on-chain program exhausted its 32 KB SBF heap memory limit."
+      );
+      assert.strictEqual(
+        parsed.actionableStep,
+        "If executing a crank worker, reduce the batch size. For user transactions, please report this issue to protocol developers."
+      );
+    });
+
+    it("Test 2 (True Multi-Ix CU Exhaustion): should parse multi-instruction log reaching CU limit as COMPUTE_BUDGET_EXCEEDED", () => {
+      const rawErr = new Error(
+        "Transaction simulation failed: Error processing Instruction 1"
+      );
+      const logs = [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 consumed 150 of 200000 compute units",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG consumed 200000 of 200000 compute units",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG failed",
+      ];
+      const parsed = parseTransactionError(rawErr, logs);
+      assert.strictEqual(parsed.layer, "rpc");
+      assert.strictEqual(parsed.category, "network_rpc");
+      assert.strictEqual(parsed.code, "COMPUTE_BUDGET_EXCEEDED");
+      assert.strictEqual(parsed.title, "Compute Budget Exceeded");
+    });
+
+    it("Test 3 (Negative Multi-Ix Test): should parse custom Anchor error without false-positive CU exhaustion", () => {
+      const rawErr = new Error(
+        "Transaction simulation failed: custom program error: 0x1770"
+      );
+      const logs = [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 consumed 50000 of 200000 compute units",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG failed: custom program error: 0x1770",
+      ];
+      const parsed = parseTransactionError(rawErr, logs);
+      assert.strictEqual(parsed.layer, "anchor");
+      assert.strictEqual(parsed.category, "anchor_custom");
+      assert.strictEqual(parsed.code, 6000);
+      assert.strictEqual(parsed.title, "Program Error: PoolNotActive");
+    });
+
+    it("Test 4 (Epsilon CU Exhaustion): should parse explicit exceeded compute units string", () => {
+      const rawErr = new Error("Program failed: exceeded compute units");
+      const logs = [
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG consumed 199995 of 200000 compute units",
+        "Program failed: exceeded compute units",
+      ];
+      const parsed = parseTransactionError(rawErr, logs);
+      assert.strictEqual(parsed.layer, "rpc");
+      assert.strictEqual(parsed.category, "network_rpc");
+      assert.strictEqual(parsed.code, "COMPUTE_BUDGET_EXCEEDED");
+    });
+
+    it("Test 5 (RPC Confirmed Object Without Logs): should parse ComputationalBudgetExceeded in InstructionError", () => {
+      const rpcErr = {
+        InstructionError: [0, "ComputationalBudgetExceeded"],
+      };
+      const parsed = parseTransactionError(rpcErr);
+      assert.strictEqual(parsed.layer, "rpc");
+      assert.strictEqual(parsed.category, "network_rpc");
+      assert.strictEqual(parsed.code, "COMPUTE_BUDGET_EXCEEDED");
+    });
+
+    it("Test 6 (Generic SBF Panic): should parse SBF panic fallback without false-positive CU exhaustion", () => {
+      const rawErr = new Error("Simulation failed");
+      const logs = [
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
+        "Program log: panicked at 'assertion failed: false', programs/anchor/src/lib.rs:12:5",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG consumed 25000 of 100000 compute units",
+        "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG failed: SBF program panicked",
+      ];
+      const parsed = parseTransactionError(rawErr, logs);
+      assert.strictEqual(parsed.layer, "anchor");
+      assert.strictEqual(parsed.category, "anchor_custom");
+      assert.strictEqual(parsed.code, "PROGRAM_PANICKED");
+      assert.strictEqual(parsed.title, "Program Panicked");
+      assert.strictEqual(
+        parsed.actionableStep,
+        "Please report this error and transaction logs to the protocol team on Discord or GitHub."
+      );
+    });
+
+    it("Test 7 (@solana/kit TransactionPlanError): should parse kit wrapped TransactionPlanError with SBF OOM logs", () => {
+      const kitErr = {
+        message:
+          "The provided transaction plan failed to execute. See the transactionPlanResult attribute for more details.",
+        transactionPlanResult: {
+          results: [
+            {
+              error: "Transaction simulation failed: SBF program panicked",
+              logs: [
+                "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG invoke [1]",
+                "Program log: Error: memory allocation failed, out of memory",
+                "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG consumed 69401 of 99700 compute units",
+                "Program 4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG failed: SBF program panicked",
+              ],
+            },
+          ],
+        },
+      };
+      const parsed = parseTransactionError(kitErr);
+      assert.strictEqual(parsed.layer, "anchor");
+      assert.strictEqual(parsed.category, "anchor_custom");
+      assert.strictEqual(parsed.code, "PROGRAM_OUT_OF_MEMORY");
+      assert.strictEqual(parsed.title, "Program Out of Memory");
+    });
+  });
 });

@@ -48,6 +48,24 @@ pub const POOL_AUTHORITY_SEED: &[u8] = b"pool_authority";
 pub const POOL_STATE_TOTAL_ASSETS_OFFSET: usize = 30;
 pub const POOL_STATE_TOTAL_ASSETS_END: usize = 46;
 
+#[inline]
+pub fn read_u128_at(data: &[u8], offset: usize) -> Result<u128> {
+    let end = offset.checked_add(16).ok_or(MockHumaError::MathOverflow)?;
+    require!(data.len() >= end, MockHumaError::InvalidPoolStateData);
+    let bytes: [u8; 16] = data[offset..end]
+        .try_into()
+        .map_err(|_| MockHumaError::InvalidPoolStateData)?;
+    Ok(u128::from_le_bytes(bytes))
+}
+
+#[inline]
+pub fn write_u128_at(data: &mut [u8], offset: usize, val: u128) -> Result<()> {
+    let end = offset.checked_add(16).ok_or(MockHumaError::MathOverflow)?;
+    require!(data.len() >= end, MockHumaError::InvalidPoolStateData);
+    data[offset..end].copy_from_slice(&val.to_le_bytes());
+    Ok(())
+}
+
 /// Reads the total assets from a Mock Huma pool_state account.
 #[inline]
 pub fn read_pool_total_assets(pool_state_info: &AccountInfo) -> Result<u128> {
@@ -58,7 +76,7 @@ pub fn read_pool_total_assets(pool_state_info: &AccountInfo) -> Result<u128> {
     );
     let bytes: [u8; 16] = data[POOL_STATE_TOTAL_ASSETS_OFFSET..POOL_STATE_TOTAL_ASSETS_END]
         .try_into()
-        .map_err(|_| error!(MockHumaError::InvalidPoolStateData))?;
+        .map_err(|_| MockHumaError::InvalidPoolStateData)?;
     Ok(u128::from_le_bytes(bytes))
 }
 
@@ -75,7 +93,7 @@ pub fn read_lender_owed(lender_state_info: &AccountInfo) -> Result<u64> {
     );
     let bytes: [u8; 8] = data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN]
         .try_into()
-        .map_err(|_| error!(MockHumaError::InvalidLenderStateData))?;
+        .map_err(|_| MockHumaError::InvalidLenderStateData)?;
     Ok(u64::from_le_bytes(bytes))
 }
 
@@ -90,11 +108,11 @@ pub fn accumulate_lender_owed(lender_state_info: &AccountInfo, delta: u64) -> Re
     let current = u64::from_le_bytes(
         data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN]
             .try_into()
-            .map_err(|_| error!(MockHumaError::InvalidLenderStateData))?,
+            .map_err(|_| MockHumaError::InvalidLenderStateData)?,
     );
     let new_owed = current
         .checked_add(delta)
-        .ok_or(error!(MockHumaError::MathOverflow))?;
+        .ok_or(MockHumaError::MathOverflow)?;
     data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN].copy_from_slice(&new_owed.to_le_bytes());
     Ok(new_owed)
 }
@@ -110,7 +128,7 @@ pub fn deduct_lender_owed(lender_state_info: &AccountInfo, amount: u64) -> Resul
     let current = u64::from_le_bytes(
         data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN]
             .try_into()
-            .map_err(|_| error!(MockHumaError::InvalidLenderStateData))?,
+            .map_err(|_| MockHumaError::InvalidLenderStateData)?,
     );
     let remaining = current.saturating_sub(amount);
     data[LENDER_STATE_OWED_OFFSET..LENDER_STATE_MIN_LEN].copy_from_slice(&remaining.to_le_bytes());
@@ -127,10 +145,11 @@ pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) 
     }
     let value = (pst_amount as u128)
         .checked_mul(total_assets)
-        .ok_or(error!(MockHumaError::MathOverflow))?
+        .ok_or(MockHumaError::MathOverflow)?
         .checked_div(pst_supply as u128)
-        .ok_or(error!(MockHumaError::MathOverflow))?;
-    value.try_into().map_err(|_| error!(MockHumaError::MathOverflow))
+        .ok_or(MockHumaError::MathOverflow)?;
+    let res: u64 = value.try_into().map_err(|_| MockHumaError::MathOverflow)?;
+    Ok(res)
 }
 
 // ─── Trigger Pubkeys ─────────────────────────────────────────────────────────
@@ -183,12 +202,13 @@ pub mod mock_huma {
             require!(total_assets > 0, MockHumaError::MathOverflow);
             let shares_u128 = (assets as u128)
                 .checked_mul(pst_supply as u128)
-                .ok_or(error!(MockHumaError::MathOverflow))?
+                .ok_or(MockHumaError::MathOverflow)?
                 .checked_div(total_assets)
-                .ok_or(error!(MockHumaError::MathOverflow))?;
-            shares_u128
+                .ok_or(MockHumaError::MathOverflow)?;
+            let shares: u64 = shares_u128
                 .try_into()
-                .map_err(|_| error!(MockHumaError::MathOverflow))?
+                .map_err(|_| MockHumaError::MathOverflow)?;
+            shares
         };
 
         // 2. Mint $PST to depositor's mode token account (skipped if simulating zero shares minted)
@@ -319,7 +339,8 @@ pub mod mock_huma {
             )?;
 
             // Decrement lender_state owed amount so next disburse sees the remainder.
-            let remaining = deduct_lender_owed(&ctx.accounts.lender_state.to_account_info(), amount)?;
+            let remaining =
+                deduct_lender_owed(&ctx.accounts.lender_state.to_account_info(), amount)?;
 
             msg!(
                 "MockHuma: disbursed {} USDC to lender (remaining owed: {})",
@@ -411,14 +432,14 @@ pub mod mock_huma {
             .checked_add(
                 num_modes
                     .checked_mul(216)
-                    .ok_or(error!(MockHumaError::MathOverflow))?,
+                    .ok_or(MockHumaError::MathOverflow)?,
             )
-            .ok_or(error!(MockHumaError::MathOverflow))?;
+            .ok_or(MockHumaError::MathOverflow)?;
 
         if data.len()
             < mode_config_keys_offset
                 .checked_add(4)
-                .ok_or(error!(MockHumaError::MathOverflow))?
+                .ok_or(MockHumaError::MathOverflow)?
         {
             return Ok(());
         }
@@ -427,75 +448,37 @@ pub mod mock_huma {
             data[mode_config_keys_offset
                 ..mode_config_keys_offset
                     .checked_add(4)
-                    .ok_or(error!(MockHumaError::MathOverflow))?]
+                    .ok_or(MockHumaError::MathOverflow)?]
                 .try_into()
                 .unwrap(),
         ) as usize;
 
         let redemption_offset = mode_config_keys_offset
             .checked_add(4)
-            .ok_or(error!(MockHumaError::MathOverflow))?
+            .ok_or(MockHumaError::MathOverflow)?
             .checked_add(
                 num_config_keys
                     .checked_mul(32)
-                    .ok_or(error!(MockHumaError::MathOverflow))?,
+                    .ok_or(MockHumaError::MathOverflow)?,
             )
-            .ok_or(error!(MockHumaError::MathOverflow))?;
+            .ok_or(MockHumaError::MathOverflow)?;
 
         if data.len()
             < redemption_offset
                 .checked_add(32)
-                .ok_or(error!(MockHumaError::MathOverflow))?
+                .ok_or(MockHumaError::MathOverflow)?
         {
             return Ok(());
         }
 
         // Read next and last request ids
-        let next_low = u64::from_le_bytes(
-            data[redemption_offset
-                ..redemption_offset
-                    .checked_add(8)
-                    .ok_or(error!(MockHumaError::MathOverflow))?]
-                .try_into()
-                .unwrap(),
-        );
-        let next_high = u64::from_le_bytes(
-            data[redemption_offset
-                .checked_add(8)
-                .ok_or(error!(MockHumaError::MathOverflow))?
-                ..redemption_offset
-                    .checked_add(16)
-                    .ok_or(error!(MockHumaError::MathOverflow))?]
-                .try_into()
-                .unwrap(),
-        );
-        let next = ((next_high as u128) << 64) | (next_low as u128);
+        let next = read_u128_at(&data, redemption_offset)?;
+        let last_offset = redemption_offset
+            .checked_add(16)
+            .ok_or(MockHumaError::MathOverflow)?;
+        let last = read_u128_at(&data, last_offset)?;
 
-        let last_low = u64::from_le_bytes(
-            data[redemption_offset
-                .checked_add(16)
-                .ok_or(error!(MockHumaError::MathOverflow))?
-                ..redemption_offset
-                    .checked_add(24)
-                    .ok_or(error!(MockHumaError::MathOverflow))?]
-                .try_into()
-                .unwrap(),
-        );
-        let last_high = u64::from_le_bytes(
-            data[redemption_offset
-                .checked_add(24)
-                .ok_or(error!(MockHumaError::MathOverflow))?
-                ..redemption_offset
-                    .checked_add(32)
-                    .ok_or(error!(MockHumaError::MathOverflow))?]
-                .try_into()
-                .unwrap(),
-        );
-        let last = ((last_high as u128) << 64) | (last_low as u128);
-
-        let pending_count = last
-            .checked_sub(next)
-            .ok_or(error!(MockHumaError::MathOverflow))? as u32;
+        let pending_count = last.checked_sub(next).ok_or(MockHumaError::MathOverflow)? as u32;
         let count_to_settle = if count == 0 {
             pending_count
         } else {
@@ -512,22 +495,12 @@ pub mod mock_huma {
 
         let new_next = next
             .checked_add(count_to_settle as u128)
-            .ok_or(error!(MockHumaError::MathOverflow))?;
+            .ok_or(MockHumaError::MathOverflow)?;
         let new_last = last.max(new_next);
 
         // Write new next and last ids
-        data[redemption_offset
-            ..redemption_offset
-                .checked_add(16)
-                .ok_or(error!(MockHumaError::MathOverflow))?]
-            .copy_from_slice(&new_next.to_le_bytes());
-        data[redemption_offset
-            .checked_add(16)
-            .ok_or(error!(MockHumaError::MathOverflow))?
-            ..redemption_offset
-                .checked_add(32)
-                .ok_or(error!(MockHumaError::MathOverflow))?]
-            .copy_from_slice(&new_last.to_le_bytes());
+        write_u128_at(&mut data, redemption_offset, new_next)?;
+        write_u128_at(&mut data, last_offset, new_last)?;
 
         // Epoch simulation: burn escrowed PST
         let pst_supply = ctx.accounts.mode_mint.supply;
@@ -542,9 +515,9 @@ pub mod mock_huma {
         } else {
             ((escrowed_pst as u128)
                 .checked_mul(count_to_settle as u128)
-                .ok_or(error!(MockHumaError::MathOverflow))?
+                .ok_or(MockHumaError::MathOverflow)?
                 .checked_div(pending_count as u128)
-                .ok_or(error!(MockHumaError::MathOverflow))?) as u64
+                .ok_or(MockHumaError::MathOverflow)?) as u64
         };
         require!(pst_to_burn > 0, MockHumaError::MathOverflow);
         require!(pst_to_burn <= pst_supply, MockHumaError::MathOverflow);
@@ -562,8 +535,7 @@ pub mod mock_huma {
             &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
             ctx.program_id,
         );
-        let signer_seeds: &[&[&[u8]]] =
-            &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
+        let signer_seeds: &[&[&[u8]]] = &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
 
         // Burn PST tokens from pool vault
         anchor_spl::token_interface::burn(
@@ -584,7 +556,9 @@ pub mod mock_huma {
 
         msg!(
             "MockHuma: Settled {} requests, burned {} PST (worth {} USDC).",
-            count_to_settle, pst_to_burn, usdc_value
+            count_to_settle,
+            pst_to_burn,
+            usdc_value
         );
 
         Ok(())

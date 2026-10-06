@@ -155,6 +155,12 @@ import { HumaConfigurationError } from "./bonds-sdk";
 
 export * from "./solana-core-errors";
 
+const REGEX_SBF_OUT_OF_MEMORY = /memory allocation failed|out of memory/i;
+const REGEX_EXPLICIT_CU_EXHAUSTED =
+  /exceeded compute units|comput(?:e|ational)budgetexceeded|exceeded maximum number of instructions allowed/i;
+const REGEX_CONSUMED_CU = /consumed (\d+) of (\d+) compute units/gi;
+const REGEX_SBF_PANIC = /sbf program panicked|program panicked|panicked at/i;
+
 export type ErrorLayer =
   | "wallet"
   | "anchor"
@@ -2024,12 +2030,39 @@ export function parseTransactionError(
     };
   }
 
-  // 6b. Compute Unit (CU) Budget Exhaustion
-  const isCuExhausted =
-    /exceeded maximum number of instructions allowed|program failed to complete: exceeded compute units|computebudgetexceeded|consumed \d+ of \d+ compute units/i.test(
-      combinedSearchText
+  // 6a. SBF Heap Out-of-Memory Detection (Precedes CU checks)
+  if (REGEX_SBF_OUT_OF_MEMORY.test(combinedSearchText)) {
+    return {
+      isCancellation: false,
+      layer: "anchor",
+      category: "anchor_custom",
+      title: "Program Out of Memory",
+      message:
+        "The on-chain program exhausted its 32 KB SBF heap memory limit.",
+      code: "PROGRAM_OUT_OF_MEMORY",
+      actionableStep:
+        "If executing a crank worker, reduce the batch size. For user transactions, please report this issue to protocol developers.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 6b. Robust Compute Unit (CU) Budget Exhaustion Detection
+  const hasExplicitCuFailure =
+    REGEX_EXPLICIT_CU_EXHAUSTED.test(combinedSearchText);
+  const cuMatches = [...combinedSearchText.matchAll(REGEX_CONSUMED_CU)];
+  const hasExhaustedNumericCu = cuMatches.some((m) => {
+    const consumed = parseInt(m[1], 10);
+    const limit = parseInt(m[2], 10);
+    return (
+      !Number.isNaN(consumed) &&
+      !Number.isNaN(limit) &&
+      limit > 0 &&
+      consumed >= limit
     );
-  if (isCuExhausted) {
+  });
+
+  if (hasExplicitCuFailure || hasExhaustedNumericCu) {
     return {
       isCancellation: false,
       layer: "rpc",
@@ -2040,6 +2073,22 @@ export function parseTransactionError(
       code: "COMPUTE_BUDGET_EXCEEDED",
       actionableStep:
         "Retry the transaction with higher priority fees or a larger compute budget.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 6c. SBF Program Panic Fallback
+  if (REGEX_SBF_PANIC.test(combinedSearchText)) {
+    return {
+      isCancellation: false,
+      layer: "anchor",
+      category: "anchor_custom",
+      title: "Program Panicked",
+      message: "The program panicked during execution.",
+      code: "PROGRAM_PANICKED",
+      actionableStep:
+        "Please report this error and transaction logs to the protocol team on Discord or GitHub.",
       logs,
       rawError: err,
     };

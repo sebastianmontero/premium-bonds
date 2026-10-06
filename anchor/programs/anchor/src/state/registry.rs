@@ -151,13 +151,16 @@ impl UserEntry {
     ///
     /// This is called lazily on user actions (e.g. buying or selling bonds)
     /// to ensure ticket balances are up to date for the current cycle.
+    ///
+    /// CRITICAL: Solana SBF runtime uses a linear bump allocator where dealloc is a no-op.
+    /// Do NOT introduce heap allocations (e.g. error!(...), format!(...), Vec) inside this loop.
     pub fn lazy_merge(&mut self, current_cycle_id: u32) -> Result<()> {
         self.ensure_current_version()?;
         if self.merged_through_cycle < current_cycle_id {
             self.active = self
                 .active
                 .checked_add(self.pending)
-                .ok_or(error!(crate::error::PremiumBondsError::MathOverflow))?;
+                .ok_or(PremiumBondsError::MathOverflow)?;
             self.pending = 0;
             self.merged_through_cycle = current_cycle_id;
         }
@@ -169,7 +172,7 @@ impl UserEntry {
     pub fn update_cumulative(&mut self, prior_cumulative: u32) -> Result<u32> {
         let next = prior_cumulative
             .checked_add(self.active)
-            .ok_or(error!(crate::error::PremiumBondsError::MathOverflow))?;
+            .ok_or(PremiumBondsError::MathOverflow)?;
         self.cumulative_active = next;
         Ok(next)
     }
@@ -181,13 +184,12 @@ pub trait UserEntryBatchExt {
 }
 
 impl UserEntryBatchExt for [UserEntry] {
+    /// CRITICAL: Solana SBF runtime uses a linear bump allocator where dealloc is a no-op.
+    /// Do NOT introduce heap allocations (e.g. error!(...), format!(...), Vec) inside this loop.
     fn prepare_batch(&mut self, current_cycle_id: u32, mut cumulative: u32) -> Result<u32> {
         for entry in self.iter_mut() {
             entry.lazy_merge(current_cycle_id)?;
-            cumulative = cumulative
-                .checked_add(entry.active)
-                .ok_or(error!(crate::error::PremiumBondsError::MathOverflow))?;
-            entry.cumulative_active = cumulative;
+            cumulative = entry.update_cumulative(cumulative)?;
         }
         Ok(cumulative)
     }

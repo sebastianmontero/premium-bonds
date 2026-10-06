@@ -336,7 +336,10 @@ fn test_huma_simulation_deficit() {
     // Vector 2: Boundary - 0 deficit leaves assets unchanged
     let deficit_0_ix = solana_program::instruction::Instruction::new_with_bytes(
         mock_huma_id,
-        &mock_huma::instruction::SimulateDeficit { deficit_amount: 0u64 }.data(),
+        &mock_huma::instruction::SimulateDeficit {
+            deficit_amount: 0u64,
+        }
+        .data(),
         mock_huma::accounts::MockSimulateDeficit {
             pool_state: pool_state_kp.pubkey(),
             admin: payer.pubkey(),
@@ -440,7 +443,8 @@ fn setup_mock_huma_env() -> MockHumaTestEnv {
     svm.airdrop(&user.pubkey(), 50_000_000_000).unwrap();
 
     let usdc_mint_authority = Keypair::new();
-    svm.airdrop(&usdc_mint_authority.pubkey(), 1_000_000_000).unwrap();
+    svm.airdrop(&usdc_mint_authority.pubkey(), 1_000_000_000)
+        .unwrap();
     let usdc_mint = create_spl_mint(&mut svm, &admin, &usdc_mint_authority.pubkey(), 6);
 
     let pool_state_kp = Keypair::new();
@@ -460,13 +464,7 @@ fn setup_mock_huma_env() -> MockHumaTestEnv {
     let (pool_authority, _) = huma_pool_authority_pda(&pool_state);
 
     let pst_mint_kp = Keypair::new();
-    inject_mint_with_authority_and_supply(
-        &mut svm,
-        pst_mint_kp.pubkey(),
-        pool_authority,
-        6,
-        0,
-    );
+    inject_mint_with_authority_and_supply(&mut svm, pst_mint_kp.pubkey(), pool_authority, 6, 0);
     let pst_mint = pst_mint_kp.pubkey();
 
     let pool_underlying_token = Keypair::new().pubkey();
@@ -479,18 +477,11 @@ fn setup_mock_huma_env() -> MockHumaTestEnv {
     );
 
     let pool_mode_token = Keypair::new().pubkey();
-    inject_token_account(
-        &mut svm,
-        pool_mode_token,
-        pst_mint,
-        pool_authority,
-        0,
-    );
+    inject_token_account(&mut svm, pool_mode_token, pst_mint, pool_authority, 0);
 
     let user_underlying_token =
         create_spl_token_account(&mut svm, &user, &usdc_mint, &user.pubkey());
-    let user_mode_token =
-        create_spl_token_account(&mut svm, &user, &pst_mint, &user.pubkey());
+    let user_mode_token = create_spl_token_account(&mut svm, &user, &pst_mint, &user.pubkey());
 
     let lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut svm, lender_state, 0);
@@ -519,7 +510,11 @@ fn send_mock_deposit(env: &mut MockHumaTestEnv, amount: u64, huma_config: Pubkey
         &mock_huma::instruction::Deposit { assets: amount }.data(),
         mock_huma::accounts::MockDeposit {
             depositor: env.user.pubkey(),
-            huma_config: if huma_config != Pubkey::default() { huma_config } else { dummy },
+            huma_config: if huma_config != Pubkey::default() {
+                huma_config
+            } else {
+                dummy
+            },
             pool_config: dummy,
             pool_state: env.pool_state,
             mode_config: dummy,
@@ -537,7 +532,11 @@ fn send_mock_deposit(env: &mut MockHumaTestEnv, amount: u64, huma_config: Pubkey
     send_user_tx(&mut env.svm, &env.user, ix)
 }
 
-fn send_mock_add_redemption(env: &mut MockHumaTestEnv, shares: u64, huma_config: Pubkey) -> TxResult {
+fn send_mock_add_redemption(
+    env: &mut MockHumaTestEnv,
+    shares: u64,
+    huma_config: Pubkey,
+) -> TxResult {
     let dummy = Keypair::new().pubkey();
     let ix = solana_program::instruction::Instruction::new_with_bytes(
         mock_huma::id(),
@@ -545,7 +544,11 @@ fn send_mock_add_redemption(env: &mut MockHumaTestEnv, shares: u64, huma_config:
         mock_huma::accounts::MockAddRedemptionRequest {
             payer: env.user.pubkey(),
             lender: env.user.pubkey(),
-            huma_config: if huma_config != Pubkey::default() { huma_config } else { dummy },
+            huma_config: if huma_config != Pubkey::default() {
+                huma_config
+            } else {
+                dummy
+            },
             pool_config: dummy,
             pool_state: env.pool_state,
             mode_config: dummy,
@@ -587,18 +590,30 @@ fn send_mock_settle_requests(env: &mut MockHumaTestEnv, count: u32) -> TxResult 
     send_user_tx(&mut env.svm, &env.admin, ix)
 }
 
-fn send_mock_disburse_full(env: &mut MockHumaTestEnv, huma_config: Pubkey, lender_state: Pubkey) -> TxResult {
+fn send_mock_disburse_full(
+    env: &mut MockHumaTestEnv,
+    huma_config: Pubkey,
+    lender_state: Pubkey,
+) -> TxResult {
     let dummy = Keypair::new().pubkey();
     let ix = solana_program::instruction::Instruction::new_with_bytes(
         mock_huma::id(),
         &mock_huma::instruction::Disburse {}.data(),
         mock_huma::accounts::MockDisburse {
             lender: env.user.pubkey(),
-            huma_config: if huma_config != Pubkey::default() { huma_config } else { dummy },
+            huma_config: if huma_config != Pubkey::default() {
+                huma_config
+            } else {
+                dummy
+            },
             pool_config: dummy,
             pool_state: env.pool_state,
             mode_config: dummy,
-            lender_state: if lender_state != Pubkey::default() { lender_state } else { env.lender_state },
+            lender_state: if lender_state != Pubkey::default() {
+                lender_state
+            } else {
+                env.lender_state
+            },
             underlying_mint: env.usdc_mint,
             pool_authority: env.pool_authority,
             pool_underlying_token: env.pool_underlying_token,
@@ -632,9 +647,18 @@ fn test_huma_dynamic_redemption_1_to_1_parity() {
 
     // 2. Deposit 10 USDC -> user receives 10 PST, pool has 10 USDC
     send_mock_deposit(&mut env, 10_000_000, Pubkey::default()).unwrap();
-    assert_eq!(read_token_balance(&env.svm, env.user_mode_token), 10_000_000);
-    assert_eq!(read_token_balance(&env.svm, env.pool_underlying_token), 10_000_000);
-    assert_eq!(read_mock_huma_pool_assets(&env.svm, env.pool_state), 10_000_000);
+    assert_eq!(
+        read_token_balance(&env.svm, env.user_mode_token),
+        10_000_000
+    );
+    assert_eq!(
+        read_token_balance(&env.svm, env.pool_underlying_token),
+        10_000_000
+    );
+    assert_eq!(
+        read_mock_huma_pool_assets(&env.svm, env.pool_state),
+        10_000_000
+    );
 
     // 3. User requests redemption of 3 PST (3_000_000)
     send_mock_add_redemption(&mut env, 3_000_000, Pubkey::default()).unwrap();
@@ -646,7 +670,10 @@ fn test_huma_dynamic_redemption_1_to_1_parity() {
 
     // Escrowed PST burned, pool assets decreased by exactly 3 USDC to 7 USDC
     assert_eq!(read_token_balance(&env.svm, env.pool_mode_token), 0);
-    assert_eq!(read_mock_huma_pool_assets(&env.svm, env.pool_state), 7_000_000);
+    assert_eq!(
+        read_mock_huma_pool_assets(&env.svm, env.pool_state),
+        7_000_000
+    );
 
     // Lender state owed accumulated to 3 USDC
     let owed = read_lender_owed_from_svm(&env.svm, env.lender_state);
@@ -656,8 +683,14 @@ fn test_huma_dynamic_redemption_1_to_1_parity() {
     send_mock_disburse(&mut env).unwrap();
 
     // User receives exact 3 USDC, pool has 7 USDC remaining, lender owed is 0
-    assert_eq!(read_token_balance(&env.svm, env.user_underlying_token), 3_000_000);
-    assert_eq!(read_token_balance(&env.svm, env.pool_underlying_token), 7_000_000);
+    assert_eq!(
+        read_token_balance(&env.svm, env.user_underlying_token),
+        3_000_000
+    );
+    assert_eq!(
+        read_token_balance(&env.svm, env.pool_underlying_token),
+        7_000_000
+    );
     assert_eq!(read_lender_owed_from_svm(&env.svm, env.lender_state), 0);
 }
 
@@ -682,7 +715,10 @@ fn test_huma_dynamic_redemption_accrued_yield() {
     // 2. Simulate yield: +2 USDC (total assets = 12 USDC, PST supply = 10 -> 1.2x price)
     let yield_ix = solana_program::instruction::Instruction::new_with_bytes(
         mock_huma::id(),
-        &mock_huma::instruction::SimulateYield { yield_amount: 2_000_000 }.data(),
+        &mock_huma::instruction::SimulateYield {
+            yield_amount: 2_000_000,
+        }
+        .data(),
         mock_huma::accounts::MockSimulateYield {
             pool_state: env.pool_state,
             admin: env.admin.pubkey(),
@@ -700,20 +736,35 @@ fn test_huma_dynamic_redemption_accrued_yield() {
         &env.usdc_mint_authority,
         2_000_000,
     );
-    assert_eq!(read_token_balance(&env.svm, env.pool_underlying_token), 12_000_000);
+    assert_eq!(
+        read_token_balance(&env.svm, env.pool_underlying_token),
+        12_000_000
+    );
 
     // 3. User redeems 2.5 PST (2_500_000)
     send_mock_add_redemption(&mut env, 2_500_000, Pubkey::default()).unwrap();
 
     // 4. Settle requests: value = 2.5 PST * 12 USDC / 10 PST = 3.0 USDC (3_000_000)
     send_mock_settle_requests(&mut env, 1).unwrap();
-    assert_eq!(read_lender_owed_from_svm(&env.svm, env.lender_state), 3_000_000);
-    assert_eq!(read_mock_huma_pool_assets(&env.svm, env.pool_state), 9_000_000);
+    assert_eq!(
+        read_lender_owed_from_svm(&env.svm, env.lender_state),
+        3_000_000
+    );
+    assert_eq!(
+        read_mock_huma_pool_assets(&env.svm, env.pool_state),
+        9_000_000
+    );
 
     // 5. Disburse transfers exact 3 USDC
     send_mock_disburse(&mut env).unwrap();
-    assert_eq!(read_token_balance(&env.svm, env.user_underlying_token), 3_000_000);
-    assert_eq!(read_token_balance(&env.svm, env.pool_underlying_token), 9_000_000);
+    assert_eq!(
+        read_token_balance(&env.svm, env.user_underlying_token),
+        3_000_000
+    );
+    assert_eq!(
+        read_token_balance(&env.svm, env.pool_underlying_token),
+        9_000_000
+    );
     assert_eq!(read_lender_owed_from_svm(&env.svm, env.lender_state), 0);
 }
 
@@ -738,7 +789,10 @@ fn test_huma_dynamic_redemption_deficit() {
     // 2. Simulate deficit: -2 USDC (total assets = 8 USDC, PST supply = 10 -> 0.8x price)
     let deficit_ix = solana_program::instruction::Instruction::new_with_bytes(
         mock_huma::id(),
-        &mock_huma::instruction::SimulateDeficit { deficit_amount: 2_000_000 }.data(),
+        &mock_huma::instruction::SimulateDeficit {
+            deficit_amount: 2_000_000,
+        }
+        .data(),
         mock_huma::accounts::MockSimulateDeficit {
             pool_state: env.pool_state,
             admin: env.admin.pubkey(),
@@ -746,20 +800,35 @@ fn test_huma_dynamic_redemption_deficit() {
         .to_account_metas(None),
     );
     send_user_tx(&mut env.svm, &env.admin, deficit_ix).unwrap();
-    assert_eq!(read_mock_huma_pool_assets(&env.svm, env.pool_state), 8_000_000);
+    assert_eq!(
+        read_mock_huma_pool_assets(&env.svm, env.pool_state),
+        8_000_000
+    );
 
     // 3. User redeems 5 PST (5_000_000)
     send_mock_add_redemption(&mut env, 5_000_000, Pubkey::default()).unwrap();
 
     // 4. Settle requests: value = 5 PST * 8 USDC / 10 PST = 4.0 USDC (4_000_000)
     send_mock_settle_requests(&mut env, 1).unwrap();
-    assert_eq!(read_lender_owed_from_svm(&env.svm, env.lender_state), 4_000_000);
-    assert_eq!(read_mock_huma_pool_assets(&env.svm, env.pool_state), 4_000_000);
+    assert_eq!(
+        read_lender_owed_from_svm(&env.svm, env.lender_state),
+        4_000_000
+    );
+    assert_eq!(
+        read_mock_huma_pool_assets(&env.svm, env.pool_state),
+        4_000_000
+    );
 
     // 5. Disburse transfers exact 4 USDC
     send_mock_disburse(&mut env).unwrap();
-    assert_eq!(read_token_balance(&env.svm, env.user_underlying_token), 4_000_000);
-    assert_eq!(read_token_balance(&env.svm, env.pool_underlying_token), 6_000_000);
+    assert_eq!(
+        read_token_balance(&env.svm, env.user_underlying_token),
+        4_000_000
+    );
+    assert_eq!(
+        read_token_balance(&env.svm, env.pool_underlying_token),
+        6_000_000
+    );
     assert_eq!(read_lender_owed_from_svm(&env.svm, env.lender_state), 0);
 }
 
@@ -798,7 +867,10 @@ fn test_huma_multi_batch_sequential_disbursal() {
 
     // First disburse: capped to available balance (6 USDC)
     send_mock_disburse(&mut env).unwrap();
-    assert_eq!(read_token_balance(&env.svm, env.user_underlying_token), 6_000_000);
+    assert_eq!(
+        read_token_balance(&env.svm, env.user_underlying_token),
+        6_000_000
+    );
     assert_eq!(read_token_balance(&env.svm, env.pool_underlying_token), 0);
     assert_eq!(
         read_lender_owed_from_svm(&env.svm, env.lender_state),
@@ -818,7 +890,10 @@ fn test_huma_multi_batch_sequential_disbursal() {
 
     // Second disburse: transfers remaining 4 USDC
     send_mock_disburse(&mut env).unwrap();
-    assert_eq!(read_token_balance(&env.svm, env.user_underlying_token), 10_000_000);
+    assert_eq!(
+        read_token_balance(&env.svm, env.user_underlying_token),
+        10_000_000
+    );
     assert_eq!(read_token_balance(&env.svm, env.pool_underlying_token), 0);
     assert_eq!(
         read_lender_owed_from_svm(&env.svm, env.lender_state),
@@ -834,11 +909,17 @@ fn test_huma_non_divisible_floor_division_truncation() {
     // 1. Pure function assertions: strict floor division (never ceiling or rounding up)
     // 2_999_992 * 10_000_030 / 10_000_000 = 30_000_001_999_976 / 10_000_000 = 3_000_000 (floor)
     let val1 = mock_huma::pst_shares_to_usdc(2_999_992, 10_000_000, 10_000_030).unwrap();
-    assert_eq!(val1, 3_000_000, "Math must floor 3_000_000.1999976 down to 3_000_000");
+    assert_eq!(
+        val1, 3_000_000,
+        "Math must floor 3_000_000.1999976 down to 3_000_000"
+    );
 
     // 2_999_991 * 10_000_030 / 10_000_000 = 29_999_999_999_973 / 10_000_000 = 2_999_999 (floor)
     let val2 = mock_huma::pst_shares_to_usdc(2_999_991, 10_000_000, 10_000_030).unwrap();
-    assert_eq!(val2, 2_999_999, "Math must floor 2_999_999.999973 down to 2_999_999");
+    assert_eq!(
+        val2, 2_999_999,
+        "Math must floor 2_999_999.999973 down to 2_999_999"
+    );
 
     // 2. End-to-End SVM execution with non-divisible assets
     let mut env = setup_mock_huma_env();
@@ -855,7 +936,10 @@ fn test_huma_non_divisible_floor_division_truncation() {
     // Set total assets to 10_000_030
     let set_assets_ix = solana_program::instruction::Instruction::new_with_bytes(
         mock_huma::id(),
-        &mock_huma::instruction::SetTotalAssets { total_assets: 10_000_030 }.data(),
+        &mock_huma::instruction::SetTotalAssets {
+            total_assets: 10_000_030,
+        }
+        .data(),
         mock_huma::accounts::SetTotalAssets {
             pool_state: env.pool_state,
             admin: env.admin.pubkey(),
@@ -898,7 +982,10 @@ fn test_huma_proportional_partial_batch_settlement() {
     send_mock_add_redemption(&mut env, 7_000_000, Pubkey::default()).unwrap();
 
     // Total escrowed = 10 PST, pending count = 2
-    assert_eq!(read_token_balance(&env.svm, env.pool_mode_token), 10_000_000);
+    assert_eq!(
+        read_token_balance(&env.svm, env.pool_mode_token),
+        10_000_000
+    );
 
     // Settle 1 of 2 requests (settle_requests(1))
     // Proportional burn: (10_000_000 * 1) / 2 = 5_000_000 PST
@@ -936,30 +1023,47 @@ fn test_huma_proportional_partial_batch_settlement() {
 #[test]
 fn test_huma_boundary_and_error_vectors() {
     // 1. Math zero boundaries
-    assert_eq!(mock_huma::pst_shares_to_usdc(1_000_000, 10_000_000, 0).unwrap(), 0);
-    assert_eq!(mock_huma::pst_shares_to_usdc(0, 10_000_000, 10_000_000).unwrap(), 0);
-    assert_eq!(mock_huma::pst_shares_to_usdc(1_000_000, 0, 10_000_000).unwrap(), 1_000_000);
+    assert_eq!(
+        mock_huma::pst_shares_to_usdc(1_000_000, 10_000_000, 0).unwrap(),
+        0
+    );
+    assert_eq!(
+        mock_huma::pst_shares_to_usdc(0, 10_000_000, 10_000_000).unwrap(),
+        0
+    );
+    assert_eq!(
+        mock_huma::pst_shares_to_usdc(1_000_000, 0, 10_000_000).unwrap(),
+        1_000_000
+    );
 
     // 2. Escrowed PST == 0 settlement (no-op)
     let mut env = setup_mock_huma_env();
     let res = send_mock_settle_requests(&mut env, 1);
-    assert!(res.is_ok(), "Settling when escrow is 0 must return Ok(()) without error");
+    assert!(
+        res.is_ok(),
+        "Settling when escrow is 0 must return Ok(()) without error"
+    );
 
     // 3. Short lender_state account data (< 16 bytes) fails with InvalidLenderStateData
     let short_lender = Keypair::new().pubkey();
-    env.svm.set_account(
-        short_lender,
-        solana_sdk::account::Account {
-            lamports: 1_000_000,
-            data: vec![0u8; 8], // 8 bytes < 16 bytes
-            owner: mock_huma::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    env.svm
+        .set_account(
+            short_lender,
+            solana_sdk::account::Account {
+                lamports: 1_000_000,
+                data: vec![0u8; 8], // 8 bytes < 16 bytes
+                owner: mock_huma::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     let res_disburse = send_mock_disburse_full(&mut env, Pubkey::default(), short_lender);
-    assert_mock_huma_error(res_disburse, mock_huma::MockHumaError::InvalidLenderStateData);
+    assert_mock_huma_error(
+        res_disburse,
+        mock_huma::MockHumaError::InvalidLenderStateData,
+    );
 
     // 4. Simulated failure pubkeys
     mint_tokens(
@@ -972,18 +1076,67 @@ fn test_huma_boundary_and_error_vectors() {
     );
 
     let res_deposit_fail = send_mock_deposit(&mut env, 1_000_000, FAIL_DEPOSIT_PUBKEY);
-    assert_mock_huma_error(res_deposit_fail, mock_huma::MockHumaError::SimulatedDepositFailure);
+    assert_mock_huma_error(
+        res_deposit_fail,
+        mock_huma::MockHumaError::SimulatedDepositFailure,
+    );
 
     let res_redemption_fail = send_mock_add_redemption(&mut env, 1_000_000, FAIL_REDEMPTION_PUBKEY);
-    assert_mock_huma_error(res_redemption_fail, mock_huma::MockHumaError::SimulatedRedemptionFailure);
+    assert_mock_huma_error(
+        res_redemption_fail,
+        mock_huma::MockHumaError::SimulatedRedemptionFailure,
+    );
 
-    let res_disburse_fail = send_mock_disburse_full(&mut env, FAIL_DISBURSE_PUBKEY, Pubkey::default());
-    assert_mock_huma_error(res_disburse_fail, mock_huma::MockHumaError::SimulatedDisburseFailure);
+    let res_disburse_fail =
+        send_mock_disburse_full(&mut env, FAIL_DISBURSE_PUBKEY, Pubkey::default());
+    assert_mock_huma_error(
+        res_disburse_fail,
+        mock_huma::MockHumaError::SimulatedDisburseFailure,
+    );
+}
+
+#[test]
+fn test_mock_huma_settle_multi_cycle_no_oom() {
+    let mut env = setup_mock_huma_env();
+
+    // Mint USDC for initial capital
+    mint_tokens(
+        &mut env.svm,
+        &env.admin,
+        &env.usdc_mint,
+        &env.user_underlying_token,
+        &env.usdc_mint_authority,
+        100_000_000,
+    );
+
+    // Initial deposit
+    send_mock_deposit(&mut env, 50_000_000, Pubkey::default()).unwrap();
+
+    // Run 25 redemption & settlement cycles in sequence
+    for cycle in 0..25 {
+        env.svm.expire_blockhash();
+        send_mock_add_redemption(&mut env, 1_000_000, Pubkey::default()).unwrap();
+        env.svm.expire_blockhash();
+        let meta =
+            send_mock_settle_requests(&mut env, 1).expect("Settlement in cycle must succeed");
+        assert!(
+            meta.compute_units_consumed < 100_000,
+            "Cycle {cycle} consumed too many CUs: {}",
+            meta.compute_units_consumed
+        );
+    }
+
+    let remaining_assets = read_mock_huma_pool_assets(&env.svm, env.pool_state);
+    assert_eq!(remaining_assets, 25_000_000);
 }
 
 fn read_lender_owed_from_svm(svm: &LiteSVM, lender_state: Pubkey) -> u64 {
-    let acc = svm.get_account(&lender_state).expect("Lender state must exist");
-    assert!(acc.data.len() >= 16, "Lender state must have at least 16 bytes");
+    let acc = svm
+        .get_account(&lender_state)
+        .expect("Lender state must exist");
+    assert!(
+        acc.data.len() >= 16,
+        "Lender state must have at least 16 bytes"
+    );
     u64::from_le_bytes(acc.data[8..16].try_into().unwrap())
 }
-
