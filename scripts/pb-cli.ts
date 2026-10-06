@@ -17,6 +17,7 @@ import {
   getBase58Encoder,
   Base58EncodedBytes,
   AccountRole,
+  Instruction,
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
@@ -40,6 +41,10 @@ import {
   RawMultisigCliFlags,
   resolveAdminExecutionMode,
   dispatchAdminInstruction,
+  resolveFallbackMultisigAddress,
+  parseSquadsCreateConfig,
+  executeSquadsCreate,
+  saveSquadsMultisigDeployment,
   executeSquadsStatus,
   executeSquadsProposals,
   executeSquadsInspectTx,
@@ -340,7 +345,6 @@ import {
   buildClaimRedemptionInstruction,
   buildClaimRedemptionInstructions,
   buildAtomicRevealAndPickWinnersInstructions,
-  createSetComputeUnitLimitInstruction,
   HumaPoolAddresses,
   findAtaAddress,
   decodeAccountBase64Data,
@@ -1075,6 +1079,49 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
   },
 
   // Multisig Commands
+  "squads-create": {
+    command: "squads-create",
+    category: "Multisig",
+    summary: "Initialize a new Squads V4 multisig account on-chain",
+    description:
+      "Create an autonomous Squads V4 multisig with customizable threshold, members, and timelock.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--threshold <num>",
+        description: "Required number of approvals (default: 1)",
+        default: "1",
+      },
+      {
+        flag: "--members <csv>",
+        description:
+          "Comma-separated list of member public keys (defaults to fee payer if omitted)",
+      },
+      {
+        flag: "--timelock <seconds>",
+        description: "Execution delay in seconds (default: 0)",
+        default: "0",
+      },
+      {
+        flag: "--create-key <path>",
+        description:
+          "Optional path to specific createKey keypair for deterministic provisioning",
+      },
+      {
+        flag: "--config-authority <pubkey>",
+        description: "Optional config authority (defaults to autonomous null)",
+      },
+      {
+        flag: "--no-save",
+        description: "Do not write address to cluster state or .env files",
+      },
+    ],
+    examples: [
+      "npm run pb-cli squads-create",
+      "npm run pb-cli squads-create -- --threshold 2 --members <KEY1>,<KEY2>",
+      "npm run pb-cli squads-create -- --threshold 1 --create-key ./deploy-key.json",
+    ],
+  },
   "squads-status": {
     command: "squads-status",
     category: "Multisig",
@@ -5116,28 +5163,84 @@ Ticket Registry for Pool ${poolId}
 
     // ─── Squads Multisig Subcommands ─────────────────────────────────────────
 
+    case "squads-create": {
+      const config = parseSquadsCreateConfig({
+        membersRaw: options["--members"],
+        thresholdRaw: options["--threshold"],
+        timelockRaw: options["--timelock"],
+        configAuthorityRaw: options["--config-authority"],
+        feePayerAddress: signer!.address,
+      });
+
+      let createKeySigner: KeyPairSigner | undefined;
+      if (options["--create-key"]) {
+        createKeySigner = await loadKeypair(options["--create-key"]);
+      }
+
+      const dryRun =
+        options["--dry-run"] === "true" || !!rawMultisigFlags.dryRun;
+
+      const result = await executeSquadsCreate({
+        rpc,
+        signer: signer!,
+        config,
+        createKeySigner,
+        dryRun,
+      });
+
+      if (!options["--no-save"] && !dryRun) {
+        saveSquadsMultisigDeployment({
+          rpcUrl,
+          multisigPda: result.multisigPda,
+        });
+      }
+      break;
+    }
+
     case "squads-status": {
-      const multisigOption = options["--multisig"] || positionals[0];
+      const multisigOption =
+        options["--multisig"] ||
+        positionals[0] ||
+        resolveFallbackMultisigAddress();
+      if (!multisigOption) {
+        throw new CliArgumentError(
+          "Missing required --multisig address (or configure SQUADS_MULTISIG_ADDRESS in .env.local)."
+        );
+      }
       await executeSquadsStatus({
-        multisigAddressStr: multisigOption,
-        rpcUrl,
+        multisig: address(multisigOption),
+        rpc,
       });
       break;
     }
 
     case "squads-proposals": {
-      const multisigOption = options["--multisig"];
+      const multisigOption =
+        options["--multisig"] ||
+        positionals[0] ||
+        resolveFallbackMultisigAddress();
+      if (!multisigOption) {
+        throw new CliArgumentError(
+          "Missing required --multisig address (or configure SQUADS_MULTISIG_ADDRESS in .env.local)."
+        );
+      }
       const limit = options["--limit"] ? parseInt(options["--limit"], 10) : 10;
       await executeSquadsProposals({
-        multisigAddressStr: multisigOption,
+        multisig: address(multisigOption),
         limit,
-        rpcUrl,
+        rpc,
       });
       break;
     }
 
     case "squads-inspect-tx": {
-      const multisigOption = options["--multisig"];
+      const multisigOption =
+        options["--multisig"] || resolveFallbackMultisigAddress();
+      if (!multisigOption) {
+        throw new CliArgumentError(
+          "Missing required --multisig address (or configure SQUADS_MULTISIG_ADDRESS in .env.local)."
+        );
+      }
       const indexStr = options["--index"] || positionals[0];
       if (!indexStr) {
         throw new CliArgumentError(
@@ -5145,15 +5248,21 @@ Ticket Registry for Pool ${poolId}
         );
       }
       await executeSquadsInspectTx({
-        multisigAddressStr: multisigOption,
+        multisig: address(multisigOption),
         transactionIndex: BigInt(indexStr),
-        rpcUrl,
+        rpc,
       });
       break;
     }
 
     case "squads-approve": {
-      const multisigOption = options["--multisig"];
+      const multisigOption =
+        options["--multisig"] || resolveFallbackMultisigAddress();
+      if (!multisigOption) {
+        throw new CliArgumentError(
+          "Missing required --multisig address (or configure SQUADS_MULTISIG_ADDRESS in .env.local)."
+        );
+      }
       const indexStr = options["--index"] || positionals[0];
       if (!indexStr) {
         throw new CliArgumentError(
@@ -5161,17 +5270,23 @@ Ticket Registry for Pool ${poolId}
         );
       }
       await executeSquadsApprove({
-        multisigAddressStr: multisigOption,
+        multisig: address(multisigOption),
         transactionIndex: BigInt(indexStr),
         memo: options["--memo"],
-        rpcUrl,
+        rpc,
         signer: signer!,
       });
       break;
     }
 
     case "squads-reject": {
-      const multisigOption = options["--multisig"];
+      const multisigOption =
+        options["--multisig"] || resolveFallbackMultisigAddress();
+      if (!multisigOption) {
+        throw new CliArgumentError(
+          "Missing required --multisig address (or configure SQUADS_MULTISIG_ADDRESS in .env.local)."
+        );
+      }
       const indexStr = options["--index"] || positionals[0];
       if (!indexStr) {
         throw new CliArgumentError(
@@ -5179,17 +5294,23 @@ Ticket Registry for Pool ${poolId}
         );
       }
       await executeSquadsReject({
-        multisigAddressStr: multisigOption,
+        multisig: address(multisigOption),
         transactionIndex: BigInt(indexStr),
         memo: options["--memo"],
-        rpcUrl,
+        rpc,
         signer: signer!,
       });
       break;
     }
 
     case "squads-cancel": {
-      const multisigOption = options["--multisig"];
+      const multisigOption =
+        options["--multisig"] || resolveFallbackMultisigAddress();
+      if (!multisigOption) {
+        throw new CliArgumentError(
+          "Missing required --multisig address (or configure SQUADS_MULTISIG_ADDRESS in .env.local)."
+        );
+      }
       const indexStr = options["--index"] || positionals[0];
       if (!indexStr) {
         throw new CliArgumentError(
@@ -5197,34 +5318,50 @@ Ticket Registry for Pool ${poolId}
         );
       }
       await executeSquadsCancel({
-        multisigAddressStr: multisigOption,
+        multisig: address(multisigOption),
         transactionIndex: BigInt(indexStr),
-        rpcUrl,
+        memo: options["--memo"],
+        rpc,
         signer: signer!,
       });
       break;
     }
 
     case "squads-close": {
-      const multisigOption = options["--multisig"];
+      const multisigOption =
+        options["--multisig"] || resolveFallbackMultisigAddress();
+      if (!multisigOption) {
+        throw new CliArgumentError(
+          "Missing required --multisig address (or configure SQUADS_MULTISIG_ADDRESS in .env.local)."
+        );
+      }
       const indexStr = options["--index"] || positionals[0];
       if (!indexStr) {
         throw new CliArgumentError(
           "Missing required transaction index. Pass --index <number> (e.g. --index 1)."
         );
       }
+      const rentCollector = options["--rent-collector"]
+        ? address(options["--rent-collector"])
+        : undefined;
       await executeSquadsClose({
-        multisigAddressStr: multisigOption,
+        multisig: address(multisigOption),
         transactionIndex: BigInt(indexStr),
-        rentCollectorStr: options["--rent-collector"],
-        rpcUrl,
+        rentCollector,
+        rpc,
         signer: signer!,
       });
       break;
     }
 
     case "squads-execute": {
-      const multisigOption = options["--multisig"];
+      const multisigOption =
+        options["--multisig"] || resolveFallbackMultisigAddress();
+      if (!multisigOption) {
+        throw new CliArgumentError(
+          "Missing required --multisig address (or configure SQUADS_MULTISIG_ADDRESS in .env.local)."
+        );
+      }
       const indexStr = options["--index"] || positionals[0];
       if (!indexStr) {
         throw new CliArgumentError(
@@ -5235,10 +5372,10 @@ Ticket Registry for Pool ${poolId}
         ? parseInt(options["--cu-limit"], 10)
         : undefined;
       await executeSquadsExecute({
-        multisigAddressStr: multisigOption,
+        multisig: address(multisigOption),
         transactionIndex: BigInt(indexStr),
         cuLimit,
-        rpcUrl,
+        rpc,
         signer: signer!,
       });
       break;

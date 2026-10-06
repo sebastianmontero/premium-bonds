@@ -59,12 +59,23 @@ export const SQUADS_ACCOUNT_DISCRIMINATORS = {
   Multisig: getAnchorDiscriminator("account", "Multisig"),
   Proposal: getAnchorDiscriminator("account", "Proposal"),
   VaultTransaction: getAnchorDiscriminator("account", "VaultTransaction"),
+  ProgramConfig: getAnchorDiscriminator("account", "ProgramConfig"),
 } as const;
 
 export const MULTISIG_DISCRIMINATOR = SQUADS_ACCOUNT_DISCRIMINATORS.Multisig;
 export const PROPOSAL_DISCRIMINATOR = SQUADS_ACCOUNT_DISCRIMINATORS.Proposal;
 export const VAULT_TRANSACTION_DISCRIMINATOR =
   SQUADS_ACCOUNT_DISCRIMINATORS.VaultTransaction;
+export const PROGRAM_CONFIG_DISCRIMINATOR =
+  SQUADS_ACCOUNT_DISCRIMINATORS.ProgramConfig;
+
+export const PROGRAM_CONFIG_MIN_SIZE = 80;
+export const SQUADS_MULTISIG_BASE_SIZE = 130;
+export const SQUADS_MULTISIG_MEMBER_SIZE = 36;
+
+export function calculateMultisigAccountSpace(memberCount: number): number {
+  return SQUADS_MULTISIG_BASE_SIZE + SQUADS_MULTISIG_MEMBER_SIZE * memberCount;
+}
 
 // Instruction Sighashes
 export const SQUADS_INSTRUCTION_SIGHASHES = {
@@ -171,6 +182,12 @@ export interface VaultTransactionAccount {
   message: VaultTransactionMessageData;
 }
 
+export interface SquadsProgramConfig {
+  readonly authority: Address;
+  readonly multisigCreationFee: bigint;
+  readonly treasury: Address;
+}
+
 // ─── PDA Derivation Utilities ─────────────────────────────────────────────────
 
 /**
@@ -268,6 +285,20 @@ export async function findProposalPda(
       Buffer.from("proposal"),
       txIndexBytes,
     ],
+  });
+  return pda;
+}
+
+/**
+ * Derives the Squads V4 ProgramConfig PDA.
+ * Seeds: [b"multisig", b"program_config"]
+ */
+export async function findProgramConfigPda(
+  programAddress: Address = SQUADS_PROGRAM_ADDRESS
+): Promise<Address> {
+  const [pda] = await getProgramDerivedAddress({
+    programAddress,
+    seeds: [Buffer.from("multisig"), Buffer.from("program_config")],
   });
   return pda;
 }
@@ -584,6 +615,32 @@ export function parseVaultTransactionAccount(
       addressTableLookups,
     },
   };
+}
+
+/**
+ * Deserializes a Squads V4 ProgramConfig account, asserting 8-byte discriminator.
+ */
+export function parseProgramConfigAccount(
+  data: Uint8Array,
+  accountAddress?: Address
+): SquadsProgramConfig {
+  if (data.length < PROGRAM_CONFIG_MIN_SIZE) {
+    throw new Error(
+      `Invalid Squads ProgramConfig account size: ${data.length} bytes.`
+    );
+  }
+  if (!matchesDiscriminator(data, PROGRAM_CONFIG_DISCRIMINATOR)) {
+    throw new Error(
+      `Invalid account discriminator for ProgramConfig account${
+        accountAddress ? ` at ${accountAddress}` : ""
+      }.`
+    );
+  }
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const authority = readAddress(data, 8);
+  const multisigCreationFee = view.getBigUint64(40, true);
+  const treasury = readAddress(data, 48);
+  return { authority, multisigCreationFee, treasury };
 }
 
 // ─── Domain Helper Functions ──────────────────────────────────────────────────

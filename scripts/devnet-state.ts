@@ -145,6 +145,7 @@ export interface ProtocolAccounts {
   humaPoolModeToken: string;
   humaRedemptionRequest: string;
   randomnessAccount?: string;
+  squadsMultisig?: string;
 }
 
 export type DevnetProtocolAccounts = ProtocolAccounts;

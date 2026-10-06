@@ -10,8 +10,10 @@ import {
   address,
   Instruction,
   KeyPairSigner,
+  generateKeyPairSigner,
   getBase64Decoder,
   getBase58Encoder,
+  getBase58Decoder,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
@@ -23,20 +25,28 @@ import {
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
+import * as sqds from "@sqds/multisig";
+import { PublicKey } from "@solana/web3.js";
 import {
   findMultisigPda,
   findMultisigVaultPda,
   findVaultTransactionPda,
   findProposalPda,
+  findProgramConfigPda,
   parseMultisigAccount,
   parseProposalAccount,
   parseVaultTransactionAccount,
+  parseProgramConfigAccount,
+  calculateMultisigAccountSpace,
   isMultisigMember,
   isProposalExecutable,
   buildAtomicProposeInstructions,
   buildProposalApproveInstruction,
   buildProposalRejectInstruction,
   buildProposalCancelInstruction,
+  buildVaultTransactionCloseInstruction,
+  buildVaultTransactionExecuteInstruction,
+  exportSquadsTransactionJson,
   createNoopSigner,
   SQUADS_PROGRAM_ADDRESS,
 } from "../app/lib/squads-sdk";
@@ -45,8 +55,12 @@ import {
   safeStringify,
   printErrorDetails,
   readEnvFile,
+  upsertEnvFile,
+  isLocalMockUrl,
   fetchAccountInfo,
   fetchAccountData,
+  decodeAccountBase64Data,
+  InsufficientFundsError,
 } from "./utils";
 export { fetchAccountInfo, fetchAccountData };
 import { SolanaRpc } from "../app/lib/bonds-sdk";
@@ -830,4 +844,333 @@ export async function executeSquadsExecute(
   console.log(
     `✓ Proposal #${transactionIndex} executed successfully! Tx: ${sig}`
   );
+}
+
+// ─── Squads Create Subcommand ────────────────────────────────────────────────
+
+export interface SquadsCreateConfig {
+  readonly threshold: number;
+  readonly members: readonly Address[];
+  readonly timeLock: bigint;
+  readonly configAuthority?: Address | null;
+}
+
+export interface RawSquadsCreateArgs {
+  readonly membersRaw?: string;
+  readonly thresholdRaw?: string;
+  readonly timelockRaw?: string;
+  readonly configAuthorityRaw?: string;
+  readonly feePayerAddress: Address;
+}
+
+export interface ExecuteSquadsCreateParams {
+  readonly rpc: SolanaRpc;
+  readonly signer: KeyPairSigner;
+  readonly config: SquadsCreateConfig;
+  readonly createKeySigner?: KeyPairSigner;
+  readonly dryRun?: boolean;
+}
+
+export interface SquadsCreateResult {
+  readonly multisigPda: Address;
+  readonly vaultPda: Address;
+  readonly createKey: Address;
+  readonly signature: string;
+}
+
+/**
+ * Pure parser and validator for squads-create CLI arguments.
+ */
+export function parseSquadsCreateConfig(
+  args: RawSquadsCreateArgs
+): SquadsCreateConfig {
+  let members: Address[];
+  if (args.membersRaw && args.membersRaw.trim().length > 0) {
+    const rawList = args.membersRaw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    if (rawList.length === 0) {
+      members = [args.feePayerAddress];
+    } else {
+      const validated: Address[] = [];
+      for (const m of rawList) {
+        try {
+          validated.push(address(m));
+        } catch {
+          throw new Error(
+            `Invalid member public key address: "${m}". Must be a valid base58 address.`
+          );
+        }
+      }
+      members = Array.from(new Set(validated));
+      if (!members.includes(args.feePayerAddress)) {
+        console.warn(
+          `⚠️ Warning: Fee payer / creator (${args.feePayerAddress}) is not in the multisig members list. You will not have voting or proposal creation rights on this multisig.`
+        );
+      }
+    }
+  } else {
+    members = [args.feePayerAddress];
+  }
+
+  if (members.length === 0) {
+    throw new Error("At least one member is required to create a multisig.");
+  }
+
+  let threshold = 1;
+  if (args.thresholdRaw !== undefined && args.thresholdRaw.trim().length > 0) {
+    const rawT = args.thresholdRaw.trim();
+    if (!/^-?\d+$/.test(rawT)) {
+      throw new Error(
+        `Invalid threshold: "${args.thresholdRaw}". Threshold must be a positive integer >= 1.`
+      );
+    }
+    threshold = parseInt(rawT, 10);
+    if (isNaN(threshold) || !Number.isInteger(threshold) || threshold < 1) {
+      throw new Error(
+        `Invalid threshold: "${args.thresholdRaw}". Threshold must be a positive integer >= 1.`
+      );
+    }
+    if (threshold > members.length) {
+      throw new Error(
+        `Threshold (${threshold}) cannot exceed the number of unique members (${members.length}).`
+      );
+    }
+  }
+
+  let timeLock = 0n;
+  if (args.timelockRaw !== undefined && args.timelockRaw.trim().length > 0) {
+    const rawTl = args.timelockRaw.trim();
+    if (!/^\d+$/.test(rawTl)) {
+      throw new Error(
+        `Invalid timelock: "${args.timelockRaw}". Timelock must be a non-negative integer >= 0.`
+      );
+    }
+    try {
+      timeLock = BigInt(rawTl);
+    } catch {
+      throw new Error(
+        `Invalid timelock: "${args.timelockRaw}". Timelock must be a non-negative integer >= 0.`
+      );
+    }
+    if (timeLock < 0n || timeLock > 0xffffffffn) {
+      throw new Error(
+        `Invalid timelock: "${args.timelockRaw}". Timelock must be between 0 and 4294967295 seconds (u32 max).`
+      );
+    }
+  }
+
+  let configAuthority: Address | null = null;
+  if (
+    args.configAuthorityRaw !== undefined &&
+    args.configAuthorityRaw.trim().length > 0
+  ) {
+    const rawCa = args.configAuthorityRaw.trim();
+    try {
+      configAuthority = address(rawCa);
+    } catch {
+      throw new Error(
+        `Invalid config authority address: "${args.configAuthorityRaw}". Must be a valid base58 address.`
+      );
+    }
+  }
+
+  return {
+    threshold,
+    members,
+    timeLock,
+    configAuthority,
+  };
+}
+
+/**
+ * Handles `squads-create` command. Initializes a new Squads V4 multisig on-chain.
+ */
+export async function executeSquadsCreate(
+  params: ExecuteSquadsCreateParams
+): Promise<SquadsCreateResult> {
+  const {
+    rpc,
+    signer,
+    config,
+    createKeySigner: explicitCreateKey,
+    dryRun = false,
+  } = params;
+  const memberCount = config.members.length;
+
+  // 1. Preflight cluster & program deployment check
+  const progInfo = await fetchAccountInfo(rpc, SQUADS_PROGRAM_ADDRESS);
+  if (!progInfo || !progInfo.value) {
+    throw new Error(
+      `Squads V4 program (${SQUADS_PROGRAM_ADDRESS}) is not deployed on this cluster. If running on a local cluster, clone the program account first.`
+    );
+  }
+
+  const programConfigPda = await findProgramConfigPda(SQUADS_PROGRAM_ADDRESS);
+  const configInfo = await fetchAccountInfo(rpc, programConfigPda);
+  if (!configInfo || !configInfo.value) {
+    throw new Error(
+      `Squads V4 ProgramConfig account (${programConfigPda}) not found on this cluster.`
+    );
+  }
+  const configData = decodeAccountBase64Data(configInfo.value);
+  if (!configData) {
+    throw new Error("Invalid Squads ProgramConfig account data.");
+  }
+  const { multisigCreationFee, treasury: treasuryAddress } =
+    parseProgramConfigAccount(configData, programConfigPda);
+
+  // 2. Dynamic account space, creation fee, and rent-exemption preflight check
+  const space = calculateMultisigAccountSpace(memberCount);
+  const rentLamports = await rpc
+    .getMinimumBalanceForRentExemption(BigInt(space))
+    .send();
+  const requiredLamports = rentLamports + 10_000n + multisigCreationFee;
+
+  const balanceRes = await rpc.getBalance(signer.address).send();
+  const creatorBalance = balanceRes.value;
+  if (creatorBalance < requiredLamports) {
+    throw new InsufficientFundsError(
+      signer.address,
+      creatorBalance,
+      requiredLamports,
+      `Signer ${signer.address} has insufficient SOL (${creatorBalance} lamports, minimum required: ${requiredLamports} lamports) to create multisig with ${memberCount} members.`
+    );
+  }
+
+  // 3. Resolve or generate createKey
+  const createKeySigner = explicitCreateKey ?? (await generateKeyPairSigner());
+  console.log(`Create Key Public Key: ${createKeySigner.address}`);
+
+  // 4. Derive PDAs
+  const multisigPda = await findMultisigPda(createKeySigner.address);
+  const vaultPda = await findMultisigVaultPda(multisigPda, 0);
+
+  console.log(
+    `Initializing Squads V4 Multisig (${multisigPda}) with ${memberCount} members (Threshold: ${config.threshold}/${memberCount}, Timelock: ${config.timeLock}s)...`
+  );
+
+  // 5. Build instruction via @sqds/multisig adapter
+  const web3Ix = sqds.instructions.multisigCreateV2({
+    creator: new PublicKey(signer.address),
+    createKey: new PublicKey(createKeySigner.address),
+    multisigPda: new PublicKey(multisigPda),
+    treasury: new PublicKey(treasuryAddress),
+    configAuthority: config.configAuthority
+      ? new PublicKey(config.configAuthority)
+      : null,
+    threshold: config.threshold,
+    members: config.members.map((m) => ({
+      key: new PublicKey(m),
+      permissions: sqds.types.Permissions.all(),
+    })),
+    timeLock: Number(config.timeLock),
+    rentCollector: null,
+  });
+
+  const kitIx: Instruction = {
+    programAddress: address(web3Ix.programId.toBase58()),
+    accounts: web3Ix.keys.map((k) => {
+      const addr = address(k.pubkey.toBase58());
+      const role = k.isSigner
+        ? k.isWritable
+          ? AccountRole.WRITABLE_SIGNER
+          : AccountRole.READONLY_SIGNER
+        : k.isWritable
+          ? AccountRole.WRITABLE
+          : AccountRole.READONLY;
+      return { address: addr, role };
+    }),
+    data: new Uint8Array(web3Ix.data),
+  };
+
+  if (dryRun) {
+    console.log(
+      "\n[DRY RUN] Simulating Squads V4 Multisig Creation (not broadcast)"
+    );
+    console.log(`[DRY RUN] Multisig PDA:      ${multisigPda}`);
+    console.log(`[DRY RUN] Default Vault PDA: ${vaultPda}`);
+    console.log(`[DRY RUN] Create Key:        ${createKeySigner.address}`);
+    return {
+      multisigPda,
+      vaultPda,
+      createKey: createKeySigner.address,
+      signature: "simulated_dry_run_signature",
+    };
+  }
+
+  // 6. Broadcast transaction with both signers
+  const signature = await sendTx(rpc, [kitIx], [signer, createKeySigner]);
+
+  console.log("\n=======================================================");
+  console.log("             SQUADS V4 MULTISIG CREATED                ");
+  console.log("=======================================================");
+  console.log(`Multisig PDA:      ${multisigPda}`);
+  console.log(`Default Vault PDA: ${vaultPda}`);
+  console.log(`Create Key:        ${createKeySigner.address}`);
+  console.log(`Threshold:         ${config.threshold} / ${memberCount}`);
+  console.log(`Timelock:          ${config.timeLock} seconds`);
+  console.log(
+    `Config Authority:  ${config.configAuthority ?? "Autonomous (null)"}`
+  );
+  console.log(`Signature:         ${signature}`);
+  console.log("=======================================================\n");
+
+  return {
+    multisigPda,
+    vaultPda,
+    createKey: createKeySigner.address,
+    signature,
+  };
+}
+
+export interface SaveMultisigStateOptions {
+  readonly rpcUrl: string;
+  readonly multisigPda: Address;
+  readonly projectRoot?: string;
+}
+
+/**
+ * Persists created Squads multisig address to cluster state files and local environment files.
+ */
+export function saveSquadsMultisigDeployment(
+  options: SaveMultisigStateOptions
+): void {
+  const { rpcUrl, multisigPda, projectRoot = process.cwd() } = options;
+  const isLocal = isLocalMockUrl(rpcUrl);
+  const stateDir = isLocal ? "localnet-state" : "devnet-state";
+  const addrFile = path.resolve(__dirname, stateDir, "addresses.json");
+
+  if (fs.existsSync(addrFile)) {
+    try {
+      const json = JSON.parse(fs.readFileSync(addrFile, "utf-8"));
+      json.squadsMultisig = multisigPda;
+      fs.writeFileSync(addrFile, JSON.stringify(json, null, 2) + "\n");
+      console.log(
+        `Updated ${stateDir}/addresses.json with squadsMultisig: ${multisigPda}`
+      );
+    } catch (err) {
+      console.warn(`⚠️ Could not update ${stateDir}/addresses.json: ${err}`);
+    }
+  }
+
+  if (!isLocal) {
+    const devnetEnv = path.resolve(projectRoot, ".env.devnet");
+    if (fs.existsSync(devnetEnv)) {
+      upsertEnvFile(devnetEnv, {
+        SQUADS_MULTISIG_ADDRESS: multisigPda,
+      });
+      console.log(
+        `Updated .env.devnet with SQUADS_MULTISIG_ADDRESS=${multisigPda}`
+      );
+    }
+  }
+
+  const localEnv = path.resolve(projectRoot, ".env.local");
+  upsertEnvFile(localEnv, {
+    SQUADS_MULTISIG_ADDRESS: multisigPda,
+  });
+  console.log(`Updated .env.local with SQUADS_MULTISIG_ADDRESS=${multisigPda}`);
 }

@@ -1,18 +1,27 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import {
   address,
   generateKeyPairSigner,
   AccountRole,
   Instruction,
+  getBase58Decoder,
+  getBase58Encoder,
+  getBase64Encoder,
 } from "@solana/kit";
 import {
   findMultisigPda,
   findMultisigVaultPda,
   findVaultTransactionPda,
   findProposalPda,
+  findProgramConfigPda,
   parseMultisigAccount,
   parseProposalAccount,
+  parseProgramConfigAccount,
+  calculateMultisigAccountSpace,
   compileVaultTransactionMessage,
   buildAtomicProposeInstructions,
   buildVaultTransactionExecuteInstruction,
@@ -21,12 +30,22 @@ import {
   SQUADS_PROGRAM_ADDRESS,
   MULTISIG_DISCRIMINATOR,
   PROPOSAL_DISCRIMINATOR,
+  PROGRAM_CONFIG_DISCRIMINATOR,
   createNoopSigner,
   MultisigAccount,
   ProposalAccount,
 } from "../app/lib/squads-sdk";
 import { parseTransactionError, matchSquadsError } from "../app/lib/errors";
-import { fetchAccountData, fetchAccountInfo } from "./squads-cli-utils";
+import {
+  fetchAccountData,
+  fetchAccountInfo,
+  parseSquadsCreateConfig,
+  executeSquadsCreate,
+  saveSquadsMultisigDeployment,
+} from "./squads-cli-utils";
+import { InsufficientFundsError } from "./utils";
+import * as sqds from "@sqds/multisig";
+import { PublicKey } from "@solana/web3.js";
 
 describe("7-Vector Squads V4 Multisig SDK Suite", () => {
   it("Vector 1: Deterministic PDA Derivations", async () => {
@@ -534,5 +553,544 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
 
     const accountInfo = await fetchAccountInfo(mockRpc, dummyAddr);
     assert.strictEqual(accountInfo?.value?.lamports, 50_000_000n);
+  });
+
+  it("Vector 9: squads-create Parameter Validation & Safety Guards", async () => {
+    const feePayer = address("11111111111111111111111111111111");
+    const alice = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const bob = address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+
+    // 1. Default Fallback when --members is omitted
+    const defaultCfg = parseSquadsCreateConfig({
+      feePayerAddress: feePayer,
+    });
+    assert.deepStrictEqual(defaultCfg.members, [feePayer]);
+    assert.strictEqual(defaultCfg.threshold, 1);
+    assert.strictEqual(defaultCfg.timeLock, 0n);
+    assert.strictEqual(defaultCfg.configAuthority, null);
+
+    // 2. Whitespace and comma-only fallback to fee payer
+    const whitespaceMembersCfg = parseSquadsCreateConfig({
+      membersRaw: " , , ",
+      feePayerAddress: feePayer,
+    });
+    assert.deepStrictEqual(whitespaceMembersCfg.members, [feePayer]);
+
+    // 3. Creator omission warning check (custom members retained)
+    const customMembersCfg = parseSquadsCreateConfig({
+      membersRaw: `${alice},${bob}`,
+      feePayerAddress: feePayer,
+    });
+    assert.deepStrictEqual(customMembersCfg.members, [alice, bob]);
+    assert.ok(!customMembersCfg.members.includes(feePayer));
+
+    // 4. Threshold Bounds: Reject non-positive, non-integer, or floats
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          thresholdRaw: "0",
+          feePayerAddress: feePayer,
+        }),
+      /Threshold must be a positive integer >= 1/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          thresholdRaw: "-1",
+          feePayerAddress: feePayer,
+        }),
+      /Threshold must be a positive integer >= 1/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          thresholdRaw: "abc",
+          feePayerAddress: feePayer,
+        }),
+      /Threshold must be a positive integer >= 1/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          thresholdRaw: "1.5",
+          feePayerAddress: feePayer,
+        }),
+      /Threshold must be a positive integer >= 1/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          thresholdRaw: "0.5",
+          feePayerAddress: feePayer,
+        }),
+      /Threshold must be a positive integer >= 1/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          thresholdRaw: "-2.5",
+          feePayerAddress: feePayer,
+        }),
+      /Threshold must be a positive integer >= 1/
+    );
+
+    // 5. Threshold Overhang: Reject when threshold > members.length
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          thresholdRaw: "3",
+          membersRaw: `${alice},${bob}`,
+          feePayerAddress: feePayer,
+        }),
+      /Threshold \(3\) cannot exceed the number of unique members \(2\)/
+    );
+
+    // 6. Deduplication Order: [Alice, Alice, Bob] with threshold 3 rejected because N_unique = 2 < 3
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          thresholdRaw: "3",
+          membersRaw: `${alice},${alice},${bob}`,
+          feePayerAddress: feePayer,
+        }),
+      /Threshold \(3\) cannot exceed the number of unique members \(2\)/
+    );
+    const dedupedCfg = parseSquadsCreateConfig({
+      thresholdRaw: "2",
+      membersRaw: `${alice},${alice},${bob}`,
+      feePayerAddress: feePayer,
+    });
+    assert.deepStrictEqual(dedupedCfg.members, [alice, bob]);
+    assert.strictEqual(dedupedCfg.threshold, 2);
+
+    // 7. Address Validation: Reject invalid base58 public keys
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          membersRaw: "invalid-key-address",
+          feePayerAddress: feePayer,
+        }),
+      /Invalid member public key address/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          configAuthorityRaw: "invalid-authority-key",
+          feePayerAddress: feePayer,
+        }),
+      /Invalid config authority address/
+    );
+
+    // 8. Timelock Validation: Reject negative, non-integer, or u32 overflow
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          timelockRaw: "-10",
+          feePayerAddress: feePayer,
+        }),
+      /Timelock must be a non-negative integer >= 0/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          timelockRaw: "abc",
+          feePayerAddress: feePayer,
+        }),
+      /Timelock must be a non-negative integer >= 0/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          timelockRaw: "12.5",
+          feePayerAddress: feePayer,
+        }),
+      /Timelock must be a non-negative integer >= 0/
+    );
+    assert.throws(
+      () =>
+        parseSquadsCreateConfig({
+          timelockRaw: "4294967296", // u32::MAX + 1
+          feePayerAddress: feePayer,
+        }),
+      /Timelock must be between 0 and 4294967295 seconds/
+    );
+    const validTimelockCfg = parseSquadsCreateConfig({
+      timelockRaw: "3600",
+      feePayerAddress: feePayer,
+    });
+    assert.strictEqual(validTimelockCfg.timeLock, 3600n);
+
+    // 9. Space Formula Verification: 130 + 36 * N
+    assert.strictEqual(calculateMultisigAccountSpace(1), 166);
+    assert.strictEqual(calculateMultisigAccountSpace(2), 202);
+    assert.strictEqual(calculateMultisigAccountSpace(5), 310);
+    assert.strictEqual(calculateMultisigAccountSpace(10), 490);
+
+    // 10. Autonomous Default & Custom Authority
+    const customAuthCfg = parseSquadsCreateConfig({
+      configAuthorityRaw: alice,
+      feePayerAddress: feePayer,
+    });
+    assert.strictEqual(customAuthCfg.configAuthority, alice);
+
+    // 11. PDA Derivation Parity between @solana/kit and @sqds/multisig
+    const testCreateKey = address(
+      "4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofM"
+    );
+    const kitMultisig = await findMultisigPda(testCreateKey);
+    const [sqdsMultisigPk] = sqds.getMultisigPda({
+      createKey: new PublicKey(testCreateKey),
+    });
+    assert.strictEqual(
+      kitMultisig,
+      sqdsMultisigPk.toBase58(),
+      "Multisig PDA derivation must match @sqds/multisig"
+    );
+
+    const kitVault0 = await findMultisigVaultPda(kitMultisig, 0);
+    const [sqdsVault0Pk] = sqds.getVaultPda({
+      multisigPda: sqdsMultisigPk,
+      index: 0,
+    });
+    assert.strictEqual(
+      kitVault0,
+      sqdsVault0Pk.toBase58(),
+      "Vault index 0 PDA derivation must match @sqds/multisig"
+    );
+
+    const kitVault3 = await findMultisigVaultPda(kitMultisig, 3);
+    const [sqdsVault3Pk] = sqds.getVaultPda({
+      multisigPda: sqdsMultisigPk,
+      index: 3,
+    });
+    assert.strictEqual(
+      kitVault3,
+      sqdsVault3Pk.toBase58(),
+      "Vault index 3 PDA derivation must match @sqds/multisig"
+    );
+
+    const kitProgramConfig = await findProgramConfigPda();
+    const [sqdsProgramConfigPk] = sqds.getProgramConfigPda({});
+    assert.strictEqual(
+      kitProgramConfig,
+      sqdsProgramConfigPk.toBase58(),
+      "ProgramConfig PDA derivation must match @sqds/multisig"
+    );
+
+    // 12. ProgramConfig Account Decoding & Discriminator Assertion
+    const validConfigBuf = new Uint8Array(80);
+    validConfigBuf.set(PROGRAM_CONFIG_DISCRIMINATOR, 0);
+    const authBytes = getBase58Encoder().encode(alice);
+    validConfigBuf.set(authBytes, 8);
+    const view = new DataView(validConfigBuf.buffer);
+    view.setBigUint64(40, 25_000_000n, true);
+    const treasuryBytes = getBase58Encoder().encode(bob);
+    validConfigBuf.set(treasuryBytes, 48);
+
+    const parsedConfig = parseProgramConfigAccount(validConfigBuf);
+    assert.strictEqual(parsedConfig.authority, alice);
+    assert.strictEqual(parsedConfig.multisigCreationFee, 25_000_000n);
+    assert.strictEqual(parsedConfig.treasury, bob);
+
+    // Mismatched discriminator rejection
+    const invalidDiscBuf = new Uint8Array(validConfigBuf);
+    invalidDiscBuf[0] = 0xff;
+    assert.throws(
+      () => parseProgramConfigAccount(invalidDiscBuf),
+      /Invalid account discriminator for ProgramConfig account/
+    );
+
+    // Short buffer rejection
+    assert.throws(
+      () => parseProgramConfigAccount(new Uint8Array(40)),
+      /Invalid Squads ProgramConfig account size/
+    );
+  });
+
+  it("Vector 10: executeSquadsCreate Lifecycle & Deployment Persistence", async () => {
+    const signer = await generateKeyPairSigner();
+    const alice = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const treasury = address("HM5y4mz3Bt9JY9mr1hkyhnvqxSH4H2u2451j7Hc2dtvK");
+
+    function createMockRpc(opts?: {
+      programDeployed?: boolean;
+      configDeployed?: boolean;
+      creationFee?: bigint;
+      creatorBalance?: bigint;
+      rentLamports?: bigint;
+    }) {
+      const {
+        programDeployed = true,
+        configDeployed = true,
+        creationFee = 0n,
+        creatorBalance = 100_000_000n,
+        rentLamports = 1_500_000n,
+      } = opts ?? {};
+
+      const configBuf = new Uint8Array(80);
+      configBuf.set(PROGRAM_CONFIG_DISCRIMINATOR, 0);
+      configBuf.set(getBase58Encoder().encode(alice), 8);
+      const view = new DataView(configBuf.buffer);
+      view.setBigUint64(40, creationFee, true);
+      configBuf.set(getBase58Encoder().encode(treasury), 48);
+      const configBase64 = Buffer.from(configBuf).toString("base64");
+
+      return {
+        getAccountInfo: (addr: Address, _cfg?: any) => {
+          return {
+            send: async () => {
+              if (addr === SQUADS_PROGRAM_ADDRESS) {
+                if (!programDeployed)
+                  return { context: { slot: 1n }, value: null };
+                return {
+                  context: { slot: 1n },
+                  value: {
+                    data: ["", "base64"],
+                    executable: true,
+                    lamports: 1_000_000_000n,
+                    owner: address(
+                      "BPFLoaderUpgradeab1e11111111111111111111111"
+                    ),
+                    rentEpoch: 0n,
+                    space: 36n,
+                  },
+                };
+              }
+              const programConfigPda = await findProgramConfigPda(
+                SQUADS_PROGRAM_ADDRESS
+              );
+              if (addr === programConfigPda) {
+                if (!configDeployed)
+                  return { context: { slot: 1n }, value: null };
+                return {
+                  context: { slot: 1n },
+                  value: {
+                    data: [configBase64, "base64"],
+                    executable: false,
+                    lamports: 2_000_000n,
+                    owner: SQUADS_PROGRAM_ADDRESS,
+                    rentEpoch: 0n,
+                    space: 80n,
+                  },
+                };
+              }
+              return { context: { slot: 1n }, value: null };
+            },
+          };
+        },
+        getMinimumBalanceForRentExemption: (_space: bigint) => {
+          return {
+            send: async () => rentLamports,
+          };
+        },
+        getBalance: (_addr: Address) => {
+          return {
+            send: async () => ({
+              context: { slot: 1n },
+              value: creatorBalance,
+            }),
+          };
+        },
+        getLatestBlockhash: () => {
+          return {
+            send: async () => ({
+              value: {
+                blockhash: "4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofM",
+                lastValidBlockHeight: 1000n,
+              },
+            }),
+          };
+        },
+        sendTransaction: (_wireTx: string, _opts?: any) => {
+          return {
+            send: async () => "mock_squads_create_tx_signature",
+          };
+        },
+        getSignatureStatuses: (_sigs: string[]) => {
+          return {
+            send: async () => ({
+              value: [
+                {
+                  confirmationStatus: "confirmed",
+                  confirmations: 1,
+                  err: null,
+                  slot: 100n,
+                },
+              ],
+            }),
+          };
+        },
+      } as any;
+    }
+
+    const validConfig = parseSquadsCreateConfig({
+      membersRaw: alice,
+      thresholdRaw: "1",
+      feePayerAddress: signer.address,
+    });
+
+    // 1. Guard: Squads program missing
+    const rpcNoProg = createMockRpc({ programDeployed: false });
+    await assert.rejects(
+      () =>
+        executeSquadsCreate({
+          rpc: rpcNoProg,
+          signer,
+          config: validConfig,
+        }),
+      /Squads V4 program .* is not deployed on this cluster/
+    );
+
+    // 2. Guard: ProgramConfig account missing
+    const rpcNoConfig = createMockRpc({ configDeployed: false });
+    await assert.rejects(
+      () =>
+        executeSquadsCreate({
+          rpc: rpcNoConfig,
+          signer,
+          config: validConfig,
+        }),
+      /Squads V4 ProgramConfig account .* not found on this cluster/
+    );
+
+    // 3. Guard: Insufficient balance with non-zero creation fee
+    // rent = 1_500_000, feeBuffer = 10_000, creationFee = 50_000_000 => required = 51_510_000
+    // Signer balance = 50_000_000 (insufficient)
+    const rpcLowBalance = createMockRpc({
+      creationFee: 50_000_000n,
+      creatorBalance: 50_000_000n,
+      rentLamports: 1_500_000n,
+    });
+    await assert.rejects(
+      () =>
+        executeSquadsCreate({
+          rpc: rpcLowBalance,
+          signer,
+          config: validConfig,
+        }),
+      (err: any) => {
+        assert.ok(err instanceof InsufficientFundsError);
+        assert.strictEqual(err.requiredLamports, 51_510_000n);
+        assert.strictEqual(err.balanceLamports, 50_000_000n);
+        return true;
+      }
+    );
+
+    // 4. Successful creation with default generated createKey
+    const rpcSuccess = createMockRpc({
+      creatorBalance: 100_000_000n,
+      creationFee: 0n,
+    });
+    const resultDefault = await executeSquadsCreate({
+      rpc: rpcSuccess,
+      signer,
+      config: validConfig,
+    });
+    assert.strictEqual(
+      typeof resultDefault.multisigPda,
+      "string",
+      "Must return valid multisig PDA"
+    );
+    assert.strictEqual(
+      typeof resultDefault.vaultPda,
+      "string",
+      "Must return valid vault PDA"
+    );
+    assert.strictEqual(
+      typeof resultDefault.createKey,
+      "string",
+      "Must return valid createKey address"
+    );
+    assert.strictEqual(
+      resultDefault.signature,
+      "mock_squads_create_tx_signature"
+    );
+
+    // 5. Successful creation with explicit createKeySigner
+    const explicitCreateKey = await generateKeyPairSigner();
+    const resultExplicit = await executeSquadsCreate({
+      rpc: rpcSuccess,
+      signer,
+      config: validConfig,
+      createKeySigner: explicitCreateKey,
+    });
+    assert.strictEqual(resultExplicit.createKey, explicitCreateKey.address);
+    const expectedMultisig = await findMultisigPda(explicitCreateKey.address);
+    assert.strictEqual(resultExplicit.multisigPda, expectedMultisig);
+
+    // 6. Dry-run simulation mode
+    const dryRunResult = await executeSquadsCreate({
+      rpc: rpcSuccess,
+      signer,
+      config: validConfig,
+      dryRun: true,
+    });
+    assert.strictEqual(
+      dryRunResult.signature,
+      "simulated_dry_run_signature",
+      "Dry run must return simulated signature without broadcasting"
+    );
+
+    // 7. Deployment persistence with saveSquadsMultisigDeployment
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "squads-test-persistence-")
+    );
+    try {
+      // Localnet state directory setup
+      const localStateDir = path.join(tmpDir, "scripts", "localnet-state");
+      fs.mkdirSync(localStateDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(localStateDir, "addresses.json"),
+        JSON.stringify({ programId: "MockProgram11111111111111111111111111" })
+      );
+
+      // Devnet state directory setup
+      const devStateDir = path.join(tmpDir, "scripts", "devnet-state");
+      fs.mkdirSync(devStateDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(devStateDir, "addresses.json"),
+        JSON.stringify({ programId: "MockProgram11111111111111111111111111" })
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, ".env.devnet"),
+        "NEXT_PUBLIC_PROGRAM_ID=MockProgram11111111111111111111111111\n"
+      );
+
+      // Test localnet save
+      saveSquadsMultisigDeployment({
+        rpcUrl: "http://127.0.0.1:8899",
+        multisigPda: resultDefault.multisigPda,
+        projectRoot: tmpDir,
+      });
+      const localEnvContent = fs.readFileSync(
+        path.join(tmpDir, ".env.local"),
+        "utf-8"
+      );
+      assert.ok(
+        localEnvContent.includes(
+          `SQUADS_MULTISIG_ADDRESS=${resultDefault.multisigPda}`
+        ),
+        ".env.local must contain SQUADS_MULTISIG_ADDRESS"
+      );
+
+      // Test devnet save
+      saveSquadsMultisigDeployment({
+        rpcUrl: "https://api.devnet.solana.com",
+        multisigPda: resultExplicit.multisigPda,
+        projectRoot: tmpDir,
+      });
+      const devnetEnvContent = fs.readFileSync(
+        path.join(tmpDir, ".env.devnet"),
+        "utf-8"
+      );
+      assert.ok(
+        devnetEnvContent.includes(
+          `SQUADS_MULTISIG_ADDRESS=${resultExplicit.multisigPda}`
+        ),
+        ".env.devnet must contain updated SQUADS_MULTISIG_ADDRESS"
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

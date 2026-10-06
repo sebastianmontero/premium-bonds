@@ -53,6 +53,7 @@ import {
   DEFAULT_ENV_PATH,
   isLocalMockUrl,
 } from "./devnet-state";
+export { isLocalMockUrl, LOCAL_ENV_PATH, DEVNET_ENV_PATH, DEFAULT_ENV_PATH };
 export {
   parseEnvLine,
   readEnvFile,
