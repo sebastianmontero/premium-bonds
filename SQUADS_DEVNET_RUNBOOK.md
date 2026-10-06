@@ -47,6 +47,8 @@ Squads Protocol V4 is Solana's premier smart contract multisig standard. It enab
 
 1. **Multisig PDA**: The coordination hub. It stores the governance configuration: who the members are, the approval threshold (e.g. 2-of-3), timelocks, and transaction indices. **It never signs CPIs directly**.
 2. **Vault PDA (Index 0)**: The autonomous executing identity. When a proposal is approved and executed, the Squads program invokes downstream contracts (like Premium Bonds) using the Vault PDA's seeds. **Your protocol admin must always be set to the Vault PDA, not the Multisig PDA**.
+   > [!IMPORTANT]
+   > **Vault PDA Requires a SOL Balance**: Unlike standard off-curve addresses that act purely as signers, any operational Solana account that pays rent, initializes downstream program accounts, or maintains persistent on-chain identity requires a non-zero SOL (lamport) balance. Always fund the Vault PDA with SOL immediately after creation.
 
 ---
 
@@ -61,10 +63,12 @@ sequenceDiagram
     participant SQDS as Squads V4 Program
     participant PB as Premium Bonds Program
 
-    Note over M1,SQDS: Phase 1: Multisig Initialization
+    Note over M1,SQDS: Phase 1: Multisig Initialization & Funding
     M1->>CLI: squads-create (--threshold 2 --members M1,M2)
     CLI->>SQDS: multisig_create_v2
     SQDS-->>CLI: Multisig PDA & Vault PDA (Index 0)
+    M1->>CLI: solana airdrop 1 <VAULT_PDA> (Fund Vault with SOL)
+    CLI-->>SQDS: Vault PDA holds SOL balance
 
     Note over M1,PB: Phase 2: Protocol Admin Handover
     M1->>CLI: nominate-admin (--new-admin <VAULT_PDA>)
@@ -120,7 +124,7 @@ NO_DNA=1 solana airdrop 2 $(solana-keygen pubkey ~/.config/solana/pb-member2-dev
 Run `squads-create` specifying both member public keys and a threshold of `2`:
 
 ```bash
-npm run -- pb-cli squads-create -- \
+npm run pb-cli squads-create -- \
   --threshold 2 \
   --members $(solana address -u devnet),$(solana-keygen pubkey ~/.config/solana/pb-member2-dev.json) \
   --rpc https://api.devnet.solana.com
@@ -151,11 +155,32 @@ npm run -- pb-cli squads-status --rpc https://api.devnet.solana.com
 - **Threshold**: `2`
 - **Members**: Lists both Member 1 and Member 2 public keys with full permissions (`0x7 [Initiate, Vote, Execute]`).
 - **Transaction Index**: `0` (no proposals created yet).
-- **Default Vault PDA**: Displays the derived Vault address.
+- **Default Vault PDA**: Displays the derived Vault address (e.g. `<VAULT_PDA>`).
 
 ---
 
-### Step 4: Nominate the Multisig Vault as Pending Protocol Admin
+### Step 4: Fund the Multisig Vault PDA with SOL
+
+> [!IMPORTANT]
+> **Why the Vault PDA Needs a SOL Balance**:
+> Even though transaction fee payers cover network execution gas fees, the **Vault PDA** is an independent on-chain account. When the Vault PDA signs transactions, performs CPIs, or allocates/pays rent for newly initialized protocol accounts, it must hold a positive SOL balance. An unfunded Vault PDA with 0 lamports will cause CPI execution or account initialization to fail.
+
+Fund the derived Vault PDA on Devnet:
+
+```bash
+# Option A: Airdrop Devnet SOL directly to the Vault PDA
+NO_DNA=1 solana airdrop 1 <VAULT_PDA> -u devnet
+
+# Option B: Transfer SOL from Member 1 to the Vault PDA
+NO_DNA=1 solana transfer <VAULT_PDA> 0.5 --allow-unfunded-recipient -u devnet
+
+# Verify Vault PDA SOL balance
+NO_DNA=1 solana balance <VAULT_PDA> -u devnet
+```
+
+---
+
+### Step 5: Nominate the Multisig Vault as Pending Protocol Admin
 
 In production smart contracts, transferring administrative authority is a sensitive, two-phase process:
 
@@ -164,16 +189,16 @@ In production smart contracts, transferring administrative authority is a sensit
 
 This prevents irrecoverably locking the protocol if a typo or incorrect address is entered.
 
-Nominate your newly created **Vault PDA** (replace `<VAULT_PDA>` with the Vault address printed in Step 2):
+Nominate your newly created **Vault PDA** (replace `<VAULT_PDA>` with the Vault address printed in Step 2 / Step 3):
 
 ```bash
 # 1. Nominate the Vault PDA
-npm run -- pb-cli nominate-admin -- \
+npm run pb-cli nominate-admin -- \
   --new-admin <VAULT_PDA> \
   --rpc https://api.devnet.solana.com
 
 # 2. Verify on-chain state
-npm run -- pb-cli global-info --rpc https://api.devnet.solana.com
+npm run -- pb-cli query-config --rpc https://api.devnet.solana.com
 ```
 
 The on-chain `GlobalConfig` account will now show:
@@ -183,14 +208,14 @@ The on-chain `GlobalConfig` account will now show:
 
 ---
 
-### Step 5: Propose `accept-admin` via Squads Multisig
+### Step 6: Propose `accept-admin` via Squads Multisig
 
 Because the Vault PDA is an off-curve Program Derived Address, no developer holds a private key to sign transactions for it directly. Instead, the Vault signs via Squads Program invocation (`CPI`).
 
 To execute `accept-admin`, Member 1 submits an admin proposal through `pb-cli`:
 
 ```bash
-npm run -- pb-cli accept-admin -- \
+npm run pb-cli accept-admin -- \
   --propose \
   --multisig <MULTISIG_PDA> \
   --rpc https://api.devnet.solana.com
@@ -206,7 +231,7 @@ npm run -- pb-cli accept-admin -- \
 
 ---
 
-### Step 6: Review, Inspect & Vote on the Proposal (Member 2)
+### Step 7: Review, Inspect & Vote on the Proposal (Member 2)
 
 Before approving any multisig transaction, members should audit the proposed instruction to ensure no malicious or unintended calls are embedded.
 
@@ -215,7 +240,7 @@ Before approving any multisig transaction, members should audit the proposed ins
 npm run -- pb-cli squads-proposals --rpc https://api.devnet.solana.com
 
 # 2. Inspect Proposal #1 inner instruction payload
-npm run -- pb-cli squads-inspect-tx -- \
+npm run pb-cli squads-inspect-tx -- \
   --index 1 \
   --rpc https://api.devnet.solana.com
 ```
@@ -228,7 +253,7 @@ Verify that:
 Once verified, Member 2 casts their approval:
 
 ```bash
-npm run -- pb-cli squads-approve -- \
+npm run pb-cli squads-approve -- \
   --index 1 \
   --keypair ~/.config/solana/pb-member2-dev.json \
   --rpc https://api.devnet.solana.com
@@ -237,19 +262,19 @@ npm run -- pb-cli squads-approve -- \
 Re-check status:
 
 ```bash
-npm run -- pb-cli squads-proposals --rpc https://api.devnet.solana.com
+npm run pb-cli squads-proposals --rpc https://api.devnet.solana.com
 ```
 
 Status now displays: **`Approved (2/2)`**!
 
 ---
 
-### Step 7: Execute the Proposal
+### Step 8: Execute the Proposal
 
 Now that the threshold is met, any member can trigger execution on Devnet:
 
 ```bash
-npm run -- pb-cli squads-execute -- \
+npm run pb-cli squads-execute -- \
   --index 1 \
   --rpc https://api.devnet.solana.com
 ```
@@ -263,14 +288,14 @@ npm run -- pb-cli squads-execute -- \
 Verify the handover:
 
 ```bash
-npm run -- pb-cli global-info --rpc https://api.devnet.solana.com
+npm run pb-cli query-config --rpc https://api.devnet.solana.com
 ```
 
 You will observe that `admin` is now officially the **Squads Vault PDA**!
 
 ---
 
-### Step 8: Update Local Devnet State & Test Ongoing Governance
+### Step 9: Update Local Devnet State & Test Ongoing Governance
 
 Update [`scripts/devnet-state/addresses.json`](file:///home/sebastian/vsc-workspace/premium-bonds/scripts/devnet-state/addresses.json):
 
@@ -285,7 +310,7 @@ Now, all sensitive admin operations require multisig authorization. Try pausing 
 
 ```bash
 # Propose unpausing a pool via multisig
-npm run -- pb-cli unpause-pool -- \
+npm run pb-cli unpause-pool -- \
   --pool <POOL_PUBKEY> \
   --propose \
   --confirm \
@@ -296,12 +321,12 @@ This generates **Proposal #2**. You can repeat the `squads-inspect-tx` $\rightar
 
 ---
 
-### Step 9: Reclaim Rent Lamports (`squads-close`)
+### Step 10: Reclaim Rent Lamports (`squads-close`)
 
 Each proposal and transaction account locks ~0.002 to ~0.005 SOL in rent exemption. Once a proposal has been executed or cancelled, you can permanently close the accounts and recover the lamports:
 
 ```bash
-npm run -- pb-cli squads-close -- \
+npm run pb-cli squads-close -- \
   --index 1 \
   --rpc https://api.devnet.solana.com
 ```
@@ -314,6 +339,7 @@ The rent lamports are refunded directly to the fee payer.
 
 | Issue / Symptom                                     | Root Cause                                                                                             | Solution                                                                                                        |
 | :-------------------------------------------------- | :----------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------- |
+| `Vault PDA has 0 SOL / Insufficient funds for rent` | The Squads Vault PDA was never funded with SOL after creation. CPIs or account funding require lamports.| Airdrop or transfer SOL to the Vault PDA (`solana airdrop 1 <VAULT_PDA> -u devnet`).                            |
 | `Proposal has stale index`                          | An earlier proposal modified the multisig members or settings, invalidating previous sequence numbers. | Close stale proposals using `squads-close` and re-propose with current index.                                   |
 | `Cannot execute Proposal: Timelock has not expired` | A non-zero `timeLock` was specified during multisig creation.                                          | Wait until the timelock window passes before calling `squads-execute`. For Devnet testing, keep `--timelock 0`. |
 | `Signer is not an authorized member`                | The transaction fee payer or signing keypair is not registered in the multisig's member list.          | Check member keys with `squads-status` and pass `--keypair <PATH>` matching a registered member.                |
