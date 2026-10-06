@@ -574,6 +574,7 @@
     "pageTitle": "Draw History & Payouts",
     "pageSubtitle": "Explore past draw cycles, review full on-chain winner registries, and verify cryptographic randomness.",
     "refresh": "Refresh",
+    "metricUnavailable": "Unavailable",
     "totalPrizesDistributed": "Total Prizes Distributed",
     "totalPrizesDistributedSub": "Distributed across all cycles",
     "totalDraws": "Completed Draws",

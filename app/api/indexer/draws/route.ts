@@ -21,7 +21,10 @@ export const dynamic = "force-dynamic";
 
 export interface DrawsRouteDeps extends BaseIndexerRouteDeps {
   fetchDraws?: typeof fetchPaginatedDraws;
-  getPoolStats?: (poolId: number) => Promise<DrawHistoryStats | null>;
+  getPoolStats?: (
+    poolId: number,
+    options?: { bypassCache?: boolean }
+  ) => Promise<DrawHistoryStats | null | undefined>;
 }
 
 export async function handleGetDraws(
@@ -29,6 +32,7 @@ export async function handleGetDraws(
   deps: DrawsRouteDeps = {}
 ): Promise<NextResponse<PaginatedDrawsResponse>> {
   const { searchParams } = req.nextUrl;
+  const bypassCache = searchParams.get("bypassCache") === "true";
   const rawParams = {
     poolId: searchParams.get("poolId") || 1,
     page: searchParams.get("page") || 1,
@@ -52,23 +56,17 @@ export async function handleGetDraws(
     const fetchDrawsFn = deps.fetchDraws ?? fetchPaginatedDraws;
     const getStatsFn =
       deps.getPoolStats ??
-      ((poolId: number) => defaultPoolStatsAggregator.getPoolDrawStats(poolId));
+      ((poolId: number, options?: { bypassCache?: boolean }) =>
+        defaultPoolStatsAggregator.getPoolDrawStats(poolId, options));
 
     const [result, poolStats] = await Promise.all([
       fetchDrawsFn(parsed.data),
-      getStatsFn(parsed.data.poolId),
+      getStatsFn(parsed.data.poolId, { bypassCache }),
     ]);
-
-    const stats: DrawHistoryStats = poolStats ?? {
-      totalYieldDistributed: 0,
-      totalDrawsCompleted: 0,
-      totalWinningBonds: 0,
-      averagePrizePot: 0,
-    };
 
     return respondSuccess(result.data, {
       meta: result.meta,
-      aggregates: stats,
+      aggregates: poolStats ?? null,
     });
   } catch (err: unknown) {
     console.warn("[Indexer Draws API Error - Falling Back to RPC]:", err);

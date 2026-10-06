@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { bondsKeys, type PoolId } from "../lib/query-keys";
 import type { DrawCycleSummary, DrawHistoryStats } from "../types";
@@ -19,12 +20,14 @@ export interface UseDrawExplorerOptions {
 
 export interface DrawExplorerResult {
   drawSummaries: DrawCycleSummary[];
-  stats: DrawHistoryStats;
+  stats: DrawHistoryStats | null;
   pagination: PaginationMeta;
   isLoading: boolean;
   isRefetching: boolean;
+  isError: boolean;
+  error: Error | null;
   isPlaceholderData: boolean;
-  refetch: () => Promise<unknown>;
+  refetch: (options?: { bypassCache?: boolean }) => Promise<unknown>;
 }
 
 const DEFAULT_PAGINATION: PaginationMeta = {
@@ -34,14 +37,6 @@ const DEFAULT_PAGINATION: PaginationMeta = {
   totalPages: 1,
   hasNextPage: false,
   hasPreviousPage: false,
-};
-
-const DEFAULT_STATS: DrawHistoryStats = {
-  totalYieldDistributed: 0,
-  totalDrawsCompleted: 0,
-  totalWinningBonds: 0,
-  averagePrizePot: 0,
-  statusCounts: {},
 };
 
 export function useDrawExplorer(
@@ -70,11 +65,23 @@ export function useDrawExplorer(
     search,
   };
 
-  const { data, isLoading, isFetching, isPlaceholderData, refetch } = useQuery({
+  const bypassCacheRef = useRef<boolean>(false);
+
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    isPlaceholderData,
+    refetch: queryRefetch,
+  } = useQuery({
     queryKey: bondsKeys.drawsList(poolId, queryFilters),
-    queryFn: async (): Promise<{
+    queryFn: async (
+      context
+    ): Promise<{
       drawSummaries: DrawCycleSummary[];
-      stats: DrawHistoryStats;
+      stats: DrawHistoryStats | null;
       pagination: PaginationMeta;
     }> => {
       const url = new URL("/api/indexer/draws", window.location.origin);
@@ -83,25 +90,25 @@ export function useDrawExplorer(
       url.searchParams.set("pageSize", String(pageSize));
       if (status && status !== "all") url.searchParams.set("status", status);
       if (search) url.searchParams.set("search", search);
+      if (bypassCacheRef.current) url.searchParams.set("bypassCache", "true");
 
-      const res = await fetch(url.toString(), { cache: "no-store" });
+      const res = await fetch(url.toString(), {
+        cache: "no-store",
+        signal: context.signal,
+      });
       if (!res.ok) throw new Error("Failed to fetch draws");
-      const json: PaginatedDrawsResponse & {
-        draws?: DrawCycleSummary[];
-        stats?: DrawHistoryStats;
-      } = await res.json();
+      const json: PaginatedDrawsResponse = await res.json();
 
-      const drawSummaries: DrawCycleSummary[] = (
-        json.data ||
-        json.draws ||
-        []
-      ).map((d) => ({
+      if (!json.success || json.fallbackRequired) {
+        throw new Error(json.error || "Failed to fetch draws");
+      }
+
+      const drawSummaries: DrawCycleSummary[] = (json.data || []).map((d) => ({
         ...d,
         randomnessSeed: new Uint8Array(),
       }));
 
-      const stats: DrawHistoryStats = json.aggregates ||
-        json.stats || { ...DEFAULT_STATS };
+      const stats: DrawHistoryStats | null = json.aggregates ?? null;
 
       const pagination: PaginationMeta = json.meta ?? {
         page,
@@ -119,14 +126,35 @@ export function useDrawExplorer(
       };
     },
     enabled,
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData, previousQuery) => {
+      if (bondsKeys.isSamePool(previousQuery?.queryKey, poolId)) {
+        return previousData;
+      }
+      return undefined;
+    },
     staleTime: 5_000,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 3000),
     refetchOnMount: true,
   });
 
+  const refetch = useCallback(
+    async (options?: { bypassCache?: boolean }) => {
+      if (options?.bypassCache) {
+        bypassCacheRef.current = true;
+      }
+      try {
+        return await queryRefetch();
+      } finally {
+        bypassCacheRef.current = false;
+      }
+    },
+    [queryRefetch]
+  );
+
   return {
     drawSummaries: data?.drawSummaries ?? [],
-    stats: data?.stats ?? DEFAULT_STATS,
+    stats: data?.stats ?? null,
     pagination: data?.pagination ?? {
       ...DEFAULT_PAGINATION,
       page,
@@ -134,6 +162,8 @@ export function useDrawExplorer(
     },
     isLoading,
     isRefetching: isFetching,
+    isError,
+    error: (error as Error) ?? null,
     isPlaceholderData,
     refetch,
   };

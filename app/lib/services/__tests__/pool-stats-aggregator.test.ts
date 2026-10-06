@@ -416,4 +416,24 @@ describe("PoolStatsAggregator Unit Tests", () => {
     assert.deepStrictEqual(receivedPoolInfoOptions[0], { bypassCache: true });
     assert.strictEqual(dbQueryCount, 1);
   });
+
+  it("should calculate integer-rounded averagePrizePot for base units", async () => {
+    const mockDb = createMockAggregationDb({
+      rows: [
+        {
+          status: "Complete",
+          count: 3,
+          totalDistributed: "10000000", // 10_000_000 / 3 = 3333333.333... -> 3333333
+          totalWinningBonds: 9,
+        },
+      ],
+    });
+
+    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const res = await aggregator.getPoolDrawStats(1);
+    assert.ok(res);
+    assert.strictEqual(res.totalDrawsCompleted, 3);
+    assert.strictEqual(res.totalYieldDistributed, 10_000_000);
+    assert.strictEqual(res.averagePrizePot, 3_333_333);
+  });
 });

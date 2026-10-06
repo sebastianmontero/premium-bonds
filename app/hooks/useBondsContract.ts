@@ -93,14 +93,17 @@ export function useBondsContract(poolId: number = 1) {
     };
   }, [positionQuery.data]);
 
-  const refetch = useCallback(async () => {
-    await Promise.all([
-      poolQuery.refetch(),
-      positionQuery.refetch(),
-      tokenBalanceQuery.refetch(),
-      redemptionsQuery.refetch(),
-    ]);
-  }, [poolQuery, positionQuery, tokenBalanceQuery, redemptionsQuery]);
+  const refetch = useCallback(
+    async (options?: { bypassCache?: boolean }) => {
+      await Promise.all([
+        poolQuery.refetch(options),
+        positionQuery.refetch(),
+        tokenBalanceQuery.refetch(),
+        redemptionsQuery.refetch(),
+      ]);
+    },
+    [poolQuery, positionQuery, tokenBalanceQuery, redemptionsQuery]
+  );
 
   const refetchOnChain = useCallback(async () => {
     await Promise.all([

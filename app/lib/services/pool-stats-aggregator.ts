@@ -16,9 +16,9 @@ interface CacheEntry {
   expiresAt: number;
 }
 
-export const POOL_STATS_TTL_MS = 5_000;
+export const POOL_STATS_TTL_MS = 10_000;
 export const STALE_ERROR_RETRY_MS = 10_000;
-export const DB_QUERY_TIMEOUT_MS = 500;
+export const DB_QUERY_TIMEOUT_MS = 3_000;
 
 import type { createSolanaRpc } from "@solana/kit";
 
@@ -147,7 +147,9 @@ export class PoolStatsAggregator {
         }
 
         const averagePrizePot =
-          totalDrawsCompleted > 0 ? totalDistributed / totalDrawsCompleted : 0;
+          totalDrawsCompleted > 0
+            ? Math.round(totalDistributed / totalDrawsCompleted)
+            : 0;
 
         const stats: DrawHistoryStats = {
           totalYieldDistributed: totalDistributed,

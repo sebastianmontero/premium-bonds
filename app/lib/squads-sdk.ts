@@ -89,7 +89,7 @@ export const SQUADS_INSTRUCTION_SIGHASHES = {
   proposalCancel: getAnchorDiscriminator("global", "proposal_cancel"),
   vaultTransactionClose: getAnchorDiscriminator(
     "global",
-    "vault_transaction_close"
+    "vault_transaction_accounts_close"
   ),
   vaultTransactionExecute: getAnchorDiscriminator(
     "global",
@@ -101,8 +101,8 @@ export const SQUADS_INSTRUCTION_SIGHASHES = {
 
 export const SquadsPermission = {
   Initiate: 1 << 0, // 1
-  Vote: 1 << 1,     // 2
-  Execute: 1 << 2,  // 4
+  Vote: 1 << 1, // 2
+  Execute: 1 << 2, // 4
 } as const;
 
 export type SquadsPermission =
@@ -308,7 +308,7 @@ export async function findVaultTransactionPda(
 
 /**
  * Derives the Squads V4 Proposal PDA.
- * Seeds: [b"multisig", multisig_pda, b"proposal", &tx_index.to_le_bytes()]
+ * Seeds: [b"multisig", multisig_pda, b"transaction", &tx_index.to_le_bytes(), b"proposal"]
  */
 export async function findProposalPda(
   multisig: Address,
@@ -326,8 +326,9 @@ export async function findProposalPda(
     seeds: [
       Buffer.from("multisig"),
       multisigBytes,
-      Buffer.from("proposal"),
+      Buffer.from("transaction"),
       txIndexBytes,
+      Buffer.from("proposal"),
     ],
   });
   return pda;
@@ -876,7 +877,7 @@ export function compileVaultTransactionMessage(
 }
 
 /**
- * Serializes VaultTransactionMessageData into Borsh binary bytes.
+ * Serializes VaultTransactionMessageData into Borsh binary bytes using Squads V4 SmallVec schema.
  */
 export function serializeVaultTransactionMessage(
   msg: VaultTransactionMessageData
@@ -893,56 +894,75 @@ export function serializeVaultTransactionMessage(
     ])
   );
 
-  // accountKeys: Vec<Pubkey>
-  const keysLen = new Uint8Array(4);
-  new DataView(keysLen.buffer).setUint32(0, msg.accountKeys.length, true);
-  buffers.push(keysLen);
+  // accountKeys: SmallVec<u8, Pubkey>
+  if (msg.accountKeys.length > 255) {
+    throw new Error(
+      `accountKeys length ${msg.accountKeys.length} exceeds u8 SmallVec limit (255)`
+    );
+  }
+  buffers.push(new Uint8Array([msg.accountKeys.length]));
   for (const k of msg.accountKeys) {
     buffers.push(encoder.encode(k));
   }
 
-  // instructions: Vec<VaultInstructionData>
-  const ixsLen = new Uint8Array(4);
-  new DataView(ixsLen.buffer).setUint32(0, msg.instructions.length, true);
-  buffers.push(ixsLen);
+  // instructions: SmallVec<u8, CompiledInstruction>
+  if (msg.instructions.length > 255) {
+    throw new Error(
+      `instructions length ${msg.instructions.length} exceeds u8 SmallVec limit (255)`
+    );
+  }
+  buffers.push(new Uint8Array([msg.instructions.length]));
 
   for (const ix of msg.instructions) {
     // programIdIndex (u8)
     buffers.push(new Uint8Array([ix.programIdIndex]));
 
-    // accountIndexes: Vec<u8>
-    const accIdxLen = new Uint8Array(4);
-    new DataView(accIdxLen.buffer).setUint32(0, ix.accountIndexes.length, true);
-    buffers.push(accIdxLen);
+    // accountIndexes: SmallVec<u8, u8>
+    if (ix.accountIndexes.length > 255) {
+      throw new Error(
+        `accountIndexes length ${ix.accountIndexes.length} exceeds u8 SmallVec limit (255)`
+      );
+    }
+    buffers.push(new Uint8Array([ix.accountIndexes.length]));
     buffers.push(new Uint8Array(ix.accountIndexes));
 
-    // data: Vec<u8>
-    const dataLen = new Uint8Array(4);
-    new DataView(dataLen.buffer).setUint32(0, ix.data.length, true);
+    // data: SmallVec<u16, u8>
+    if (ix.data.length > 65535) {
+      throw new Error(
+        `instruction data length ${ix.data.length} exceeds u16 SmallVec limit (65535)`
+      );
+    }
+    const dataLen = new Uint8Array(2);
+    new DataView(dataLen.buffer).setUint16(0, ix.data.length, true);
     buffers.push(dataLen);
     buffers.push(ix.data);
   }
 
-  // addressTableLookups: Vec<MessageAddressTableLookup>
-  const altLen = new Uint8Array(4);
-  new DataView(altLen.buffer).setUint32(
-    0,
-    msg.addressTableLookups.length,
-    true
-  );
-  buffers.push(altLen);
+  // addressTableLookups: SmallVec<u8, MessageAddressTableLookup>
+  if (msg.addressTableLookups.length > 255) {
+    throw new Error(
+      `addressTableLookups length ${msg.addressTableLookups.length} exceeds u8 SmallVec limit (255)`
+    );
+  }
+  buffers.push(new Uint8Array([msg.addressTableLookups.length]));
 
   for (const alt of msg.addressTableLookups) {
     buffers.push(encoder.encode(alt.accountKey));
 
-    const wLen = new Uint8Array(4);
-    new DataView(wLen.buffer).setUint32(0, alt.writableIndexes.length, true);
-    buffers.push(wLen);
+    if (alt.writableIndexes.length > 255) {
+      throw new Error(
+        `writableIndexes length ${alt.writableIndexes.length} exceeds u8 SmallVec limit (255)`
+      );
+    }
+    buffers.push(new Uint8Array([alt.writableIndexes.length]));
     buffers.push(alt.writableIndexes);
 
-    const rLen = new Uint8Array(4);
-    new DataView(rLen.buffer).setUint32(0, alt.readonlyIndexes.length, true);
-    buffers.push(rLen);
+    if (alt.readonlyIndexes.length > 255) {
+      throw new Error(
+        `readonlyIndexes length ${alt.readonlyIndexes.length} exceeds u8 SmallVec limit (255)`
+      );
+    }
+    buffers.push(new Uint8Array([alt.readonlyIndexes.length]));
     buffers.push(alt.readonlyIndexes);
   }
 
@@ -1025,9 +1045,9 @@ export function buildVaultTransactionCreateInstruction(
   return {
     programAddress,
     accounts: [
-      { address: multisig, role: AccountRole.READONLY },
+      { address: multisig, role: AccountRole.WRITABLE },
       { address: transactionPda, role: AccountRole.WRITABLE },
-      { address: creator, role: AccountRole.WRITABLE_SIGNER },
+      { address: creator, role: AccountRole.READONLY_SIGNER },
       { address: rentPayer, role: AccountRole.WRITABLE_SIGNER },
       { address: SYSTEM_PROGRAM_ADDRESS, role: AccountRole.READONLY },
     ],
@@ -1339,7 +1359,7 @@ export async function buildVaultTransactionExecuteInstruction(
     accounts: [
       { address: multisig, role: AccountRole.READONLY },
       { address: proposalPda, role: AccountRole.WRITABLE },
-      { address: transactionPda, role: AccountRole.WRITABLE },
+      { address: transactionPda, role: AccountRole.READONLY },
       {
         address: member,
         role: AccountRole.READONLY_SIGNER,

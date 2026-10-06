@@ -150,4 +150,38 @@ describe("GET /api/indexer/draws Route Handler", () => {
     );
     assert.ok(error.length > 0);
   });
+
+  it("should return aggregates: null without fabricating zero values when getPoolStats returns null or undefined", async () => {
+    const req = createApiRequest("/api/indexer/draws?poolId=1");
+    const res = await handleGetDraws(req, {
+      isConfigured: true,
+      fetchDraws: async () => mockDrawsResult,
+      getPoolStats: async () => null,
+    });
+    assertNoCache(res);
+
+    const { json, aggregates } = await assertSuccessResponse<
+      DrawCycleSummaryDto[]
+    >(res, 200);
+    assert.strictEqual(aggregates, null);
+    assert.strictEqual(json.aggregates, null);
+  });
+
+  it("should forward bypassCache: true to getPoolStats when bypassCache=true query param is passed", async () => {
+    let forwardedBypassCache: boolean | undefined;
+    const req = createApiRequest(
+      "/api/indexer/draws?poolId=1&bypassCache=true"
+    );
+    const res = await handleGetDraws(req, {
+      isConfigured: true,
+      fetchDraws: async () => mockDrawsResult,
+      getPoolStats: async (_poolId, options) => {
+        forwardedBypassCache = options?.bypassCache;
+        return mockStats;
+      },
+    });
+    assertNoCache(res);
+    await assertSuccessResponse(res, 200);
+    assert.strictEqual(forwardedBypassCache, true);
+  });
 });

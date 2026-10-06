@@ -11,10 +11,11 @@ export async function handleGetPool(
 ) {
   const { searchParams } = req.nextUrl;
   const poolId = Number(searchParams.get("poolId") || 1);
+  const bypassCache = searchParams.get("bypassCache") === "true";
 
   try {
     const poolInfo = await getEnrichedPoolInfo(poolId, {
-      bypassCache: true,
+      bypassCache,
       rpc: options?.rpc,
     });
     if (!poolInfo) {

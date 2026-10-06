@@ -19,6 +19,7 @@ import type {
   DrawStatusArchetype,
   DrawStatusCountMap,
   PrizeHistoryEntry,
+  DrawHistoryStats,
 } from "../types";
 import { formatCurrency, formatTicketNumber } from "./formatters";
 
@@ -397,6 +398,7 @@ export function buildDrawStatusOptions({
   ];
 
   // 1. Ordered canonical statuses
+  const isCountsAvailable = statusCounts !== undefined;
   for (const status of CANONICAL_DRAW_STATUS_ORDER) {
     const rawCount = counts[status];
     const count = Number.isFinite(rawCount) && rawCount! > 0 ? rawCount! : 0;
@@ -405,9 +407,12 @@ export function buildDrawStatusOptions({
     if (count > 0 || isSelected) {
       const translationKey = getDrawStatusTranslationKey(status);
       const statusLabel = translationKey ? t(translationKey) : status;
+      const countBadge = isCountsAvailable
+        ? `\u00A0(${EN_US_NUMBER_FORMAT.format(count)})`
+        : "";
       options.push({
         value: status,
-        label: `${statusLabel}\u00A0(${EN_US_NUMBER_FORMAT.format(count)})`,
+        label: `${statusLabel}${countBadge}`,
       });
     }
   }
@@ -435,9 +440,10 @@ export function buildDrawStatusOptions({
     currentFilter !== "all" &&
     !options.some((opt) => opt.value === currentFilter)
   ) {
+    const countBadge = isCountsAvailable ? "\u00A0(0)" : "";
     options.push({
       value: currentFilter,
-      label: `${currentFilter}\u00A0(0)`,
+      label: `${currentFilter}${countBadge}`,
     });
   }
 
@@ -1420,4 +1426,32 @@ export function formatWinnerShareMessage(
     decimals: tokenDecimals,
   });
   return `Checked YieldBonds Draw #${cycleId} - bond ${ticket} won ${amount}! 🚀 Verified on-chain at ${permalink}`;
+}
+
+/**
+ * Resolves effective draw statistics by combining indexer aggregates with on-chain pool fallback.
+ * Guarantees zero-fabrication: missing metrics are returned as undefined, never 0.
+ */
+export function resolveEffectiveDrawStats(
+  stats: DrawHistoryStats | null | undefined,
+  onChainTotalPrizes?: number | bigint | null
+): Partial<DrawHistoryStats> | null {
+  const numOnChainPrizes =
+    onChainTotalPrizes != null ? Number(onChainTotalPrizes) : undefined;
+  const hasOnChainPrizes =
+    numOnChainPrizes !== undefined && numOnChainPrizes > 0;
+
+  if (!stats && !hasOnChainPrizes) {
+    return null;
+  }
+
+  return {
+    totalYieldDistributed:
+      stats?.totalYieldDistributed ??
+      (hasOnChainPrizes ? numOnChainPrizes : undefined),
+    totalDrawsCompleted: stats?.totalDrawsCompleted,
+    totalWinningBonds: stats?.totalWinningBonds,
+    averagePrizePot: stats?.averagePrizePot,
+    statusCounts: stats?.statusCounts,
+  };
 }

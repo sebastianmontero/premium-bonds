@@ -18,9 +18,12 @@ import {
   invalidateDrawQueries,
   sanitizeDrawStatusFilter,
   INDEXER_PROPAGATION_GRACE_PERIOD_MS,
+  resolveEffectiveDrawStats,
 } from "@/app/lib/draw-helpers";
-import { bondsKeys } from "@/app/lib/query-keys";
+import { bondsKeys, type PoolId } from "@/app/lib/query-keys";
 import { useTranslations } from "next-intl";
+
+const DASHBOARD_POOL_ID: PoolId = 1;
 
 function DrawHistoryContent() {
   const queryClient = useQueryClient();
@@ -67,15 +70,22 @@ function DrawHistoryContent() {
     pagination,
     isLoading: isDrawsLoading,
     isRefetching: isDrawsRefetching,
+    isError: isDrawsError,
+    error: drawsError,
     isPlaceholderData,
     refetch: refetchDraws,
   } = useDrawExplorer({
-    poolId: 1,
+    poolId: DASHBOARD_POOL_ID,
     page: urlPage,
     pageSize: urlPageSize,
     status: urlStatus,
     search: urlSearch,
   });
+
+  const effectiveStats = useMemo(
+    () => resolveEffectiveDrawStats(stats, onChainPool?.totalPrizesDistributed),
+    [stats, onChainPool?.totalPrizesDistributed]
+  );
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -83,8 +93,14 @@ function DrawHistoryContent() {
     if (isRefreshing || isDrawsLoading || isDrawsRefetching) return;
     setIsRefreshing(true);
     try {
-      invalidateDrawQueries(queryClient, 1);
-      await Promise.all([refetchPool(), refetchDraws()]);
+      queryClient.invalidateQueries({
+        queryKey: bondsKeys.draws(DASHBOARD_POOL_ID),
+        refetchType: "none",
+      });
+      await Promise.all([
+        refetchPool({ bypassCache: true }),
+        refetchDraws({ bypassCache: true }),
+      ]);
     } catch (err) {
       console.error("Failed to refresh draw history:", err);
     } finally {
@@ -333,34 +349,40 @@ function DrawHistoryContent() {
 
       {/* ── Aggregate Metrics Row ─────────────────────────────────── */}
       <DrawStatsSummary
-        stats={stats}
+        stats={effectiveStats}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         isLoading={isDrawsLoading}
-        isTotalPrizesDistributedLoading={isDrawsLoading}
       />
 
       {/* ── Historical Draws List ─────────────────────────────────── */}
-      <DrawHistoryList
-        draws={drawSummaries}
-        onSelectDraw={handleOpenInspector}
-        tokenDecimals={activePool.tokenDecimals}
-        tokenSymbol={activePool.tokenSymbol}
-        statusCounts={stats.statusCounts}
-        isLoading={isDrawsLoading}
-        isSyncing={isDrawsRefetching || isRefreshing}
-        isPlaceholderData={isPlaceholderData}
-        pagination={pagination}
-        currentPage={urlPage}
-        pageSize={urlPageSize}
-        statusFilter={urlStatus}
-        searchTerm={urlSearch}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handlePageSizeChange}
-        onStatusChange={handleStatusChange}
-        onSearchChange={handleSearchChange}
-        onResetFilters={handleResetFilters}
-      />
+      {isDrawsError && drawSummaries.length === 0 ? (
+        <PoolStateErrorCard
+          error={drawsError?.message}
+          onRetry={() => refetchDraws()}
+        />
+      ) : (
+        <DrawHistoryList
+          draws={drawSummaries}
+          onSelectDraw={handleOpenInspector}
+          tokenDecimals={activePool.tokenDecimals}
+          tokenSymbol={activePool.tokenSymbol}
+          statusCounts={effectiveStats?.statusCounts}
+          isLoading={isDrawsLoading}
+          isSyncing={isDrawsRefetching || isRefreshing}
+          isPlaceholderData={isPlaceholderData}
+          pagination={pagination}
+          currentPage={urlPage}
+          pageSize={urlPageSize}
+          statusFilter={urlStatus}
+          searchTerm={urlSearch}
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+          onStatusChange={handleStatusChange}
+          onSearchChange={handleSearchChange}
+          onResetFilters={handleResetFilters}
+        />
+      )}
 
       {/* ── Detail Inspector Modal ─────────────────────────────────── */}
       <DrawCycleInspectorModal

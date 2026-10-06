@@ -9,6 +9,17 @@ export const bondsKeys = {
   // Pool scopes
   pools: () => [...bondsKeys.all, "pools"] as const,
   poolRoot: (poolId: PoolId) => [...bondsKeys.pools(), poolId] as const,
+  isSamePool: (
+    queryKey: readonly unknown[] | undefined,
+    poolId: PoolId
+  ): boolean => {
+    const root = bondsKeys.poolRoot(poolId);
+    return (
+      Array.isArray(queryKey) &&
+      queryKey.length >= root.length &&
+      root.every((part, idx) => queryKey[idx] === part)
+    );
+  },
   poolState: (poolId: PoolId) =>
     [...bondsKeys.poolRoot(poolId), "state"] as const,
   poolDetails: (poolId: PoolId) =>

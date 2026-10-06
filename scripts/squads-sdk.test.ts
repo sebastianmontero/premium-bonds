@@ -24,6 +24,7 @@ import {
   parseProgramConfigAccount,
   calculateMultisigAccountSpace,
   compileVaultTransactionMessage,
+  serializeVaultTransactionMessage,
   buildVaultTransactionCreateInstruction,
   buildAtomicProposeInstructions,
   buildVaultTransactionExecuteInstruction,
@@ -34,6 +35,7 @@ import {
   hasSquadsPermission,
   parseSquadsPermissions,
   SQUADS_PROGRAM_ADDRESS,
+  SQUADS_INSTRUCTION_SIGHASHES,
   MULTISIG_DISCRIMINATOR,
   PROPOSAL_DISCRIMINATOR,
   PROGRAM_CONFIG_DISCRIMINATOR,
@@ -98,6 +100,54 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
       tx1Pda,
       `Proposal PDA (${prop1Pda}) must differ from Transaction PDA (${tx1Pda}) for the same index`
     );
+
+    // Differential Oracle checks against @sqds/multisig
+    const [expectedMsPda] = sqds.getMultisigPda({
+      createKey: new PublicKey(createKey),
+    });
+    assert.strictEqual(
+      multisigPda,
+      expectedMsPda.toBase58(),
+      "findMultisigPda must match @sqds/multisig getMultisigPda"
+    );
+
+    const [expectedVault0Pda] = sqds.getVaultPda({
+      multisigPda: new PublicKey(multisigPda),
+      index: 0,
+    });
+    assert.strictEqual(
+      vault0Pda,
+      expectedVault0Pda.toBase58(),
+      "findMultisigVaultPda (vault 0) must match @sqds/multisig getVaultPda"
+    );
+
+    const [expectedTx1Pda] = sqds.getTransactionPda({
+      multisigPda: new PublicKey(multisigPda),
+      index: 1n,
+    });
+    assert.strictEqual(
+      tx1Pda,
+      expectedTx1Pda.toBase58(),
+      "findVaultTransactionPda must match @sqds/multisig getTransactionPda"
+    );
+
+    const [expectedProp1Pda] = sqds.getProposalPda({
+      multisigPda: new PublicKey(multisigPda),
+      transactionIndex: 1n,
+    });
+    assert.strictEqual(
+      prop1Pda,
+      expectedProp1Pda.toBase58(),
+      "findProposalPda must match @sqds/multisig getProposalPda"
+    );
+
+    const progConfigPda = await findProgramConfigPda();
+    const [expectedProgConfigPda] = sqds.getProgramConfigPda({});
+    assert.strictEqual(
+      progConfigPda,
+      expectedProgConfigPda.toBase58(),
+      "findProgramConfigPda must match @sqds/multisig getProgramConfigPda"
+    );
   });
 
   it("Vector 2: Discriminators & Account Header Parsing (Differential Oracle Tests)", async () => {
@@ -122,7 +172,10 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
       ["Vote", "Execute"]
     );
     assert.strictEqual(hasSquadsPermission(7, SquadsPermission.Initiate), true);
-    assert.strictEqual(hasSquadsPermission(2, SquadsPermission.Initiate), false);
+    assert.strictEqual(
+      hasSquadsPermission(2, SquadsPermission.Initiate),
+      false
+    );
 
     // 2. Minimum size guard
     assert.throws(
@@ -294,15 +347,65 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
       data: new Uint8Array([10, 20]),
     };
     const compiledMsg = compileVaultTransactionMessage([dummyIx]);
+    const txPda = (await generateKeyPairSigner()).address;
     const vaultCreateIx = buildVaultTransactionCreateInstruction({
       multisig: msAddress,
-      transactionPda: (await generateKeyPairSigner()).address,
+      transactionPda: txPda,
       creator: member1,
       vaultIndex: 0,
       ephemeralSigners: 0,
       message: compiledMsg,
       memo: "test proposal",
     });
+
+    // Account role correctness: multisig must be WRITABLE so Anchor permits state mutation
+    assert.strictEqual(vaultCreateIx.accounts![0].role, AccountRole.WRITABLE);
+    assert.strictEqual(vaultCreateIx.accounts![1].role, AccountRole.WRITABLE);
+
+    // Differential Oracle check against @sqds/multisig beet serialization
+    const sqdsMessage = {
+      numSigners: compiledMsg.numSigners,
+      numWritableSigners: compiledMsg.numWritableSigners,
+      numWritableNonSigners: compiledMsg.numWritableNonSigners,
+      accountKeys: compiledMsg.accountKeys.map((k) => new PublicKey(k)),
+      instructions: compiledMsg.instructions.map((ix) => ({
+        programIdIndex: ix.programIdIndex,
+        accountIndexes: ix.accountIndexes,
+        data: Array.from(ix.data),
+      })),
+      addressTableLookups: [],
+    };
+    const [expectedBeetBytes] =
+      sqds.types.transactionMessageBeet.serialize(sqdsMessage);
+    const actualSerializedMsg = serializeVaultTransactionMessage(compiledMsg);
+    assert.deepStrictEqual(
+      Buffer.from(actualSerializedMsg),
+      Buffer.from(expectedBeetBytes),
+      "serializeVaultTransactionMessage must match @sqds/multisig transactionMessageBeet byte-for-byte"
+    );
+
+    const expectedSqdsIx =
+      sqds.generated.createVaultTransactionCreateInstruction(
+        {
+          multisig: new PublicKey(msAddress),
+          transaction: new PublicKey(txPda),
+          creator: new PublicKey(member1),
+          rentPayer: new PublicKey(member1),
+        },
+        {
+          args: {
+            vaultIndex: 0,
+            ephemeralSigners: 0,
+            transactionMessage: expectedBeetBytes,
+            memo: "test proposal",
+          },
+        }
+      );
+    assert.deepStrictEqual(
+      Buffer.from(vaultCreateIx.data),
+      Buffer.from(expectedSqdsIx.data),
+      "vaultCreateIx.data must match @sqds/multisig instruction data byte-for-byte"
+    );
 
     // Verify discriminator (8 bytes) + vaultIndex (1 byte) + ephemeralSigners (1 byte) + messageLen (4 bytes u32)
     assert.strictEqual(vaultCreateIx.data.length > 14, true);
@@ -311,9 +414,17 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
       vaultCreateIx.data.byteOffset
     );
     const lengthPrefix = msgLenView.getUint32(10, true);
-    assert.ok(
-      lengthPrefix > 0,
-      `Message length prefix must be positive integer (got ${lengthPrefix})`
+    assert.strictEqual(
+      lengthPrefix,
+      actualSerializedMsg.length,
+      `Message length prefix must equal actual SmallVec serialized message length (${actualSerializedMsg.length})`
+    );
+
+    // Differential Oracle check for vaultTransactionClose sighash
+    assert.deepStrictEqual(
+      Array.from(SQUADS_INSTRUCTION_SIGHASHES.vaultTransactionClose),
+      sqds.generated.vaultTransactionAccountsCloseInstructionDiscriminator,
+      "vaultTransactionClose must match vaultTransactionAccountsClose discriminator"
     );
 
     // 8. Corrupt discriminator rejection

@@ -192,7 +192,7 @@ export type KeysetActivityResponse = ApiResponse<ActivityEntry[], KeysetMeta>;
 export type PaginatedDrawsResponse = ApiResponse<
   DrawCycleSummaryDto[],
   PaginationMeta,
-  DrawHistoryStats
+  DrawHistoryStats | null
 >;
 
 export type PendingRedemptionsResponse = ApiResponse<PendingRedemptionDto[]>;

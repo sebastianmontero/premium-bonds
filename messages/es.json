@@ -574,6 +574,7 @@
     "pageTitle": "Historial de Sorteos y Premios",
     "pageSubtitle": "Explora sorteos anteriores, revisa registros completos de ganadores en cadena y verifica la aleatoriedad criptográfica.",
     "refresh": "Actualizar",
+    "metricUnavailable": "No disponible",
     "totalPrizesDistributed": "Premios Distribuidos",
     "totalPrizesDistributedSub": "Distribuido a lo largo de todos los ciclos",
     "totalDraws": "Sorteos Completados",
