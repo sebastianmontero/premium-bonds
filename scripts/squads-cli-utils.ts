@@ -34,6 +34,7 @@ import {
   findProposalPda,
   findProgramConfigPda,
   parseMultisigAccount,
+  formatSquadsPermissions,
   parseProposalAccount,
   parseVaultTransactionAccount,
   parseProgramConfigAccount,
@@ -513,7 +514,7 @@ export async function executeSquadsStatus(
   console.log("\nMembers:");
   ms.members.forEach((m, i) => {
     console.log(
-      `  ${i + 1}. ${m.key} (permissions: 0x${m.permissions.toString(16)})`
+      `  ${i + 1}. ${m.key} (permissions: ${formatSquadsPermissions(m.permissions)})`
     );
   });
   console.log("=======================================================\n");

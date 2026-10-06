@@ -20,13 +20,19 @@ import {
   findProgramConfigPda,
   parseMultisigAccount,
   parseProposalAccount,
+  parseVaultTransactionAccount,
   parseProgramConfigAccount,
   calculateMultisigAccountSpace,
   compileVaultTransactionMessage,
+  buildVaultTransactionCreateInstruction,
   buildAtomicProposeInstructions,
   buildVaultTransactionExecuteInstruction,
   isProposalExecutable,
   ProposalStatus,
+  SquadsPermission,
+  formatSquadsPermissions,
+  hasSquadsPermission,
+  parseSquadsPermissions,
   SQUADS_PROGRAM_ADDRESS,
   MULTISIG_DISCRIMINATOR,
   PROPOSAL_DISCRIMINATOR,
@@ -94,73 +100,229 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
     );
   });
 
-  it("Vector 2: Discriminators & Account Header Parsing", () => {
-    // Valid Multisig buffer
-    const validMultisigBuf = new Uint8Array(200);
-    validMultisigBuf.set(MULTISIG_DISCRIMINATOR, 0);
-    const view = new DataView(validMultisigBuf.buffer);
-    view.setUint16(72, 2, true); // threshold = 2
-    view.setUint32(74, 3600, true); // timeLock = 3600
-    view.setBigUint64(78, 5n, true); // transactionIndex = 5
-    view.setBigUint64(86, 0n, true); // staleTransactionIndex = 0
-    view.setUint8(94, 0); // hasRentCollector = false
-    view.setUint8(95, 255); // bump
-    view.setUint32(96, 0, true); // members len = 0
+  it("Vector 2: Discriminators & Account Header Parsing (Differential Oracle Tests)", async () => {
+    // 1. Permission domain helpers
+    assert.strictEqual(
+      formatSquadsPermissions(7),
+      "0x7 [Initiate, Vote, Execute]",
+      "formatSquadsPermissions formats full mask"
+    );
+    assert.strictEqual(
+      formatSquadsPermissions(1),
+      "0x1 [Initiate]",
+      "formatSquadsPermissions formats single permission"
+    );
+    assert.strictEqual(
+      formatSquadsPermissions(0),
+      "0x0 [None]",
+      "formatSquadsPermissions formats zero permissions"
+    );
+    assert.deepStrictEqual(
+      parseSquadsPermissions(SquadsPermission.Vote | SquadsPermission.Execute),
+      ["Vote", "Execute"]
+    );
+    assert.strictEqual(hasSquadsPermission(7, SquadsPermission.Initiate), true);
+    assert.strictEqual(hasSquadsPermission(2, SquadsPermission.Initiate), false);
 
-    const parsedMs = parseMultisigAccount(validMultisigBuf);
-    assert.strictEqual(
-      parsedMs.transactionIndex,
-      5n,
-      "Multisig transactionIndex parsed correctly"
-    );
-    assert.strictEqual(
-      parsedMs.threshold,
-      2,
-      "Multisig threshold parsed correctly"
-    );
-    assert.strictEqual(
-      parsedMs.timeLock,
-      3600,
-      "Multisig timeLock parsed correctly"
+    // 2. Minimum size guard
+    assert.throws(
+      () => parseMultisigAccount(new Uint8Array(50)),
+      /Invalid Multisig account data size: 50 bytes/,
+      "Multisig buffers smaller than 100 bytes must be rejected"
     );
 
-    // Invalid Multisig buffer (corrupt discriminator)
-    const invalidBuf = new Uint8Array(validMultisigBuf);
+    // 3. Differential Multisig Deserialization with @sqds/multisig oracle
+    const member1 = (await generateKeyPairSigner()).address;
+    const member2 = (await generateKeyPairSigner()).address;
+    const member3 = (await generateKeyPairSigner()).address;
+    const createKey = (await generateKeyPairSigner()).address;
+
+    const [serializedMultisig] = sqds.accounts.Multisig.fromArgs({
+      createKey: new PublicKey(createKey),
+      configAuthority: PublicKey.default,
+      threshold: 2,
+      timeLock: 3600,
+      transactionIndex: 5n,
+      staleTransactionIndex: 1n,
+      rentCollector: null,
+      bump: 254,
+      members: [
+        {
+          key: new PublicKey(member1),
+          permissions: sqds.types.Permissions.all(),
+        },
+        {
+          key: new PublicKey(member2),
+          permissions: sqds.types.Permissions.fromPermissions([
+            sqds.types.Permission.Vote,
+            sqds.types.Permission.Execute,
+          ]),
+        },
+        {
+          key: new PublicKey(member3),
+          permissions: sqds.types.Permissions.fromPermissions([
+            sqds.types.Permission.Initiate,
+          ]),
+        },
+      ],
+    }).serialize();
+
+    const parsedMs = parseMultisigAccount(new Uint8Array(serializedMultisig));
+    assert.strictEqual(parsedMs.createKey, createKey);
+    assert.strictEqual(parsedMs.configAuthority, PublicKey.default.toBase58());
+    assert.strictEqual(parsedMs.threshold, 2);
+    assert.strictEqual(parsedMs.timeLock, 3600);
+    assert.strictEqual(parsedMs.transactionIndex, 5n);
+    assert.strictEqual(parsedMs.staleTransactionIndex, 1n);
+    assert.strictEqual(parsedMs.bump, 254);
+    assert.strictEqual(parsedMs.members.length, 3);
+    assert.strictEqual(parsedMs.members[0].key, member1);
+    assert.strictEqual(parsedMs.members[0].permissions, 7);
+    assert.strictEqual(parsedMs.members[1].key, member2);
+    assert.strictEqual(parsedMs.members[1].permissions, 6);
+    assert.strictEqual(parsedMs.members[2].key, member3);
+    assert.strictEqual(parsedMs.members[2].permissions, 1);
+
+    // 4. Real Devnet Multisig Account Regression Test (AkJHtXZeeTuzMoBqxudJJSFNeGLahGK6dBXKv8uTb1uF)
+    const devnetHex =
+      "e07479ba44a14feceaf03b3de9739519dcf52326dc9835c3e55a35ea18c32c834509d7e0d31db3d3" +
+      "0000000000000000000000000000000000000000000000000000000000000000" +
+      "0200" +
+      "00000000" +
+      "0000000000000000" +
+      "0000000000000000" +
+      "00" +
+      "ff" +
+      "02000000" +
+      "c23e1b0aafde697a5a5cbc21fb27870f65c4cbabccadd91fd48a621f201b899d07" +
+      "c3833e0ba3a46566c6d52ae54a70f32b3af7778b4ccbd66e7fd9e379e6c3910b07" +
+      "0000000000000000000000000000000000000000000000000000000000000000";
+
+    const devnetBuf = Buffer.from(devnetHex, "hex");
+    const parsedDevnetMs = parseMultisigAccount(new Uint8Array(devnetBuf));
+    assert.strictEqual(parsedDevnetMs.members.length, 2);
+    assert.strictEqual(
+      parsedDevnetMs.members[0].key,
+      "E5F29wyzm1etJCWJ75uU4DBGPHKYcvbLaspz2kByS9et"
+    );
+    assert.strictEqual(parsedDevnetMs.members[0].permissions, 7);
+    assert.strictEqual(
+      parsedDevnetMs.members[1].key,
+      "EACaCp2XDsdbHAUV9hxwo6VNB1qPqXkwhjQ7p5xu6q2i"
+    );
+    assert.strictEqual(parsedDevnetMs.members[1].permissions, 7);
+    assert.strictEqual(parsedDevnetMs.threshold, 2);
+
+    // 5. Differential Proposal Deserialization with @sqds/multisig oracle
+    const msAddress = (await generateKeyPairSigner()).address;
+    const [serializedProp] = sqds.accounts.Proposal.fromArgs({
+      multisig: new PublicKey(msAddress),
+      transactionIndex: 12n,
+      status: {
+        __kind: "Approved",
+        timestamp: 1700000000n,
+      } as any,
+      bump: 253,
+      approved: [new PublicKey(member1), new PublicKey(member2)],
+      rejected: [new PublicKey(member3)],
+      cancelled: [],
+    }).serialize();
+
+    const parsedProp = parseProposalAccount(new Uint8Array(serializedProp));
+    assert.strictEqual(parsedProp.multisig, msAddress);
+    assert.strictEqual(parsedProp.transactionIndex, 12n);
+    assert.strictEqual(parsedProp.status, "Approved");
+    assert.strictEqual(parsedProp.statusCode, ProposalStatus.Approved);
+    assert.strictEqual(parsedProp.statusTimestamp, 1700000000n);
+    assert.strictEqual(parsedProp.approvedTimestamp, 1700000000n);
+    assert.strictEqual(parsedProp.bump, 253);
+    assert.deepStrictEqual(parsedProp.approved, [member1, member2]);
+    assert.deepStrictEqual(parsedProp.rejected, [member3]);
+    assert.deepStrictEqual(parsedProp.cancelled, []);
+
+    // 6. Differential VaultTransaction Deserialization with @sqds/multisig oracle
+    const [serializedVaultTx] = sqds.accounts.VaultTransaction.fromArgs({
+      multisig: new PublicKey(msAddress),
+      creator: new PublicKey(member1),
+      index: 12n,
+      bump: 252,
+      vaultIndex: 0,
+      vaultBump: 251,
+      ephemeralSignerBumps: new Uint8Array([250, 249]),
+      message: {
+        numSigners: 1,
+        numWritableSigners: 1,
+        numWritableNonSigners: 0,
+        accountKeys: [new PublicKey(member1), new PublicKey(member2)],
+        instructions: [
+          {
+            programIdIndex: 1,
+            accountIndexes: new Uint8Array([0]),
+            data: new Uint8Array([1, 2, 3]),
+          },
+        ],
+        addressTableLookups: [],
+      },
+    }).serialize();
+
+    const parsedVaultTx = parseVaultTransactionAccount(
+      new Uint8Array(serializedVaultTx)
+    );
+    assert.strictEqual(parsedVaultTx.multisig, msAddress);
+    assert.strictEqual(parsedVaultTx.creator, member1);
+    assert.strictEqual(parsedVaultTx.index, 12n);
+    assert.strictEqual(parsedVaultTx.bump, 252);
+    assert.strictEqual(parsedVaultTx.vaultIndex, 0);
+    assert.strictEqual(parsedVaultTx.vaultBump, 251);
+    assert.deepStrictEqual(
+      Array.from(parsedVaultTx.ephemeralSignerBumps),
+      [250, 249]
+    );
+    assert.strictEqual(parsedVaultTx.ephemeralSigners, 2);
+    assert.strictEqual(parsedVaultTx.message.numSigners, 1);
+    assert.strictEqual(parsedVaultTx.message.accountKeys.length, 2);
+    assert.strictEqual(parsedVaultTx.message.instructions.length, 1);
+    assert.deepStrictEqual(
+      Array.from(parsedVaultTx.message.instructions[0].data),
+      [1, 2, 3]
+    );
+
+    // 7. Wire serialization parity for buildVaultTransactionCreateInstruction
+    const dummyIx: Instruction = {
+      programAddress: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+      accounts: [{ address: member1, role: AccountRole.WRITABLE_SIGNER }],
+      data: new Uint8Array([10, 20]),
+    };
+    const compiledMsg = compileVaultTransactionMessage([dummyIx]);
+    const vaultCreateIx = buildVaultTransactionCreateInstruction({
+      multisig: msAddress,
+      transactionPda: (await generateKeyPairSigner()).address,
+      creator: member1,
+      vaultIndex: 0,
+      ephemeralSigners: 0,
+      message: compiledMsg,
+      memo: "test proposal",
+    });
+
+    // Verify discriminator (8 bytes) + vaultIndex (1 byte) + ephemeralSigners (1 byte) + messageLen (4 bytes u32)
+    assert.strictEqual(vaultCreateIx.data.length > 14, true);
+    const msgLenView = new DataView(
+      vaultCreateIx.data.buffer,
+      vaultCreateIx.data.byteOffset
+    );
+    const lengthPrefix = msgLenView.getUint32(10, true);
+    assert.ok(
+      lengthPrefix > 0,
+      `Message length prefix must be positive integer (got ${lengthPrefix})`
+    );
+
+    // 8. Corrupt discriminator rejection
+    const invalidBuf = new Uint8Array(devnetBuf);
     invalidBuf[0] = 0xff;
     assert.throws(
       () => parseMultisigAccount(invalidBuf),
       /Invalid account discriminator/,
       "Corrupt discriminator must be rejected on parseMultisigAccount"
-    );
-
-    // Proposal buffer
-    const validPropBuf = new Uint8Array(120);
-    validPropBuf.set(PROPOSAL_DISCRIMINATOR, 0);
-    const propView = new DataView(validPropBuf.buffer);
-    propView.setBigUint64(40, 10n, true); // transactionIndex = 10
-    propView.setUint8(48, ProposalStatus.Approved); // status = Approved
-    propView.setUint8(49, 1); // has approvedTimestamp
-    propView.setBigInt64(50, 1700000000n, true); // approvedTimestamp = 1700000000n
-    propView.setUint8(58, 0); // has executedTimestamp = false
-    propView.setUint32(59, 0, true); // approved len = 0
-    propView.setUint32(63, 0, true); // rejected len = 0
-    propView.setUint32(67, 0, true); // cancelled len = 0
-
-    const parsedProp = parseProposalAccount(validPropBuf);
-    assert.strictEqual(
-      parsedProp.transactionIndex,
-      10n,
-      "Proposal transactionIndex parsed correctly"
-    );
-    assert.strictEqual(
-      parsedProp.status,
-      "Approved",
-      "Proposal status string parsed correctly"
-    );
-    assert.strictEqual(
-      parsedProp.approvedTimestamp,
-      1700000000n,
-      "Proposal approvedTimestamp parsed correctly"
     );
   });
 
@@ -720,11 +882,11 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
     });
     assert.strictEqual(validTimelockCfg.timeLock, 3600n);
 
-    // 9. Space Formula Verification: 130 + 36 * N
-    assert.strictEqual(calculateMultisigAccountSpace(1), 166);
-    assert.strictEqual(calculateMultisigAccountSpace(2), 202);
-    assert.strictEqual(calculateMultisigAccountSpace(5), 310);
-    assert.strictEqual(calculateMultisigAccountSpace(10), 490);
+    // 9. Space Formula Verification: 132 + 33 * N
+    assert.strictEqual(calculateMultisigAccountSpace(1), 165);
+    assert.strictEqual(calculateMultisigAccountSpace(2), 198);
+    assert.strictEqual(calculateMultisigAccountSpace(5), 297);
+    assert.strictEqual(calculateMultisigAccountSpace(10), 462);
 
     // 10. Autonomous Default & Custom Authority
     const customAuthCfg = parseSquadsCreateConfig({

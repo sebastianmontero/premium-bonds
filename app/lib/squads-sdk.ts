@@ -70,8 +70,8 @@ export const PROGRAM_CONFIG_DISCRIMINATOR =
   SQUADS_ACCOUNT_DISCRIMINATORS.ProgramConfig;
 
 export const PROGRAM_CONFIG_MIN_SIZE = 80;
-export const SQUADS_MULTISIG_BASE_SIZE = 130;
-export const SQUADS_MULTISIG_MEMBER_SIZE = 36;
+export const SQUADS_MULTISIG_BASE_SIZE = 132;
+export const SQUADS_MULTISIG_MEMBER_SIZE = 33;
 
 export function calculateMultisigAccountSpace(memberCount: number): number {
   return SQUADS_MULTISIG_BASE_SIZE + SQUADS_MULTISIG_MEMBER_SIZE * memberCount;
@@ -99,11 +99,51 @@ export const SQUADS_INSTRUCTION_SIGHASHES = {
 
 // ─── Data Types & Interfaces ──────────────────────────────────────────────────
 
+export const SquadsPermission = {
+  Initiate: 1 << 0, // 1
+  Vote: 1 << 1,     // 2
+  Execute: 1 << 2,  // 4
+} as const;
+
+export type SquadsPermission =
+  (typeof SquadsPermission)[keyof typeof SquadsPermission];
+export type SquadsPermissionMask = number;
+
+export const SQUADS_ALL_PERMISSIONS: SquadsPermissionMask =
+  SquadsPermission.Initiate | SquadsPermission.Vote | SquadsPermission.Execute; // 7
+
+export const SQUADS_PERMISSION_LABELS: ReadonlyArray<
+  readonly [SquadsPermission, string]
+> = [
+  [SquadsPermission.Initiate, "Initiate"],
+  [SquadsPermission.Vote, "Vote"],
+  [SquadsPermission.Execute, "Execute"],
+] as const;
+
+export function hasSquadsPermission(
+  mask: SquadsPermissionMask,
+  permission: SquadsPermission
+): boolean {
+  return (mask & permission) === permission;
+}
+
+export function parseSquadsPermissions(mask: SquadsPermissionMask): string[] {
+  return SQUADS_PERMISSION_LABELS.filter(([perm]) =>
+    hasSquadsPermission(mask, perm)
+  ).map(([, label]) => label);
+}
+
+export function formatSquadsPermissions(mask: SquadsPermissionMask): string {
+  const labels = parseSquadsPermissions(mask);
+  return `0x${mask.toString(16)} [${labels.join(", ") || "None"}]`;
+}
+
 export type ProposalStatusName =
   | "Draft"
   | "Active"
   | "Rejected"
   | "Approved"
+  | "Executing"
   | "Executed"
   | "Cancelled";
 
@@ -112,15 +152,16 @@ export enum ProposalStatusCode {
   Active = 1,
   Rejected = 2,
   Approved = 3,
-  Executed = 4,
-  Cancelled = 5,
+  Executing = 4,
+  Executed = 5,
+  Cancelled = 6,
 }
 
 export const ProposalStatus = ProposalStatusCode;
 
 export interface MultisigMember {
   key: Address;
-  permissions: number;
+  permissions: SquadsPermissionMask;
 }
 
 export interface MultisigAccount {
@@ -142,8 +183,10 @@ export interface ProposalAccount {
   transactionIndex: bigint;
   status: ProposalStatusName;
   statusCode: ProposalStatusCode;
+  statusTimestamp?: bigint;
   approvedTimestamp?: bigint;
   executedTimestamp?: bigint;
+  bump: number;
   approved: Address[];
   rejected: Address[];
   cancelled: Address[];
@@ -178,6 +221,7 @@ export interface VaultTransactionAccount {
   bump: number;
   vaultIndex: number;
   vaultBump: number;
+  ephemeralSignerBumps: Uint8Array;
   ephemeralSigners: number;
   message: VaultTransactionMessageData;
 }
@@ -327,6 +371,12 @@ export function parseMultisigAccount(
   data: Uint8Array,
   accountAddress: Address = address("11111111111111111111111111111111")
 ): MultisigAccount {
+  if (data.length < 100) {
+    throw new Error(
+      `Invalid Multisig account data size: ${data.length} bytes (minimum 100).`
+    );
+  }
+
   if (!matchesDiscriminator(data, SQUADS_ACCOUNT_DISCRIMINATORS.Multisig)) {
     throw new Error(
       `Invalid account discriminator for Multisig account at ${accountAddress}. Expected ${Buffer.from(
@@ -370,8 +420,8 @@ export function parseMultisigAccount(
   for (let i = 0; i < membersLen; i++) {
     const key = readAddress(data, offset);
     offset += 32;
-    const permissions = view.getUint32(offset, true);
-    offset += 4;
+    const permissions = view.getUint8(offset);
+    offset += 1;
     members.push({ key, permissions });
   }
 
@@ -412,7 +462,18 @@ export function parseProposalAccount(
   const transactionIndex = view.getBigUint64(offset, true);
   offset += 8;
 
+  // status: ProposalStatus (Anchor data enum)
   const rawStatus = view.getUint8(offset);
+  offset += 1;
+
+  let statusTimestamp: bigint | undefined;
+  // Variant 4 is Executing (unit / scalar without timestamp)
+  if (rawStatus !== 4) {
+    statusTimestamp = view.getBigInt64(offset, true);
+    offset += 8;
+  }
+
+  const bump = view.getUint8(offset);
   offset += 1;
 
   const statusMap: Record<number, ProposalStatusName> = {
@@ -420,8 +481,9 @@ export function parseProposalAccount(
     1: "Active",
     2: "Rejected",
     3: "Approved",
-    4: "Executed",
-    5: "Cancelled",
+    4: "Executing",
+    5: "Executed",
+    6: "Cancelled",
   };
 
   const status = statusMap[rawStatus] ?? "Active";
@@ -429,25 +491,13 @@ export function parseProposalAccount(
     rawStatus in statusMap ? rawStatus : ProposalStatusCode.Active
   ) as ProposalStatusCode;
 
-  // approvedTimestamp: Option<i64>
-  let approvedTimestamp: bigint | undefined;
-  if (view.getUint8(offset) !== 0) {
-    offset += 1;
-    approvedTimestamp = view.getBigInt64(offset, true);
-    offset += 8;
-  } else {
-    offset += 1;
-  }
-
-  // executedTimestamp: Option<i64>
-  let executedTimestamp: bigint | undefined;
-  if (view.getUint8(offset) !== 0) {
-    offset += 1;
-    executedTimestamp = view.getBigInt64(offset, true);
-    offset += 8;
-  } else {
-    offset += 1;
-  }
+  const approvedTimestamp =
+    rawStatus === ProposalStatusCode.Approved ||
+    rawStatus === ProposalStatusCode.Executed
+      ? statusTimestamp
+      : undefined;
+  const executedTimestamp =
+    rawStatus === ProposalStatusCode.Executed ? statusTimestamp : undefined;
 
   // approved: Vec<Pubkey>
   const approvedLen = view.getUint32(offset, true);
@@ -482,8 +532,10 @@ export function parseProposalAccount(
     transactionIndex,
     status,
     statusCode,
+    statusTimestamp,
     approvedTimestamp,
     executedTimestamp,
+    bump,
     approved,
     rejected,
     cancelled,
@@ -522,8 +574,16 @@ export function parseVaultTransactionAccount(
   offset += 1;
   const vaultBump = view.getUint8(offset);
   offset += 1;
-  const ephemeralSigners = view.getUint8(offset);
-  offset += 1;
+
+  // ephemeralSignerBumps: Vec<u8> (bytes)
+  const ephemeralSignersLen = view.getUint32(offset, true);
+  offset += 4;
+  const ephemeralSignerBumps = new Uint8Array(
+    data.buffer,
+    data.byteOffset + offset,
+    ephemeralSignersLen
+  );
+  offset += ephemeralSignersLen;
 
   // message: VaultTransactionMessage
   const numSigners = view.getUint8(offset);
@@ -605,7 +665,8 @@ export function parseVaultTransactionAccount(
     bump,
     vaultIndex,
     vaultBump,
-    ephemeralSigners,
+    ephemeralSignerBumps,
+    ephemeralSigners: ephemeralSignersLen,
     message: {
       numSigners,
       numWritableSigners,
@@ -931,10 +992,14 @@ export function buildVaultTransactionCreateInstruction(
   const sighash = SQUADS_INSTRUCTION_SIGHASHES.vaultTransactionCreate;
   const serializedMessage = serializeVaultTransactionMessage(message);
 
+  const msgLen = new Uint8Array(4);
+  new DataView(msgLen.buffer).setUint32(0, serializedMessage.length, true);
+
   const buffers: Uint8Array[] = [
     sighash,
     new Uint8Array([vaultIndex]),
     new Uint8Array([ephemeralSigners]),
+    msgLen,
     serializedMessage,
   ];
 

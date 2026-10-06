@@ -120,7 +120,7 @@ NO_DNA=1 solana airdrop 2 $(solana-keygen pubkey ~/.config/solana/pb-member2-dev
 Run `squads-create` specifying both member public keys and a threshold of `2`:
 
 ```bash
-npm run pb-cli squads-create -- \
+npm run -- pb-cli squads-create -- \
   --threshold 2 \
   --members $(solana address -u devnet),$(solana-keygen pubkey ~/.config/solana/pb-member2-dev.json) \
   --rpc https://api.devnet.solana.com
@@ -143,13 +143,13 @@ npm run pb-cli squads-create -- \
 Verify that the multisig was correctly initialized on Devnet:
 
 ```bash
-npm run pb-cli squads-status --rpc https://api.devnet.solana.com
+npm run -- pb-cli squads-status --rpc https://api.devnet.solana.com
 ```
 
 **Expected Output Verification**:
 
 - **Threshold**: `2`
-- **Members**: Lists both Member 1 and Member 2 public keys with full permissions (`0xff`).
+- **Members**: Lists both Member 1 and Member 2 public keys with full permissions (`0x7 [Initiate, Vote, Execute]`).
 - **Transaction Index**: `0` (no proposals created yet).
 - **Default Vault PDA**: Displays the derived Vault address.
 
@@ -168,12 +168,12 @@ Nominate your newly created **Vault PDA** (replace `<VAULT_PDA>` with the Vault 
 
 ```bash
 # 1. Nominate the Vault PDA
-npm run pb-cli nominate-admin -- \
+npm run -- pb-cli nominate-admin -- \
   --new-admin <VAULT_PDA> \
   --rpc https://api.devnet.solana.com
 
 # 2. Verify on-chain state
-npm run pb-cli global-info --rpc https://api.devnet.solana.com
+npm run -- pb-cli global-info --rpc https://api.devnet.solana.com
 ```
 
 The on-chain `GlobalConfig` account will now show:
@@ -190,7 +190,7 @@ Because the Vault PDA is an off-curve Program Derived Address, no developer hold
 To execute `accept-admin`, Member 1 submits an admin proposal through `pb-cli`:
 
 ```bash
-npm run pb-cli accept-admin -- \
+npm run -- pb-cli accept-admin -- \
   --propose \
   --multisig <MULTISIG_PDA> \
   --rpc https://api.devnet.solana.com
@@ -212,10 +212,10 @@ Before approving any multisig transaction, members should audit the proposed ins
 
 ```bash
 # 1. List active proposals
-npm run pb-cli squads-proposals --rpc https://api.devnet.solana.com
+npm run -- pb-cli squads-proposals --rpc https://api.devnet.solana.com
 
 # 2. Inspect Proposal #1 inner instruction payload
-npm run pb-cli squads-inspect-tx -- \
+npm run -- pb-cli squads-inspect-tx -- \
   --index 1 \
   --rpc https://api.devnet.solana.com
 ```
@@ -228,7 +228,7 @@ Verify that:
 Once verified, Member 2 casts their approval:
 
 ```bash
-npm run pb-cli squads-approve -- \
+npm run -- pb-cli squads-approve -- \
   --index 1 \
   --keypair ~/.config/solana/pb-member2-dev.json \
   --rpc https://api.devnet.solana.com
@@ -237,7 +237,7 @@ npm run pb-cli squads-approve -- \
 Re-check status:
 
 ```bash
-npm run pb-cli squads-proposals --rpc https://api.devnet.solana.com
+npm run -- pb-cli squads-proposals --rpc https://api.devnet.solana.com
 ```
 
 Status now displays: **`Approved (2/2)`**!
@@ -249,7 +249,7 @@ Status now displays: **`Approved (2/2)`**!
 Now that the threshold is met, any member can trigger execution on Devnet:
 
 ```bash
-npm run pb-cli squads-execute -- \
+npm run -- pb-cli squads-execute -- \
   --index 1 \
   --rpc https://api.devnet.solana.com
 ```
@@ -263,7 +263,7 @@ npm run pb-cli squads-execute -- \
 Verify the handover:
 
 ```bash
-npm run pb-cli global-info --rpc https://api.devnet.solana.com
+npm run -- pb-cli global-info --rpc https://api.devnet.solana.com
 ```
 
 You will observe that `admin` is now officially the **Squads Vault PDA**!
@@ -285,7 +285,7 @@ Now, all sensitive admin operations require multisig authorization. Try pausing 
 
 ```bash
 # Propose unpausing a pool via multisig
-npm run pb-cli unpause-pool -- \
+npm run -- pb-cli unpause-pool -- \
   --pool <POOL_PUBKEY> \
   --propose \
   --confirm \
@@ -301,7 +301,7 @@ This generates **Proposal #2**. You can repeat the `squads-inspect-tx` $\rightar
 Each proposal and transaction account locks ~0.002 to ~0.005 SOL in rent exemption. Once a proposal has been executed or cancelled, you can permanently close the accounts and recover the lamports:
 
 ```bash
-npm run pb-cli squads-close -- \
+npm run -- pb-cli squads-close -- \
   --index 1 \
   --rpc https://api.devnet.solana.com
 ```
