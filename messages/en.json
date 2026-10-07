@@ -538,7 +538,13 @@
     "copied": "Copied",
     "close": "Close",
     "perBondSuffix": "{amount} / bond",
-    "reinvestedAnnouncement": "Prize successfully reinvested into {bonds, plural, =1 {1 bond} other {# bonds}} with {dust} remaining winnings."
+    "reinvestedAnnouncement": "Prize successfully reinvested into {bonds, plural, =1 {1 bond} other {# bonds}} with {dust} remaining winnings.",
+    "showExactPrecision": "Show exact on-chain units ({decimals} decimals)",
+    "showStandardPrecision": "Show standard display",
+    "totalAvailableForReinvestment": "Total Available for Reinvestment",
+    "accountingRoundingNote": "Amounts rounded to 2 decimals for readability. On-chain settlement executes in exact {decimals}-decimal micro-units.",
+    "liveExactActive": "Displaying exact on-chain precision with {decimals} decimals",
+    "liveStandardActive": "Displaying standard currency format"
   },
   "Redemptions": {
     "title": "Pending Redemptions",

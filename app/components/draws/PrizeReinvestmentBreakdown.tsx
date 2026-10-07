@@ -1,13 +1,17 @@
 "use client";
 
-import React from "react";
+import React, { useState, useMemo } from "react";
 import type { ReinvestmentBreakdown } from "@/app/lib/draw-helpers";
 import type { DrawDisplayConfig } from "@/app/types";
-import { formatCurrency } from "@/app/lib/formatters";
+import {
+  formatCurrency,
+  type FormatTokenBalanceOptions,
+} from "@/app/lib/formatters";
+import { CurrencyAmount } from "@/app/components/common/CurrencyAmount";
 import { useTranslations, useFormatter } from "next-intl";
 
 export interface PrizeReinvestmentBreakdownProps {
-  amountWon: number;
+  amountWon: bigint | number | string;
   breakdown: ReinvestmentBreakdown;
   config: Pick<
     DrawDisplayConfig,
@@ -15,6 +19,8 @@ export interface PrizeReinvestmentBreakdownProps {
   >;
   isProcessed?: boolean;
   isVoided?: boolean;
+  /** Optional initial toggle state for exact on-chain precision view (defaults to false / standard 2-decimal display) */
+  defaultShowExactPrecision?: boolean;
 }
 
 export function PrizeReinvestmentBreakdown({
@@ -23,12 +29,29 @@ export function PrizeReinvestmentBreakdown({
   config,
   isProcessed = true,
   isVoided = false,
+  defaultShowExactPrecision = false,
 }: PrizeReinvestmentBreakdownProps) {
   const t = useTranslations("PrizeDetails");
   const format = useFormatter();
   const tokenDecimals = config.tokenDecimals ?? 6;
   const tokenSymbol = config.tokenSymbol ?? "USDC";
   const bondPrice = config.bondPrice ?? 5_000_000;
+
+  const [showExactPrecision, setShowExactPrecision] = useState(
+    defaultShowExactPrecision
+  );
+
+  const receiptOptions = useMemo<FormatTokenBalanceOptions>(
+    () => ({
+      tokenSymbol,
+      decimals: tokenDecimals,
+      minFractionDigits: showExactPrecision ? tokenDecimals : 2,
+      maxFractionDigits: showExactPrecision ? tokenDecimals : 2,
+      showSubThreshold: !showExactPrecision,
+      style: "standard",
+    }),
+    [showExactPrecision, tokenSymbol, tokenDecimals]
+  );
 
   if (isVoided) {
     return (
@@ -61,10 +84,11 @@ export function PrizeReinvestmentBreakdown({
               {t("grossWinnings")}
             </span>
             <span className="font-mono text-on-surface-variant/60 line-through font-semibold">
-              {formatCurrency(amountWon, {
-                tokenSymbol,
-                decimals: tokenDecimals,
-              })}
+              <CurrencyAmount
+                amount={amountWon}
+                options={{ tokenSymbol, decimals: tokenDecimals }}
+                showTooltip={false}
+              />
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -78,10 +102,11 @@ export function PrizeReinvestmentBreakdown({
               {t("yieldReturnedToReserves")}
             </span>
             <span className="font-mono font-bold text-red-400">
-              {formatCurrency(amountWon, {
-                tokenSymbol,
-                decimals: tokenDecimals,
-              })}
+              <CurrencyAmount
+                amount={amountWon}
+                options={{ tokenSymbol, decimals: tokenDecimals }}
+                showTooltip={false}
+              />
             </span>
           </div>
         </div>
@@ -99,6 +124,13 @@ export function PrizeReinvestmentBreakdown({
 
   return (
     <div className="p-4 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.02] space-y-3">
+      {/* Screen Reader Live Region for Precision Changes */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {showExactPrecision
+          ? t("liveExactActive", { decimals: tokenDecimals })
+          : t("liveStandardActive")}
+      </div>
+
       {/* Header & Target Pool Pill */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5 uppercase tracking-wider">
@@ -119,89 +151,141 @@ export function PrizeReinvestmentBreakdown({
             ? t("autoReinvestmentBreakdown")
             : t("estimatedReinvestmentTitle")}
         </h4>
-        <div className="flex items-center gap-1.5 text-[11px] font-mono text-on-surface-variant bg-surface-container/60 border border-surface-bright/10 px-2.5 py-0.5 rounded-lg">
-          <span className="text-on-surface font-semibold">
-            {t("solanaYieldPool")}
-          </span>
-          <span>•</span>
-          <span>
-            {t("perBondSuffix", {
-              amount: formatCurrency(bondPrice, {
-                tokenSymbol,
-                decimals: tokenDecimals,
-              }),
-            })}
-          </span>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Exact On-Chain vs Standard Toggle */}
+          <button
+            type="button"
+            aria-pressed={showExactPrecision}
+            onClick={() => setShowExactPrecision((prev) => !prev)}
+            className={`inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 min-h-[28px] rounded-lg border transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              showExactPrecision
+                ? "bg-primary/15 border-primary/40 text-primary font-semibold"
+                : "bg-surface-container/60 border-surface-bright/10 text-on-surface-variant hover:text-primary hover:bg-surface-container"
+            }`}
+          >
+            <span>
+              {showExactPrecision
+                ? t("showStandardPrecision")
+                : t("showExactPrecision", { decimals: tokenDecimals })}
+            </span>
+          </button>
+
+          <div className="flex items-center gap-1.5 text-[11px] font-mono text-on-surface-variant bg-surface-container/60 border border-surface-bright/10 px-2.5 py-0.5 rounded-lg">
+            <span className="text-on-surface font-semibold">
+              {t("solanaYieldPool")}
+            </span>
+            <span>•</span>
+            <span>
+              {t("perBondSuffix", {
+                amount: formatCurrency(bondPrice, {
+                  tokenSymbol,
+                  decimals: tokenDecimals,
+                }),
+              })}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Financial Settlement Ledger */}
       <div className="rounded-xl border border-surface-bright/5 bg-surface-container/20 p-3 space-y-2 text-xs">
         {/* Line 1: Gross Winnings */}
-        <div className="flex items-center justify-between">
-          <span className="text-on-surface-variant font-medium">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-on-surface-variant font-medium truncate">
             {t("grossWinnings")}
           </span>
-          <span className="font-mono font-bold text-on-surface">
-            {formatCurrency(amountWon, {
-              tokenSymbol,
-              decimals: tokenDecimals,
-            })}
+          <span className="shrink-0 font-mono tabular-nums font-bold text-on-surface">
+            <CurrencyAmount
+              amount={amountWon}
+              options={receiptOptions}
+              showTooltip={false}
+            />
           </span>
         </div>
 
         {/* Line 2: Prior Dust (Rendered strictly when > 0) */}
         {breakdown.usedPriorDust > 0 && (
-          <div className="flex items-center justify-between text-tertiary">
-            <span className="font-medium flex items-center gap-1">
+          <div className="flex items-center justify-between gap-2 text-tertiary">
+            <span className="font-medium flex items-center gap-1 truncate">
               <span aria-hidden="true">✨</span> {t("priorDustApplied")}
             </span>
-            <span className="font-mono font-bold">
-              {formatCurrency(breakdown.usedPriorDust, {
-                tokenSymbol,
-                decimals: tokenDecimals,
-                prefix: "+",
-              })}
+            <span className="shrink-0 font-mono tabular-nums font-bold text-tertiary">
+              <CurrencyAmount
+                amount={breakdown.usedPriorDust}
+                options={{
+                  ...receiptOptions,
+                  prefix: "+",
+                }}
+                showTooltip={false}
+              />
             </span>
           </div>
         )}
 
-        {/* Line 3: Compound Reinvestment */}
-        <div className="flex items-center justify-between">
-          <span className="text-on-surface-variant font-medium flex items-center gap-1.5">
-            <span>{t("reinvestedInBonds")}</span>
-            <span className="inline-flex items-center rounded-md bg-primary/10 border border-primary/20 px-1.5 py-0.2 text-[10px] font-mono font-bold text-primary">
+        {/* Line 3: Total Available for Reinvestment (Intermediate Subtotal) */}
+        <div className="flex items-center justify-between gap-2 border-t border-surface-bright/5 pt-1.5 text-on-surface">
+          <span className="text-on-surface-variant font-medium truncate">
+            {t("totalAvailableForReinvestment")}
+          </span>
+          <span className="shrink-0 font-mono tabular-nums font-bold text-on-surface">
+            <CurrencyAmount
+              amount={breakdown.totalAvailable}
+              options={receiptOptions}
+              showTooltip={false}
+            />
+          </span>
+        </div>
+
+        {/* Line 4: Compound Reinvestment */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-on-surface-variant font-medium flex items-center gap-1.5 min-w-0">
+            <span className="truncate">{t("reinvestedInBonds")}</span>
+            <span className="inline-flex items-center rounded-md bg-primary/10 border border-primary/20 px-1.5 py-0.2 text-[10px] font-mono font-bold text-primary shrink-0">
               +{format.number(breakdown.bondsBought)}{" "}
               {t("bondsUnit", { count: breakdown.bondsBought })}
             </span>
           </span>
-          <span className="font-mono font-bold text-primary">
-            {formatCurrency(totalReinvestedAmount, {
-              tokenSymbol,
-              decimals: tokenDecimals,
-              prefix: totalReinvestedAmount > 0 ? "-" : undefined,
-            })}
+          <span className="shrink-0 font-mono tabular-nums font-bold text-primary">
+            <CurrencyAmount
+              amount={totalReinvestedAmount}
+              options={{
+                ...receiptOptions,
+                prefix: totalReinvestedAmount > 0 ? "-" : undefined,
+              }}
+              showTooltip={false}
+            />
           </span>
         </div>
 
-        {/* Divider */}
-        <div className="border-t border-surface-bright/10 pt-1.5 flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-on-surface font-semibold block">
+        {/* Line 5: Divider & Net Dust Remainder */}
+        <div className="border-t border-surface-bright/10 pt-1.5 flex items-center justify-between gap-2">
+          <div className="space-y-0.5 min-w-0">
+            <span className="text-on-surface font-semibold block truncate">
               {t("netDustRemainder")}
             </span>
-            <span className="text-[10px] text-on-surface-variant block">
+            <span className="text-[10px] text-on-surface-variant block truncate">
               {t("claimableRemainderNote")}
             </span>
           </div>
-          <span className="font-mono text-sm font-bold text-emerald-400">
-            {formatCurrency(breakdown.dustAccumulated, {
-              tokenSymbol,
-              decimals: tokenDecimals,
-              prefix: breakdown.dustAccumulated > 0 ? "+" : undefined,
-            })}
+          <span className="shrink-0 font-mono tabular-nums text-sm font-bold text-emerald-400">
+            <CurrencyAmount
+              amount={breakdown.remainingDust}
+              options={{
+                ...receiptOptions,
+                prefix: breakdown.remainingDust > 0 ? "+" : undefined,
+              }}
+              showTooltip={false}
+            />
           </span>
         </div>
+      </div>
+
+      {/* Accounting Footnote */}
+      <div className="px-1">
+        <p className="text-[10px] text-on-surface-variant/60 leading-relaxed">
+          {t("accountingRoundingNote", { decimals: tokenDecimals })}
+        </p>
       </div>
 
       {/* Bonus Ticket Banner (if dust consolidated) */}
@@ -220,14 +304,11 @@ export function PrizeReinvestmentBreakdown({
             </p>
             <p className="text-on-surface-variant text-[11px] leading-relaxed">
               {t("bonusTicketDesc", {
-                priorDust: formatCurrency(breakdown.usedPriorDust, {
-                  tokenSymbol,
-                  decimals: tokenDecimals,
-                }),
-                winnings: formatCurrency(amountWon, {
-                  tokenSymbol,
-                  decimals: tokenDecimals,
-                }),
+                priorDust: formatCurrency(
+                  breakdown.usedPriorDust,
+                  receiptOptions
+                ),
+                winnings: formatCurrency(amountWon, receiptOptions),
               })}
             </p>
           </div>

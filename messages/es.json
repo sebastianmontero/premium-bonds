@@ -538,7 +538,13 @@
     "copied": "Copiado",
     "close": "Cerrar",
     "perBondSuffix": "{amount} / bono",
-    "reinvestedAnnouncement": "Premio reinvertido exitosamente en {bonds, plural, =1 {1 bono} other {# bonos}} con {dust} de ganancias restantes."
+    "reinvestedAnnouncement": "Premio reinvertido exitosamente en {bonds, plural, =1 {1 bono} other {# bonos}} con {dust} de ganancias restantes.",
+    "showExactPrecision": "Ver unidades exactas en cadena ({decimals} decimales)",
+    "showStandardPrecision": "Ver vista estándar",
+    "totalAvailableForReinvestment": "Total disponible para reinversión",
+    "accountingRoundingNote": "Montos redondeados a 2 decimales para facilitar la lectura. La liquidación en cadena se ejecuta en micro-unidades exactas de {decimals} decimales.",
+    "liveExactActive": "Mostrando precisión exacta en cadena con {decimals} decimales",
+    "liveStandardActive": "Mostrando formato de moneda estándar"
   },
   "Redemptions": {
     "title": "Redenciones Pendientes",

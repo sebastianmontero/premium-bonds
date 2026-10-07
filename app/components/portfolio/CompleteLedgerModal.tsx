@@ -11,6 +11,7 @@ import {
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
+import { CurrencyAmount } from "@/app/components/common/CurrencyAmount";
 import { TierBadge } from "@/app/components/common/TierBadge";
 import {
   getPayoutTimelockState,
@@ -485,14 +486,20 @@ export default function CompleteLedgerModal({
                         <p className="text-[10px] uppercase font-semibold text-on-surface-variant/70">
                           {t("amountWon")}
                         </p>
-                        <p
-                          className={`font-mono text-sm font-bold mt-0.5 ${entry.tierIndex === 0 ? "text-amber-400" : "text-on-surface"}`}
-                        >
-                          {formatCurrency(entry.amount, {
+                        <CurrencyAmount
+                          amount={entry.amount}
+                          options={{
                             tokenSymbol: effectiveSymbol,
                             decimals: effectiveDecimals,
-                          })}
-                        </p>
+                          }}
+                          showTooltip={false}
+                          className="text-sm font-bold mt-0.5"
+                          amountClassName={
+                            entry.tierIndex === 0
+                              ? "text-amber-400"
+                              : "text-on-surface"
+                          }
+                        />
                       </div>
 
                       <div>
@@ -804,18 +811,19 @@ export default function CompleteLedgerModal({
 
                         {/* Amount Won */}
                         <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
-                          <span
-                            className={
+                          <CurrencyAmount
+                            amount={entry.amount}
+                            options={{
+                              tokenSymbol: effectiveSymbol,
+                              decimals: effectiveDecimals,
+                            }}
+                            showTooltip={false}
+                            amountClassName={
                               entry.tierIndex === 0
                                 ? "text-amber-400"
                                 : "text-on-surface"
                             }
-                          >
-                            {formatCurrency(entry.amount, {
-                              tokenSymbol: effectiveSymbol,
-                              decimals: effectiveDecimals,
-                            })}
-                          </span>
+                          />
                         </td>
 
                         {/* Status + Badges */}

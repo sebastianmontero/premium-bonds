@@ -505,6 +505,8 @@ export interface FormattedBalanceResult {
   readonly fullWithSymbol: string;
   /** Whether the balance is non-zero but below the minimum display threshold */
   readonly isBelowThreshold: boolean;
+  /** Whether the balance has sub-display dust that was truncated or rounded away */
+  readonly hasDust: boolean;
   /** Whether the balance is strictly zero */
   readonly isZero: boolean;
   /** Raw base units as BigInt */
@@ -561,6 +563,7 @@ export function formatTokenBalance(
       full: fallback,
       fullWithSymbol: fallback,
       isBelowThreshold: false,
+      hasDust: false,
       isZero: true,
       rawBaseUnits: 0n,
     };
@@ -601,13 +604,16 @@ export function formatTokenBalance(
   const full = isNegative ? `-${fullNum}` : fullNum;
   const fullWithSymbol = `${full} ${config.symbol}`;
 
-  // 2. Sub-Threshold Evaluation
+  // 2. Sub-Threshold Evaluation & Dust Detection
   // Note: Only positive non-zero amounts trigger sub-threshold inequality (< $0.01)
   // Negative dust values clamp cleanly to -$0.00 / ~-$0.00 without emitting inverted inequalities.
+  const scaleDiff = Math.max(0, decimals - maxDigits);
+  const dustDivisor = 10n ** BigInt(scaleDiff);
+  const hasDust = !isZero && scaleDiff > 0 && absRaw % dustDivisor !== 0n;
+
   let isBelowThreshold = false;
   if (!isNegative && !isZero && decimals >= maxDigits && showSubThreshold) {
-    const scaleDiff = decimals - maxDigits;
-    const thresholdBase = 10n ** BigInt(scaleDiff);
+    const thresholdBase = dustDivisor;
     if (absRaw < thresholdBase) {
       isBelowThreshold = true;
     }
@@ -668,6 +674,7 @@ export function formatTokenBalance(
     full,
     fullWithSymbol,
     isBelowThreshold,
+    hasDust,
     isZero,
     rawBaseUnits: raw,
   };

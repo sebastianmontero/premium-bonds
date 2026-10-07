@@ -1,11 +1,8 @@
 "use client";
 
 import React from "react";
-import {
-  formatCurrency,
-  formatTicketNumber,
-  sanitizeTicketNumber,
-} from "@/app/lib/formatters";
+import { formatTicketNumber, sanitizeTicketNumber } from "@/app/lib/formatters";
+import { CurrencyAmount } from "@/app/components/common/CurrencyAmount";
 import { TierBadge } from "@/app/components/common/TierBadge";
 import { CopyButton } from "@/app/components/common/CopyButton";
 import {
@@ -19,7 +16,7 @@ import { useTranslations } from "next-intl";
 
 export interface PrizeHeroCardProps {
   tierIndex: number;
-  amountWon: number;
+  amountWon: bigint | number | string;
   tokenSymbol?: string;
   tokenDecimals?: number;
   winningTicket?: number | string | null;
@@ -53,10 +50,6 @@ export function PrizeHeroCard({
   const cleanTicketValue = hasWinningTicket
     ? sanitizeTicketNumber(winningTicket)
     : "";
-  const formattedAmount = formatCurrency(amountWon, {
-    tokenSymbol,
-    decimals: tokenDecimals,
-  });
 
   const isTimelocked =
     !isVoided && !isProcessed && !!timelockState?.isTimelocked;
@@ -76,15 +69,17 @@ export function PrizeHeroCard({
         <div className="flex items-center justify-between gap-2.5 @2xl:justify-start @2xl:gap-3 @2xl:shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="sr-only">{t("amountWon")}: </span>
-            <span
-              className={`text-xl @xs:text-2xl font-bold font-mono tracking-tight ${
+            <CurrencyAmount
+              amount={amountWon}
+              options={{ tokenSymbol, decimals: tokenDecimals }}
+              showTooltip={!isVoided}
+              className="text-xl @xs:text-2xl font-bold tracking-tight shrink-0"
+              amountClassName={
                 isVoided
                   ? "line-through text-on-surface-variant/60"
                   : "text-primary"
-              }`}
-            >
-              {formattedAmount}
-            </span>
+              }
+            />
             <TierBadge tierIndex={tierIndex} size="md" />
           </div>
 

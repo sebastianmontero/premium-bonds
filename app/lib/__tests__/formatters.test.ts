@@ -703,6 +703,102 @@ describe("Currency & Token Formatters Unit Tests", () => {
       });
     });
 
+    describe("Token-Agnostic hasDust Evaluation", () => {
+      it("should evaluate hasDust correctly for exact whole and cent amounts in USDC (6 decimals)", () => {
+        const exactWhole = formatTokenBalance(5_000_000n, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(
+          exactWhole.hasDust,
+          false,
+          "5.000000 USDC has no dust"
+        );
+
+        const exactCents = formatTokenBalance(5_250_000n, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(
+          exactCents.hasDust,
+          false,
+          "5.250000 USDC has no dust"
+        );
+
+        const fractionalCent = formatTokenBalance(12_345_678n, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(
+          fractionalCent.hasDust,
+          true,
+          "12.345678 USDC has sub-cent dust"
+        );
+
+        const subThreshold = formatTokenBalance(4_500n, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(subThreshold.isBelowThreshold, true);
+        assert.strictEqual(
+          subThreshold.hasDust,
+          true,
+          "0.004500 USDC has dust"
+        );
+
+        const zeroVal = formatTokenBalance(0n, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(zeroVal.hasDust, false, "0 USDC has no dust");
+      });
+
+      it("should evaluate hasDust for 9-decimal SOL (4 display decimals) using dynamic scale divisor", () => {
+        const exactSol = formatTokenBalance(500_000_000n, {
+          decimals: 9,
+          tokenSymbol: "SOL",
+        });
+        assert.strictEqual(
+          exactSol.hasDust,
+          false,
+          "0.500000000 SOL has no dust at 4 decimals"
+        );
+
+        const dustySol = formatTokenBalance(500_012_345n, {
+          decimals: 9,
+          tokenSymbol: "SOL",
+        });
+        assert.strictEqual(
+          dustySol.hasDust,
+          true,
+          "0.500012345 SOL has sub-display dust"
+        );
+      });
+
+      it("should report hasDust = false when display decimals equal on-chain decimals (full precision mode)", () => {
+        const exactMode = formatTokenBalance(12_345_678n, {
+          decimals: 6,
+          minFractionDigits: 6,
+          maxFractionDigits: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(
+          exactMode.hasDust,
+          false,
+          "All decimals are displayed in exact mode"
+        );
+        assert.strictEqual(exactMode.formatted, "$12.345678");
+      });
+
+      it("should handle negative values with dust", () => {
+        const negDust = formatTokenBalance(-12_345_678n, {
+          decimals: 6,
+          tokenSymbol: "USDC",
+        });
+        assert.strictEqual(negDust.hasDust, true, "-12.345678 USDC has dust");
+      });
+    });
+
     describe("Full Precision Strings (Pure BigInt, Zero Precision Loss)", () => {
       it("should format full precision string without scientific notation", () => {
         const result = formatTokenBalance(9_996_000, {

@@ -242,4 +242,100 @@ describe("PrizeHeroCard Component Suite", () => {
       "Copy button must have focus-visible ring classes for WCAG 2.4.7 focus indicator"
     );
   });
+
+  it("should render interactive tooltip trigger button with dotted underline for amounts with fractional dust (BigInt)", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 1,
+        amountWon: 12_345_678n,
+        tokenSymbol: "USDC",
+        tokenDecimals: 6,
+        winningTicket: 4599,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(
+      html.includes("$12.34"),
+      "Should render truncated 2-decimal display amount $12.34"
+    );
+    assert.ok(
+      html.includes("<button"),
+      "Should render interactive button trigger for dust tooltip"
+    );
+    assert.ok(
+      html.includes("border-dotted"),
+      "Should render dotted underline visual indicator for progressive disclosure"
+    );
+    assert.ok(
+      html.includes("cursor-help"),
+      "Should have cursor-help on tooltip trigger"
+    );
+    assert.ok(
+      html.includes('aria-label="$12.34"'),
+      "Should provide clean aria-label on trigger"
+    );
+  });
+
+  it("should suppress tooltip trigger and render plain span for exact whole bond amounts (BigInt)", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 0,
+        amountWon: 5_000_000n,
+        tokenSymbol: "USDC",
+        tokenDecimals: 6,
+        winningTicket: 100,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(html.includes("$5.00"), "Should render exact $5.00");
+    assert.ok(
+      !html.includes("border-dotted"),
+      "Should NOT render dotted underline for exact whole amount"
+    );
+    assert.ok(
+      !html.includes("cursor-help"),
+      "Should NOT have cursor-help for exact whole amount"
+    );
+    assert.ok(
+      !html.includes('aria-label="$5.00"'),
+      "Should NOT render interactive amount button trigger"
+    );
+  });
+
+  it("should suppress tooltip and render line-through plain text when isVoided is true even with dust", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 1,
+        amountWon: 12_345_678n,
+        tokenSymbol: "USDC",
+        tokenDecimals: 6,
+        winningTicket: 4599,
+        isProcessed: false,
+        isVoided: true,
+      })
+    );
+
+    assert.ok(
+      html.includes("$12.34"),
+      "Should render display amount $12.34"
+    );
+    assert.ok(
+      html.includes("line-through"),
+      "Should have line-through styling for voided prize"
+    );
+    assert.ok(
+      !html.includes("border-dotted"),
+      "Should NOT render dotted underline when isVoided is true"
+    );
+    assert.ok(
+      !html.includes("cursor-help"),
+      "Should NOT have cursor-help when isVoided is true"
+    );
+    assert.ok(
+      !html.includes('aria-label="$12.34"'),
+      "Should NOT render interactive amount button trigger when isVoided is true"
+    );
+  });
 });

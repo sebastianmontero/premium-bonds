@@ -13,6 +13,11 @@ export interface CurrencyAmountProps {
   amount: bigint | number | string | null | undefined;
   pool?: CurrencyTokenInfo | null;
   options?: FormatTokenBalanceOptions;
+  /**
+   * Controls tooltip trigger. Defaults to true (smart auto-mode: displays tooltip
+   * strictly when sub-display dust or sub-cent thresholds exist).
+   * Set to false to render a pure non-interactive <span> (e.g. inside table rows).
+   */
   showTooltip?: boolean;
   className?: string;
   amountClassName?: string;
@@ -33,24 +38,28 @@ export function CurrencyAmount({
   const t = useTranslations("Common");
   const result = formatTokenBalance(amount, pool, options);
 
-  // If tooltip is disabled or value is zero/fallback, render plain span
-  if (!showTooltip || result.isZero || result.rawBaseUnits === 0n) {
+  const shouldShowTooltip =
+    showTooltip &&
+    (result.hasDust || result.isBelowThreshold) &&
+    !result.isZero &&
+    result.rawBaseUnits !== 0n;
+
+  // If tooltip is disabled or not needed (no sub-display dust), render pure text span
+  if (!shouldShowTooltip) {
     return (
       <span
-        className={`inline-flex items-center font-mono ${className} ${amountClassName}`}
+        className={`inline-flex items-center font-mono tabular-nums ${className} ${amountClassName}`.trim()}
       >
         {result.formatted}
       </span>
     );
   }
 
-  const ariaLabel = `${result.formatted} (${result.fullWithSymbol})`;
-
   return (
-    <span className={`inline-flex items-center ${className}`}>
+    <span className={`inline-flex items-center ${className}`.trim()}>
       <InteractiveTooltip
-        ariaLabel={ariaLabel}
-        triggerClassName={`inline-flex items-center font-mono cursor-help p-0 -my-1 py-1 -mx-0.5 px-0.5 touch-manipulation hover:text-primary transition-colors ${amountClassName}`}
+        ariaLabel={result.formatted}
+        triggerClassName={`inline-flex items-center font-mono tabular-nums cursor-help p-0 -my-1 py-1 -mx-0.5 px-0.5 touch-manipulation hover:text-primary transition-colors ${amountClassName}`.trim()}
         content={
           <div className="space-y-0.5 text-left">
             <p className="font-semibold text-primary text-xs">

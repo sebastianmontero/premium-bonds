@@ -256,6 +256,7 @@ export default function PrizeDetailsModal({
       {/* Auto-Reinvestment Receipt / Projected Ledger (rendered in all states!) */}
       <div className="shrink-0">
         <PrizeReinvestmentBreakdown
+          key={`${entry.drawCycleId}-${entry.winnerIndex}`}
           amountWon={entry.amount}
           breakdown={breakdown}
           config={{
