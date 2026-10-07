@@ -10,8 +10,8 @@ import {
   isPusherPlaceholder,
   syncDevnetToActiveEnv,
   syncLocalnetToActiveEnv,
-  writeDevnetAddresses,
-  readDevnetAddresses,
+  writeClusterAddresses,
+  readClusterAddresses,
   recordDevnetRandomnessAccount,
   checkActiveEnvIsLocalnet,
   assertActiveEnvIsNotLocalnet,
@@ -24,7 +24,7 @@ import {
   LOCALNET_MOCK_WEBHOOK_SECRET,
   DEVNET_DEFAULT_RPC_URL,
   DEVNET_DEFAULT_WS_URL,
-} from "./devnet-state";
+} from "./cluster-state";
 
 import { readEnvFile, upsertEnvFile } from "./env-utils";
 import { PROGRAM_ID, HUMA_PROGRAM_ID } from "../app/lib/bonds-sdk";
@@ -124,7 +124,7 @@ SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=xyz
   });
 
   it("3. Clean .env.devnet Syntax & Isolation: should use unprefixed keys and never write on-chain accounts to .env.devnet", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     fs.writeFileSync(
       devnetEnvPath,
@@ -164,7 +164,7 @@ HELIUS_WEBHOOK_SECRET=helius_secret_123
   });
 
   it("4. User Edit Propagation: direct edits in .env.devnet should propagate to active env", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     fs.writeFileSync(
       devnetEnvPath,
@@ -188,7 +188,7 @@ NEXT_PUBLIC_SOLANA_RPC_URL=https://custom-devnet-rpc.com
   });
 
   it("5. Database Neutralization: should neutralize DATABASE_URL in .env.local when missing in .env.devnet", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     // Existing .env.local has a local postgres connection
     fs.writeFileSync(
@@ -235,7 +235,8 @@ DATABASE_URL=postgresql://user:pass@neon.tech/db
   });
 
   it("7. Multi-Cycle Switching Resilience: devnet -> localnet -> devnet -> localnet retains credentials", () => {
-    writeDevnetAddresses(
+    writeClusterAddresses(
+      "devnet",
       {
         ...sampleAddresses,
         randomnessAccount: "SwitchboardAccount123",
@@ -307,7 +308,7 @@ NEXT_PUBLIC_RANDOMNESS_ACCOUNT=SwitchboardAccount123
   });
 
   it("8. Private RPC & WS URL Preservation: should preserve private endpoints and defaults", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     fs.writeFileSync(
       devnetEnvPath,
@@ -339,7 +340,7 @@ SOLANA_WS_URL=wss://private-ws.helius.xyz/?api-key=secret
   });
 
   it("9. Preservation of Unmanaged Category C Keys: should leave unmanaged keys & comments untouched in active env", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     fs.writeFileSync(
       activeEnvPath,
@@ -382,7 +383,7 @@ ANALYTICS_KEY=analytics_secret_999
   it("10. Mock Replacement in Profile Salvage & Randomness Account Preservation: should preserve Switchboard account and overwrite stale mock URLs", () => {
     const { randomnessAccount, ...addressesWithoutRandomness } =
       sampleAddresses;
-    writeDevnetAddresses(addressesWithoutRandomness, addressesPath);
+    writeClusterAddresses("devnet", addressesWithoutRandomness, addressesPath);
 
     // .env.devnet has a stale local mock DB URL and a valid Switchboard account
     fs.writeFileSync(
@@ -429,7 +430,7 @@ DATABASE_URL=postgresql://neon_user:neon_pass@ep-cool.neon.tech/neondb?sslmode=r
   });
 
   it("11. Mock Profile Neutralization: should neutralize DATABASE_URL in active env if .env.devnet only contains a loopback URL", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     fs.writeFileSync(
       devnetEnvPath,
@@ -463,13 +464,13 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/local_db
   });
 
   it("12. recordDevnetRandomnessAccount updates addresses.json and .env.devnet", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
     fs.writeFileSync(devnetEnvPath, "# Devnet Env\n", "utf-8");
 
     const newRandomness = "NewRandomnessAccount9999999999999999999999";
     recordDevnetRandomnessAccount(newRandomness, addressesPath, devnetEnvPath);
 
-    const updatedAddresses = readDevnetAddresses(addressesPath);
+    const updatedAddresses = readClusterAddresses("devnet", addressesPath);
     assert.strictEqual(updatedAddresses?.randomnessAccount, newRandomness);
 
     const updatedEnv = readEnvFile(devnetEnvPath);
@@ -507,7 +508,7 @@ NEXT_PUBLIC_PUSHER_CLUSTER=mt1
   });
 
   it("14. Devnet Pusher Synchronization: syncDevnetToActiveEnv should synchronize Devnet Pusher keys to active env", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     fs.writeFileSync(
       devnetEnvPath,
@@ -542,7 +543,7 @@ NEXT_PUBLIC_PUSHER_CLUSTER=us2
   });
 
   it("15. Cross-Network Isolation & Neutralization: local Pusher keys must not pollute .env.devnet and must neutralize when missing in .env.devnet", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     // Active env has localnet Pusher credentials
     fs.writeFileSync(
@@ -588,7 +589,7 @@ NEXT_PUBLIC_PUSHER_KEY=local_key_abc
   });
 
   it("16. Bidirectional Multi-Cycle Switching (localnet <-> devnet) retains distinct credentials", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     // Devnet profile has Devnet Pusher App 2197169
     fs.writeFileSync(
@@ -661,7 +662,7 @@ NEXT_PUBLIC_PUSHER_CLUSTER=mt1
   });
 
   it("17. One-Time Bootstrap Seeding: should auto-seed .env.localnet if missing when active env has local Pusher keys", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     // .env.localnet does NOT exist initially
     assert.strictEqual(fs.existsSync(localnetEnvPath), false);
@@ -842,7 +843,7 @@ HELIUS_WEBHOOK_SECRET=cloud_webhook_secret_789
   });
 
   it("21. Multi-Cycle Bidirectional Switching Full Integrity: devnet <-> localnet transitions without lingering RPC/WS/DB bleed", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeClusterAddresses("devnet", sampleAddresses, addressesPath);
 
     // Initial devnet setup
     fs.writeFileSync(

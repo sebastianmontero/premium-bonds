@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { createSolanaRpc, Address, address } from "@solana/kit";
 import { readEnvFile, upsertEnvFile } from "./env-utils";
 import {
   PROGRAM_ID,
@@ -9,16 +10,92 @@ import {
 } from "../app/lib/bonds-sdk";
 
 export const PROJECT_ROOT = path.resolve(__dirname, "..");
-export const DEVNET_STATE_DIR = path.resolve(__dirname, "devnet-state");
-export const DEVNET_ADDRESSES_PATH = path.resolve(
-  DEVNET_STATE_DIR,
-  "addresses.json"
-);
-export const DEVNET_USERS_PATH = path.resolve(DEVNET_STATE_DIR, "users.json");
-export const DEVNET_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.devnet");
-export const LOCALNET_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.localnet");
 export const LOCAL_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.local");
 export const DEFAULT_ENV_PATH = path.resolve(PROJECT_ROOT, ".env");
+export const DEVNET_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.devnet");
+export const LOCALNET_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.localnet");
+export const PRODUCTION_ENV_PATH = path.resolve(
+  PROJECT_ROOT,
+  ".env.production"
+);
+
+export type NetworkCluster = "devnet" | "mainnet-beta" | "localnet";
+
+export const MAINNET_GENESIS_HASH =
+  "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+export const DEVNET_GENESIS_HASH =
+  "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+export const TESTNET_GENESIS_HASH =
+  "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY";
+
+export interface ClusterConfig {
+  readonly cluster: NetworkCluster;
+  readonly genesisHash?: string;
+  readonly stateDirName: string;
+  readonly envFileName: string;
+  readonly defaultRpcUrl: string;
+  readonly defaultWsUrl: string;
+}
+
+export const CLUSTER_CONFIGS: Readonly<Record<NetworkCluster, ClusterConfig>> =
+  {
+    "mainnet-beta": {
+      cluster: "mainnet-beta",
+      genesisHash: MAINNET_GENESIS_HASH,
+      stateDirName: "mainnet-state",
+      envFileName: ".env.production",
+      defaultRpcUrl: "https://api.mainnet-beta.solana.com",
+      defaultWsUrl: "wss://api.mainnet-beta.solana.com",
+    },
+    devnet: {
+      cluster: "devnet",
+      genesisHash: DEVNET_GENESIS_HASH,
+      stateDirName: "devnet-state",
+      envFileName: ".env.devnet",
+      defaultRpcUrl: "https://api.devnet.solana.com",
+      defaultWsUrl: "wss://api.devnet.solana.com",
+    },
+    localnet: {
+      cluster: "localnet",
+      genesisHash: undefined,
+      stateDirName: "localnet-state",
+      envFileName: ".env.localnet",
+      defaultRpcUrl: "http://127.0.0.1:8899",
+      defaultWsUrl: "ws://127.0.0.1:8900",
+    },
+  };
+
+export const LOCALNET_DEFAULT_RPC_URL = CLUSTER_CONFIGS.localnet.defaultRpcUrl;
+export const LOCALNET_DEFAULT_WS_URL = CLUSTER_CONFIGS.localnet.defaultWsUrl;
+export const DEVNET_DEFAULT_RPC_URL = CLUSTER_CONFIGS.devnet.defaultRpcUrl;
+export const DEVNET_DEFAULT_WS_URL = CLUSTER_CONFIGS.devnet.defaultWsUrl;
+export const MAINNET_DEFAULT_RPC_URL =
+  CLUSTER_CONFIGS["mainnet-beta"].defaultRpcUrl;
+export const MAINNET_DEFAULT_WS_URL =
+  CLUSTER_CONFIGS["mainnet-beta"].defaultWsUrl;
+export const LOCALNET_MOCK_WEBHOOK_SECRET = "pb_webhook_secret_local_dev_123";
+export const LOCALNET_DEFAULT_DB_URL =
+  "postgresql://postgres:postgres@127.0.0.1:5432/pb_local_default";
+
+/**
+ * Validates that the connected RPC matches the expected cluster genesis hash.
+ */
+export async function assertCluster(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  expectedCluster: NetworkCluster
+): Promise<void> {
+  const config = CLUSTER_CONFIGS[expectedCluster];
+  if (!config.genesisHash) {
+    return;
+  }
+
+  const actualGenesisHash = await rpc.getGenesisHash().send();
+  if (actualGenesisHash !== config.genesisHash) {
+    throw new Error(
+      `CRITICAL SECURITY ERROR: Connected RPC genesis hash does NOT match ${expectedCluster} (expected: ${config.genesisHash}, received: ${actualGenesisHash}).`
+    );
+  }
+}
 
 /**
  * Checks whether a given URL points to a local emulator, Docker container, or loopback interface.
@@ -129,23 +206,23 @@ export function assertActiveEnvIsNotLocalnet(
 }
 
 /**
- * Category B: On-Chain Protocol Addresses and deployment accounts.
+ * On-Chain Protocol Addresses and deployment accounts.
  */
 export interface ProtocolAccounts {
-  programId: string;
-  humaProgramId: string;
-  adminAddress: string;
-  usdcMint: string;
-  pstMint: string;
-  ticketRegistry: string;
-  feeWallet: string;
-  humaPoolState: string;
-  humaLenderState: string;
-  humaPoolUnderlying: string;
-  humaPoolModeToken: string;
-  humaRedemptionRequest: string;
-  randomnessAccount?: string;
-  squadsMultisig?: string;
+  programId: Address | string;
+  humaProgramId: Address | string;
+  adminAddress: Address | string;
+  usdcMint: Address | string;
+  pstMint: Address | string;
+  ticketRegistry: Address | string;
+  feeWallet: Address | string;
+  humaPoolState: Address | string;
+  humaLenderState: Address | string;
+  humaPoolUnderlying: Address | string;
+  humaPoolModeToken: Address | string;
+  humaRedemptionRequest: Address | string;
+  randomnessAccount?: Address | string;
+  squadsMultisig?: Address | string;
 }
 
 export type DevnetProtocolAccounts = ProtocolAccounts;
@@ -157,38 +234,28 @@ export function buildProtocolAccountEnvVars(
   accounts: ProtocolAccounts
 ): Record<string, string> {
   return {
-    NEXT_PUBLIC_PROGRAM_ID: accounts.programId,
-    NEXT_PUBLIC_HUMA_PROGRAM_ID: accounts.humaProgramId,
-    NEXT_PUBLIC_USDC_MINT: accounts.usdcMint,
-    NEXT_PUBLIC_PST_MINT: accounts.pstMint,
-    NEXT_PUBLIC_TICKET_REGISTRY: accounts.ticketRegistry,
-    NEXT_PUBLIC_ADMIN_ADDRESS: accounts.adminAddress,
-    NEXT_PUBLIC_FEE_WALLET: accounts.feeWallet,
-    NEXT_PUBLIC_HUMA_CONFIG: accounts.humaProgramId,
-    NEXT_PUBLIC_HUMA_POOL_CONFIG: accounts.humaProgramId,
-    NEXT_PUBLIC_HUMA_POOL_STATE: accounts.humaPoolState,
-    NEXT_PUBLIC_HUMA_MODE_CONFIG: accounts.humaProgramId,
-    NEXT_PUBLIC_HUMA_LENDER_STATE: accounts.humaLenderState,
-    NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN: accounts.humaPoolUnderlying,
-    NEXT_PUBLIC_HUMA_MODE_MINT: accounts.pstMint,
-    NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN: accounts.humaPoolModeToken,
-    NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST: accounts.humaRedemptionRequest,
-    NEXT_PUBLIC_RANDOMNESS_ACCOUNT: accounts.randomnessAccount ?? "",
+    NEXT_PUBLIC_PROGRAM_ID: String(accounts.programId),
+    NEXT_PUBLIC_HUMA_PROGRAM_ID: String(accounts.humaProgramId),
+    NEXT_PUBLIC_USDC_MINT: String(accounts.usdcMint),
+    NEXT_PUBLIC_PST_MINT: String(accounts.pstMint),
+    NEXT_PUBLIC_TICKET_REGISTRY: String(accounts.ticketRegistry),
+    NEXT_PUBLIC_ADMIN_ADDRESS: String(accounts.adminAddress),
+    NEXT_PUBLIC_FEE_WALLET: String(accounts.feeWallet),
+    NEXT_PUBLIC_HUMA_CONFIG: String(accounts.humaProgramId),
+    NEXT_PUBLIC_HUMA_POOL_CONFIG: String(accounts.humaProgramId),
+    NEXT_PUBLIC_HUMA_POOL_STATE: String(accounts.humaPoolState),
+    NEXT_PUBLIC_HUMA_MODE_CONFIG: String(accounts.humaProgramId),
+    NEXT_PUBLIC_HUMA_LENDER_STATE: String(accounts.humaLenderState),
+    NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN: String(accounts.humaPoolUnderlying),
+    NEXT_PUBLIC_HUMA_MODE_MINT: String(accounts.pstMint),
+    NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN: String(accounts.humaPoolModeToken),
+    NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST: String(accounts.humaRedemptionRequest),
+    NEXT_PUBLIC_RANDOMNESS_ACCOUNT: accounts.randomnessAccount
+      ? String(accounts.randomnessAccount)
+      : "",
   };
 }
 
-export const LOCALNET_DEFAULT_RPC_URL = "http://127.0.0.1:8899";
-export const LOCALNET_DEFAULT_WS_URL = "ws://127.0.0.1:8900";
-export const DEVNET_DEFAULT_RPC_URL = "https://api.devnet.solana.com";
-export const DEVNET_DEFAULT_WS_URL = "wss://api.devnet.solana.com";
-export const LOCALNET_MOCK_WEBHOOK_SECRET = "pb_webhook_secret_local_dev_123";
-export const LOCALNET_DEFAULT_DB_URL =
-  "postgresql://postgres:postgres@127.0.0.1:5432/pb_local_default";
-
-/**
- * Declarative configuration for preserved cloud variables.
- * Eliminates Shotgun Surgery and duplication when managing cloud keys.
- */
 export interface PreservedCloudVarConfig {
   readonly envKey: string;
   readonly defaultValue?: string;
@@ -247,29 +314,58 @@ export const PRESERVED_CLOUD_VARS: readonly PreservedCloudVarConfig[] = [
   ...PUSHER_VARS,
 ];
 
+export interface ClusterPaths {
+  readonly stateDir: string;
+  readonly addressesPath: string;
+  readonly usersPath: string;
+  readonly profileEnvPath: string;
+}
+
+export function getClusterPaths(cluster: NetworkCluster): ClusterPaths {
+  const config = CLUSTER_CONFIGS[cluster];
+  const stateDir = path.resolve(__dirname, config.stateDirName);
+  const addressesPath = path.resolve(stateDir, "addresses.json");
+  const usersPath = path.resolve(stateDir, "users.json");
+  const profileEnvPath = path.resolve(PROJECT_ROOT, config.envFileName);
+  return { stateDir, addressesPath, usersPath, profileEnvPath };
+}
+
+export const DEVNET_PATHS = getClusterPaths("devnet");
+export const DEVNET_STATE_DIR = DEVNET_PATHS.stateDir;
+export const DEVNET_ADDRESSES_PATH = DEVNET_PATHS.addressesPath;
+export const DEVNET_USERS_PATH = DEVNET_PATHS.usersPath;
+
+export const MAINNET_PATHS = getClusterPaths("mainnet-beta");
+export const MAINNET_STATE_DIR = MAINNET_PATHS.stateDir;
+export const MAINNET_ADDRESSES_PATH = MAINNET_PATHS.addressesPath;
+
 /**
- * Reads the public on-chain protocol addresses from scripts/devnet-state/addresses.json.
+ * Reads public on-chain protocol addresses for a cluster.
  */
-export function readDevnetAddresses(
-  filePath: string = DEVNET_ADDRESSES_PATH
+export function readClusterAddresses(
+  cluster: NetworkCluster,
+  customFilePath?: string
 ): Partial<ProtocolAccounts> | null {
+  const filePath = customFilePath ?? getClusterPaths(cluster).addressesPath;
   if (!fs.existsSync(filePath)) return null;
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     return JSON.parse(raw);
   } catch (err) {
-    console.warn(`[Devnet State] Failed to parse ${filePath}:`, err);
+    console.warn(`[Cluster State] Failed to parse ${filePath}:`, err);
     return null;
   }
 }
 
 /**
- * Writes the public on-chain protocol addresses to scripts/devnet-state/addresses.json.
+ * Writes public on-chain protocol addresses for a cluster.
  */
-export function writeDevnetAddresses(
+export function writeClusterAddresses(
+  cluster: NetworkCluster,
   addresses: ProtocolAccounts,
-  filePath: string = DEVNET_ADDRESSES_PATH
+  customFilePath?: string
 ): void {
+  const filePath = customFilePath ?? getClusterPaths(cluster).addressesPath;
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -280,7 +376,7 @@ export function writeDevnetAddresses(
 export interface SafeguardProfileOptions {
   readonly activeEnvPath?: string;
   readonly profileEnvPath: string;
-  readonly expectedEnvironment: "devnet" | "localnet";
+  readonly expectedEnvironment: "devnet" | "localnet" | "mainnet-beta";
   readonly varsToPreserve: readonly PreservedCloudVarConfig[];
   readonly headerComment?: string;
   readonly logLabel?: string;
@@ -289,13 +385,6 @@ export interface SafeguardProfileOptions {
 export interface SafeguardEnvOptions {
   readonly activeEnvPath?: string;
   readonly profileEnvPath?: string;
-}
-
-export interface SyncDevnetOptions {
-  readonly targetFile?: string;
-  readonly devnetEnvPath?: string;
-  readonly addressesPath?: string;
-  readonly localnetEnvPath?: string;
 }
 
 /**
@@ -308,7 +397,6 @@ export function safeguardProfileEnv(
   if (!fs.existsSync(activePath)) return {};
   const currentEnv = readEnvFile(activePath);
 
-  // Strict environment isolation guard: never extract credentials if active env does not match
   if (currentEnv.NEXT_PUBLIC_ENVIRONMENT !== options.expectedEnvironment) {
     return {};
   }
@@ -334,10 +422,6 @@ export function safeguardProfileEnv(
   return updates;
 }
 
-/**
- * Safeguards Devnet credentials from .env.local into .env.devnet before Localnet mutates .env.local.
- * STRICT GUARD: Only runs if .env.local is actively set to NEXT_PUBLIC_ENVIRONMENT=devnet.
- */
 export function safeguardDevnetEnv(
   optionsOrActiveEnvPath?: SafeguardEnvOptions | string,
   devnetEnvPath?: string
@@ -361,10 +445,6 @@ export function safeguardDevnetEnv(
   });
 }
 
-/**
- * Safeguards Localnet credentials from .env.local into .env.localnet before Devnet mutates .env.local.
- * STRICT GUARD: Only runs if .env.local is actively set to NEXT_PUBLIC_ENVIRONMENT=localnet.
- */
 export function safeguardLocalnetEnv(
   optionsOrActiveEnvPath?: SafeguardEnvOptions | string,
   localnetEnvPath?: string
@@ -388,10 +468,6 @@ export function safeguardLocalnetEnv(
   });
 }
 
-/**
- * Loads localnet profile credentials, returning sanitized keys for .env.local.
- * Neutralizes unconfigured Pusher variables to prevent Devnet credential leakage.
- */
 export function loadLocalnetProfile(
   localnetEnvPath: string = LOCALNET_ENV_PATH
 ): Record<string, string> {
@@ -405,56 +481,68 @@ export function loadLocalnetProfile(
     if (val && !item.isLocalMock(val, localProfile)) {
       result[item.envKey] = val;
     } else {
-      // Explicitly neutralize to prevent lingering Devnet keys
       result[item.envKey] = item.defaultValue ?? "";
     }
   }
   return result;
 }
 
+export interface SyncClusterOptions {
+  readonly targetFile?: string;
+  readonly profileEnvPath?: string;
+  readonly addressesPath?: string;
+  readonly localnetEnvPath?: string;
+}
+
+export interface SyncDevnetOptions {
+  readonly targetFile?: string;
+  readonly devnetEnvPath?: string;
+  readonly addressesPath?: string;
+  readonly localnetEnvPath?: string;
+}
+
 /**
- * Assembles the full dictionary of Devnet variables by merging on-chain addresses
- * and .env.devnet cloud credentials, then synchronizes it into the active target environment file.
+ * Synchronizes cluster addresses and cloud credentials into the active target env file.
  */
-export function syncDevnetToActiveEnv(
-  optionsOrTargetFile?: SyncDevnetOptions | string,
-  devnetEnvPathArg?: string,
+export function syncClusterToActiveEnv(
+  cluster: NetworkCluster,
+  optionsOrTargetFile?: SyncClusterOptions | string,
+  profileEnvPathArg?: string,
   addressesPathArg?: string
 ): Record<string, string> {
+  const clusterPaths = getClusterPaths(cluster);
   const targetFile =
     typeof optionsOrTargetFile === "string"
       ? optionsOrTargetFile
       : (optionsOrTargetFile?.targetFile ?? LOCAL_ENV_PATH);
-  const devnetEnvPath =
+  const profileEnvPath =
     typeof optionsOrTargetFile === "object"
-      ? (optionsOrTargetFile.devnetEnvPath ?? DEVNET_ENV_PATH)
-      : (devnetEnvPathArg ?? DEVNET_ENV_PATH);
+      ? (optionsOrTargetFile.profileEnvPath ?? clusterPaths.profileEnvPath)
+      : (profileEnvPathArg ?? clusterPaths.profileEnvPath);
   const addressesPath =
     typeof optionsOrTargetFile === "object"
-      ? (optionsOrTargetFile.addressesPath ?? DEVNET_ADDRESSES_PATH)
-      : (addressesPathArg ?? DEVNET_ADDRESSES_PATH);
+      ? (optionsOrTargetFile.addressesPath ?? clusterPaths.addressesPath)
+      : (addressesPathArg ?? clusterPaths.addressesPath);
   const localnetEnvPath =
     typeof optionsOrTargetFile === "object"
       ? (optionsOrTargetFile.localnetEnvPath ?? LOCALNET_ENV_PATH)
       : LOCALNET_ENV_PATH;
 
-  const addresses = readDevnetAddresses(addressesPath) || {};
-  const devnetEnv = fs.existsSync(devnetEnvPath)
-    ? readEnvFile(devnetEnvPath)
+  const addresses = readClusterAddresses(cluster, addressesPath) || {};
+  const profileEnv = fs.existsSync(profileEnvPath)
+    ? readEnvFile(profileEnvPath)
     : {};
   const currentTargetEnv = fs.existsSync(targetFile)
     ? readEnvFile(targetFile)
     : {};
 
-  const isActiveDevnet = currentTargetEnv.NEXT_PUBLIC_ENVIRONMENT === "devnet";
+  const isActiveCluster = currentTargetEnv.NEXT_PUBLIC_ENVIRONMENT === cluster;
 
-  // Automatic initial bootstrap seeding:
-  // If .env.localnet does not exist on disk, but targetFile contains non-mock local Pusher keys
-  // and is not already in devnet mode, seed .env.localnet before applying Devnet variables.
   if (
+    cluster === "devnet" &&
     !fs.existsSync(localnetEnvPath) &&
     fs.existsSync(targetFile) &&
-    !isActiveDevnet
+    !isActiveCluster
   ) {
     const localPusherKeysToSeed: Record<string, string> = {};
     for (const item of PUSHER_VARS) {
@@ -473,44 +561,51 @@ export function syncDevnetToActiveEnv(
     }
   }
 
-  // Canonical program addresses strictly pinned to compiled Codama constants
-  const programId = ANCHOR_PROGRAM_ADDRESS;
-  const humaProgramId = MOCK_HUMA_PROGRAM_ADDRESS;
+  const programId =
+    addresses.programId ||
+    (cluster === "mainnet-beta"
+      ? ANCHOR_PROGRAM_ADDRESS
+      : ANCHOR_PROGRAM_ADDRESS);
+  const humaProgramId =
+    addresses.humaProgramId ||
+    (cluster === "mainnet-beta"
+      ? "HumaXepHnjaRCpjYTokxY4UtaJcmx41prQ8cxGmFC5fn"
+      : MOCK_HUMA_PROGRAM_ADDRESS);
   const usdcMint =
     addresses.usdcMint ||
-    devnetEnv.NEXT_PUBLIC_USDC_MINT ||
+    profileEnv.NEXT_PUBLIC_USDC_MINT ||
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-  const pstMint = addresses.pstMint || devnetEnv.NEXT_PUBLIC_PST_MINT || "";
+  const pstMint = addresses.pstMint || profileEnv.NEXT_PUBLIC_PST_MINT || "";
   const ticketRegistry =
-    addresses.ticketRegistry || devnetEnv.NEXT_PUBLIC_TICKET_REGISTRY || "";
+    addresses.ticketRegistry || profileEnv.NEXT_PUBLIC_TICKET_REGISTRY || "";
   const adminAddress =
-    addresses.adminAddress || devnetEnv.NEXT_PUBLIC_ADMIN_ADDRESS || "";
+    addresses.adminAddress || profileEnv.NEXT_PUBLIC_ADMIN_ADDRESS || "";
   const feeWallet =
-    addresses.feeWallet || devnetEnv.NEXT_PUBLIC_FEE_WALLET || "";
+    addresses.feeWallet || profileEnv.NEXT_PUBLIC_FEE_WALLET || "";
   const humaPoolState =
-    addresses.humaPoolState || devnetEnv.NEXT_PUBLIC_HUMA_POOL_STATE || "";
+    addresses.humaPoolState || profileEnv.NEXT_PUBLIC_HUMA_POOL_STATE || "";
   const humaLenderState =
-    addresses.humaLenderState || devnetEnv.NEXT_PUBLIC_HUMA_LENDER_STATE || "";
+    addresses.humaLenderState || profileEnv.NEXT_PUBLIC_HUMA_LENDER_STATE || "";
   const humaPoolUnderlying =
     addresses.humaPoolUnderlying ||
-    devnetEnv.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
+    profileEnv.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
     "";
   const humaPoolModeToken =
     addresses.humaPoolModeToken ||
-    devnetEnv.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+    profileEnv.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
     "";
   const humaRedemptionRequest =
     addresses.humaRedemptionRequest ||
-    devnetEnv.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
+    profileEnv.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
     "";
   const randomnessAccount =
     addresses.randomnessAccount ||
-    devnetEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
+    profileEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
     "";
 
-  if (!ticketRegistry) {
+  if (!ticketRegistry && cluster === "devnet") {
     throw new Error(
-      `Cannot resolve Devnet ticket registry address. Please run 'npm run devnet init' or configure NEXT_PUBLIC_TICKET_REGISTRY in ${path.basename(devnetEnvPath)}.`
+      `Cannot resolve Devnet ticket registry address. Please run 'npm run devnet init' or configure NEXT_PUBLIC_TICKET_REGISTRY in ${path.basename(profileEnvPath)}.`
     );
   }
 
@@ -532,27 +627,23 @@ export function syncDevnetToActiveEnv(
 
   const accountVars = buildProtocolAccountEnvVars(resolvedAccounts);
 
-  // Build the complete devnet environment dictionary
-  const devnetVars: Record<string, string> = {
-    NEXT_PUBLIC_ENVIRONMENT: "devnet",
+  const clusterVars: Record<string, string> = {
+    NEXT_PUBLIC_ENVIRONMENT: cluster,
     ...accountVars,
   };
 
-  // Provide implicit devnet context so devnet profile credentials (like Switchboard VRF) are not falsely rejected
-  const devnetContext: Record<string, string> = {
-    NEXT_PUBLIC_ENVIRONMENT: "devnet",
-    ...devnetEnv,
+  const clusterContext: Record<string, string> = {
+    NEXT_PUBLIC_ENVIRONMENT: cluster,
+    ...profileEnv,
   };
 
-  // Declaratively resolve all Category A cloud variables uniformly:
-  // Priority: .env.devnet (non-mock) > non-mock edit in active target (ONLY IF active env is devnet) > canonical default
   for (const item of PRESERVED_CLOUD_VARS) {
-    const profileVal = devnetEnv[item.envKey];
-    const activeVal = isActiveDevnet
+    const profileVal = profileEnv[item.envKey];
+    const activeVal = isActiveCluster
       ? currentTargetEnv[item.envKey]
       : undefined;
     const isNonMockProfile =
-      profileVal && !item.isLocalMock(profileVal, devnetContext);
+      profileVal && !item.isLocalMock(profileVal, clusterContext);
     const isNonMockActive =
       activeVal && !item.isLocalMock(activeVal, currentTargetEnv);
     const resolved =
@@ -560,39 +651,30 @@ export function syncDevnetToActiveEnv(
       (isNonMockActive ? activeVal : undefined) ||
       item.defaultValue;
     if (resolved !== undefined) {
-      devnetVars[item.envKey] = resolved;
+      clusterVars[item.envKey] = resolved;
     }
   }
 
-  // Prevent cross-network database pollution:
-  // If no cloud DATABASE_URL is found, neutralize local PostgreSQL setting so dApp/indexer
-  // does not silently connect to a local container while executing in Devnet mode.
-  if (!devnetVars.DATABASE_URL) {
+  if (cluster === "devnet" && !clusterVars.DATABASE_URL) {
     console.warn(
       "⚠️  [Devnet Sync] No remote DATABASE_URL configured in .env.devnet. Local database URL neutralized."
     );
-    devnetVars.DATABASE_URL = "";
+    clusterVars.DATABASE_URL = "";
   }
 
-  // Prevent cross-network Pusher broadcast pollution:
-  // If .env.devnet contains no non-mock Pusher keys, neutralize Pusher keys so localnet credentials
-  // never linger in .env.local while executing in Devnet mode.
   for (const item of PUSHER_VARS) {
-    if (devnetVars[item.envKey] === undefined) {
-      devnetVars[item.envKey] = item.defaultValue ?? "";
+    if (clusterVars[item.envKey] === undefined) {
+      clusterVars[item.envKey] = item.defaultValue ?? "";
     }
   }
 
-  // Profile Isolation: If any non-mock cloud credentials were salvaged from active env that were missing
-  // or mock in .env.devnet, persist ONLY those Category A variables into .env.devnet.
-  // STRICT GUARD: Only salvage if active env was already in devnet mode!
   const cloudUpdatesToPersist: Record<string, string> = {};
-  if (isActiveDevnet) {
+  if (isActiveCluster) {
     for (const item of PRESERVED_CLOUD_VARS) {
-      const val = devnetVars[item.envKey];
-      const profileVal = devnetEnv[item.envKey];
+      const val = clusterVars[item.envKey];
+      const profileVal = profileEnv[item.envKey];
       const isProfileMockOrMissing =
-        !profileVal || item.isLocalMock(profileVal, devnetContext);
+        !profileVal || item.isLocalMock(profileVal, clusterContext);
       if (
         val &&
         isProfileMockOrMissing &&
@@ -602,18 +684,40 @@ export function syncDevnetToActiveEnv(
       }
     }
     if (Object.keys(cloudUpdatesToPersist).length > 0) {
-      upsertEnvFile(devnetEnvPath, cloudUpdatesToPersist, {
-        headerComment: "# Devnet Environment Profile (Auto-synchronized)",
+      upsertEnvFile(profileEnvPath, cloudUpdatesToPersist, {
+        headerComment: `# ${cluster} Environment Profile (Auto-synchronized)`,
       });
     }
   }
 
-  // Apply to active target (.env.local) non-destructively preserving Category C keys
-  upsertEnvFile(targetFile, devnetVars, {
-    headerComment: "# Synchronized from .env.devnet",
+  upsertEnvFile(targetFile, clusterVars, {
+    headerComment: `# Synchronized from ${path.basename(profileEnvPath)}`,
   });
 
-  return devnetVars;
+  return clusterVars;
+}
+
+export function syncDevnetToActiveEnv(
+  optionsOrTargetFile?: SyncDevnetOptions | string,
+  devnetEnvPathArg?: string,
+  addressesPathArg?: string
+): Record<string, string> {
+  const options: SyncClusterOptions | undefined =
+    typeof optionsOrTargetFile === "object"
+      ? {
+          targetFile: optionsOrTargetFile.targetFile,
+          profileEnvPath: optionsOrTargetFile.devnetEnvPath,
+          addressesPath: optionsOrTargetFile.addressesPath,
+          localnetEnvPath: optionsOrTargetFile.localnetEnvPath,
+        }
+      : undefined;
+
+  return syncClusterToActiveEnv(
+    "devnet",
+    options || optionsOrTargetFile,
+    devnetEnvPathArg,
+    addressesPathArg
+  );
 }
 
 export interface SyncLocalnetOptions {
@@ -627,10 +731,6 @@ export interface SyncLocalnetOptions {
   readonly wsUrl?: string;
 }
 
-/**
- * Synchronizes localnet configuration into active target environment file (.env.local).
- * Safeguards any active devnet credentials before overwriting with local endpoints.
- */
 export function syncLocalnetToActiveEnv(
   options: SyncLocalnetOptions
 ): Record<string, string> {
@@ -638,16 +738,11 @@ export function syncLocalnetToActiveEnv(
   const devnetEnvPath = options.devnetEnvPath ?? DEVNET_ENV_PATH;
   const localnetEnvPath = options.localnetEnvPath ?? LOCALNET_ENV_PATH;
 
-  // 1. Safeguard Devnet credentials before mutating active env
   safeguardDevnetEnv({ activeEnvPath, profileEnvPath: devnetEnvPath });
 
-  // 2. Load Localnet profile (Pusher keys)
   const localnetProfile = loadLocalnetProfile(localnetEnvPath);
-
-  // 3. Format on-chain protocol accounts
   const accountVars = buildProtocolAccountEnvVars(options.accounts);
 
-  // 4. Resolve RPC and WebSocket URLs
   const resolvedRpc = options.rpcUrl ?? LOCALNET_DEFAULT_RPC_URL;
   let resolvedWs = options.wsUrl;
   if (!resolvedWs) {
@@ -661,14 +756,12 @@ export function syncLocalnetToActiveEnv(
     }
   }
 
-  // 5. Resolve Database URL deterministically
   const resolvedDbUrl =
     options.databaseUrl ||
     (options.dbName
       ? `postgresql://postgres:postgres@127.0.0.1:5432/pb_local_${options.dbName.replace(/[^a-zA-Z0-9_]/g, "_")}`
       : LOCALNET_DEFAULT_DB_URL);
 
-  // 6. Assemble complete Localnet environment dictionary
   const localnetVars: Record<string, string> = {
     NEXT_PUBLIC_ENVIRONMENT: "localnet",
     ...accountVars,
@@ -681,7 +774,6 @@ export function syncLocalnetToActiveEnv(
     ...localnetProfile,
   };
 
-  // 7. Upsert to active environment non-destructively preserving Category C user keys
   upsertEnvFile(activeEnvPath, localnetVars, {
     headerComment: "# Localnet Environment (Auto-synchronized)",
   });
@@ -689,20 +781,17 @@ export function syncLocalnetToActiveEnv(
   return localnetVars;
 }
 
-/**
- * Records a Switchboard randomness account address to addresses.json and .env.devnet.
- */
 export function recordDevnetRandomnessAccount(
   randomnessAddress: string,
   addressesPath: string = DEVNET_ADDRESSES_PATH,
   devnetEnvPath: string = DEVNET_ENV_PATH
 ): void {
-  const existing = readDevnetAddresses(addressesPath) || {};
+  const existing = readClusterAddresses("devnet", addressesPath) || {};
   const updated = {
     ...existing,
     randomnessAccount: randomnessAddress,
   } as DevnetProtocolAccounts;
-  writeDevnetAddresses(updated, addressesPath);
+  writeClusterAddresses("devnet", updated, addressesPath);
   upsertEnvFile(
     devnetEnvPath,
     { NEXT_PUBLIC_RANDOMNESS_ACCOUNT: randomnessAddress },

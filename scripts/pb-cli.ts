@@ -22,6 +22,8 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import * as readline from "readline";
+import { MAINNET_GENESIS_HASH } from "./cluster-state";
 import {
   sendTx,
   safeStringify,
@@ -4238,6 +4240,43 @@ async function main() {
           );
         }
         throw err;
+      }
+
+      // Mainnet Cluster Guard: Require confirmation or --confirm for mutating commands on Mainnet
+      try {
+        const genesisHash = await rpc.getGenesisHash().send();
+        if (genesisHash === MAINNET_GENESIS_HASH) {
+          console.warn(
+            "\n⚠️  CRITICAL WARNING: Connected RPC is SOLANA MAINNET-BETA!"
+          );
+          if (
+            options["--confirm"] !== "true" &&
+            options["--yes"] !== "true" &&
+            !isDryRun
+          ) {
+            const rl = readline.createInterface({
+              input: process.stdin,
+              output: process.stdout,
+            });
+            const answer = await new Promise<string>((resolve) => {
+              rl.question(
+                `You are executing mutating command '${command}' on MAINNET.\nType 'CONFIRM' to proceed: `,
+                (ans) => {
+                  rl.close();
+                  resolve(ans.trim());
+                }
+              );
+            });
+            if (answer !== "CONFIRM") {
+              throw new CliUserError(
+                "Execution aborted. Mutating commands on Mainnet require interactive confirmation or '--confirm' / '--yes'."
+              );
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err instanceof CliUserError) throw err;
+        // Ignore network errors for getGenesisHash (e.g. offline mocks)
       }
     }
   }

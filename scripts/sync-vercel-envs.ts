@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { readEnvFile } from "./env-utils";
-import { isLocalMockUrl } from "./devnet-state";
+import { isLocalMockUrl } from "./cluster-state";
 
 const nodeRequire = createRequire(import.meta.url);
 

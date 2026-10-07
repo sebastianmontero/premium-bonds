@@ -39,7 +39,7 @@ import {
   ESTIMATED_TX_FEE_LAMPORTS,
   DEFAULT_SAVE_KEYS_PATH,
 } from "./user-seeding";
-import { DEVNET_USERS_PATH } from "./devnet-state";
+import { DEVNET_USERS_PATH } from "./cluster-state";
 import {
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,

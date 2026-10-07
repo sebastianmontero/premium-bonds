@@ -36,6 +36,8 @@ import {
   type DeficitSimulationReport,
   SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
   DEFAULT_DEFICIT_USDC,
+  createSetComputeUnitLimitInstruction,
+  createSetComputeUnitPriceInstruction,
 } from "../app/lib/bonds-sdk";
 export {
   decodeAccountBase64Data,
@@ -43,6 +45,8 @@ export {
   type DeficitSimulationReport,
   SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
   DEFAULT_DEFICIT_USDC,
+  createSetComputeUnitLimitInstruction,
+  createSetComputeUnitPriceInstruction,
 };
 import { normalizeInstructionSigners } from "../app/lib/tx-utils";
 export { normalizeInstructionSigners };
@@ -52,8 +56,21 @@ import {
   DEVNET_ENV_PATH,
   DEFAULT_ENV_PATH,
   isLocalMockUrl,
-} from "./devnet-state";
-export { isLocalMockUrl, LOCAL_ENV_PATH, DEVNET_ENV_PATH, DEFAULT_ENV_PATH };
+  CLUSTER_CONFIGS,
+  MAINNET_GENESIS_HASH,
+  DEVNET_GENESIS_HASH,
+  assertCluster,
+} from "./cluster-state";
+export {
+  isLocalMockUrl,
+  LOCAL_ENV_PATH,
+  DEVNET_ENV_PATH,
+  DEFAULT_ENV_PATH,
+  CLUSTER_CONFIGS,
+  MAINNET_GENESIS_HASH,
+  DEVNET_GENESIS_HASH,
+  assertCluster,
+};
 export {
   parseEnvLine,
   readEnvFile,
@@ -647,8 +664,20 @@ export function safeStringify(obj: unknown, space?: string | number): string {
   }
 }
 
+export type MicroLamports = bigint & { readonly __brand: unique symbol };
+export const microLamports = (val: bigint | number): MicroLamports =>
+  BigInt(val) as MicroLamports;
+
+export interface SendTxOptions {
+  readonly priorityFeeMicroLamports?: MicroLamports | bigint | number;
+  readonly computeUnitLimit?: number;
+  readonly maxSendRetries?: number;
+  readonly confirmationTimeoutAttempts?: number;
+  readonly commitment?: "confirmed" | "finalized";
+}
+
 /**
- * Sends a transaction and polls for its confirmation status.
+ * Sends a transaction and polls for its confirmation status with optional priority fees and active rebroadcasting.
  */
 export async function sendTx(
   rpc: ReturnType<typeof createSolanaRpc>,
@@ -656,7 +685,8 @@ export async function sendTx(
   signers:
     | KeyPairSigner
     | [KeyPairSigner, ...KeyPairSigner[]]
-    | readonly KeyPairSigner[]
+    | readonly KeyPairSigner[],
+  options?: SendTxOptions
 ): Promise<string> {
   const signerList = Array.isArray(signers) ? signers : [signers];
   if (signerList.length === 0) {
@@ -665,9 +695,25 @@ export async function sendTx(
   const payerSigner = signerList[0];
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
 
-  const rawInstructions: Instruction[] = Array.isArray(instruction)
-    ? [...instruction]
-    : [instruction];
+  const rawInstructions: Instruction[] = [];
+
+  if (options?.computeUnitLimit !== undefined) {
+    rawInstructions.push(
+      createSetComputeUnitLimitInstruction(options.computeUnitLimit)
+    );
+  }
+  if (options?.priorityFeeMicroLamports !== undefined) {
+    rawInstructions.push(
+      createSetComputeUnitPriceInstruction(options.priorityFeeMicroLamports)
+    );
+  }
+
+  if (Array.isArray(instruction)) {
+    rawInstructions.push(...instruction);
+  } else {
+    rawInstructions.push(instruction);
+  }
+
   const instructions = normalizeInstructionSigners(rawInstructions, signerList);
 
   let message = createTransactionMessage({ version: 0 });
@@ -684,7 +730,7 @@ export async function sendTx(
 
   try {
     signature = await rpc
-      .sendTransaction(wireTx, { encoding: "base64" })
+      .sendTransaction(wireTx, { encoding: "base64", maxRetries: 0n })
       .send();
   } catch (err) {
     // Attach error context if available
@@ -694,12 +740,28 @@ export async function sendTx(
 
   console.log(`Transaction sent: ${signature}. Waiting for confirmation...`);
 
-  for (let i = 0; i < 15; i++) {
+  const maxAttempts = options?.confirmationTimeoutAttempts ?? 25;
+  const rebroadcastIntervalAttempts = 2;
+
+  for (let i = 0; i < maxAttempts; i++) {
     await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // Periodic rebroadcast to ensure delivery during congestion
+    if (i > 0 && i % rebroadcastIntervalAttempts === 0) {
+      try {
+        await rpc
+          .sendTransaction(wireTx, { encoding: "base64", maxRetries: 0n })
+          .send();
+      } catch {
+        // Ignore rebroadcast network errors
+      }
+    }
+
     try {
       const status = await rpc.getSignatureStatuses([signature]).send();
       if (status && status.value && status.value[0]) {
-        const err = status.value[0].err;
+        const txStatus = status.value[0];
+        const err = txStatus.err;
         if (err) {
           const errDetails = safeStringify(err);
           const matched = matchAnchorError(errDetails);
@@ -713,8 +775,13 @@ export async function sendTx(
           (txError as any).rawError = err;
           throw txError;
         }
-        console.log("Transaction confirmed successfully!");
-        return signature;
+        if (
+          txStatus.confirmationStatus === "confirmed" ||
+          txStatus.confirmationStatus === "finalized"
+        ) {
+          console.log("Transaction confirmed successfully!");
+          return signature;
+        }
       }
     } catch (e) {
       if (e instanceof Error && e.message.startsWith("Transaction failed:")) {
@@ -726,7 +793,7 @@ export async function sendTx(
   }
 
   const timeoutError = new Error(
-    `Transaction confirmation timed out after 15 attempts. Signature: ${signature}`
+    `Transaction confirmation timed out after ${maxAttempts} attempts. Signature: ${signature}`
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (timeoutError as any).signature = signature;

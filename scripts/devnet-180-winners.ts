@@ -24,10 +24,10 @@ import {
   printErrorDetails,
 } from "./utils";
 import {
-  readDevnetAddresses,
+  readClusterAddresses,
   DevnetProtocolAccounts,
   assertActiveEnvIsNotLocalnet,
-} from "./devnet-state";
+} from "./cluster-state";
 import {
   PROGRAM_ID,
   HUMA_PROGRAM_ID,
@@ -368,7 +368,7 @@ export async function runDevnet180WinnerTest(
   console.log("\n[Step 0/9] Checking RPC Health & Loading Credentials...");
   await checkRpcHealth(options.rpcUrl);
 
-  const accounts = readDevnetAddresses();
+  const accounts = readClusterAddresses("devnet");
   if (!accounts || !accounts.adminAddress || !accounts.humaPoolState) {
     throw new Error(
       "Devnet accounts not configured in scripts/devnet-state/addresses.json. Please run 'npm run devnet init' first."

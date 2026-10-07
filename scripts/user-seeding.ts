@@ -29,10 +29,10 @@ import {
   SYSTEM_PROGRAM_ID,
 } from "./utils";
 import {
-  readDevnetAddresses,
+  readClusterAddresses,
   assertActiveEnvIsNotLocalnet,
   DEVNET_USERS_PATH,
-} from "./devnet-state";
+} from "./cluster-state";
 import {
   findPrizePoolPda,
   findAtaAddress,
@@ -304,7 +304,7 @@ export async function resolveSeedingAccounts(
   poolId: number = 1,
   overrides?: Partial<SeedingProtocolAccounts>
 ): Promise<SeedingProtocolAccounts> {
-  const devnetAddrs = readDevnetAddresses() ?? {};
+  const devnetAddrs = readClusterAddresses("devnet") ?? {};
   let onChainPool: {
     tokenMint?: Address;
     ticketRegistry?: Address;

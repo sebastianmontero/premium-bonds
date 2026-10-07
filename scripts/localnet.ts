@@ -81,7 +81,7 @@ import {
   ProtocolAccounts,
   LOCAL_ENV_PATH,
   LOCALNET_ENV_PATH,
-} from "./devnet-state";
+} from "./cluster-state";
 
 // Constants
 const RPC_URL = "http://127.0.0.1:8899";

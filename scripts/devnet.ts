@@ -51,15 +51,29 @@ import {
 } from "./utils";
 import {
   DevnetProtocolAccounts,
-  writeDevnetAddresses,
-  readDevnetAddresses,
-  syncDevnetToActiveEnv,
+  writeClusterAddresses,
+  readClusterAddresses,
+  syncClusterToActiveEnv,
   assertActiveEnvIsNotLocalnet,
   PRESERVED_CLOUD_VARS,
   PROJECT_ROOT,
   LOCAL_ENV_PATH,
   DEVNET_ENV_PATH,
-} from "./devnet-state";
+} from "./cluster-state";
+import {
+  ensureTicketRegistryAllocated,
+  reconcilePoolState,
+  ensureHumaLenderStateOnChain,
+  ExpectedPoolAddresses,
+  HUMA_LENDER_STATE_SPACE,
+} from "./account-utils";
+export {
+  reconcilePoolState,
+  ensureHumaLenderStateOnChain,
+  HUMA_LENDER_STATE_SPACE,
+  ExpectedPoolAddresses,
+};
+import { getProgramDeployStatus, cleanDeployBuffers } from "./deploy-utils";
 import { provisionDevnetRandomnessAccount } from "./create-switchboard-randomness";
 import { runDevnet180WinnerTest } from "./devnet-180-winners";
 import {
@@ -75,7 +89,7 @@ export {
 };
 
 function loadDevnetAccounts(): DevnetProtocolAccounts {
-  const accounts = readDevnetAddresses();
+  const accounts = readClusterAddresses("devnet");
   if (!accounts || !accounts.adminAddress || !accounts.humaPoolState) {
     throw new Error(
       "Devnet accounts not configured. Please run 'npm run devnet init' or 'npm run devnet sync-env'."
@@ -184,94 +198,6 @@ function printUsage() {
   console.log(
     "  test-180 [--seed-users <n>] [--keep-config] [--pool <id>] [--yield <usdc>] Executes 180-winner turnkey test on devnet"
   );
-}
-
-export interface ExpectedPoolAddresses {
-  readonly tokenMint: Address;
-  readonly ticketRegistry: Address;
-  readonly feeWallet: Address;
-}
-
-/**
- * Reconciles on-chain Prize Pool configuration against expected local addresses.
- */
-export function reconcilePoolState(
-  onChainPool: {
-    tokenMint: Address;
-    ticketRegistry: Address;
-    feeWallet: Address;
-  },
-  expected: ExpectedPoolAddresses
-): { isMatch: boolean; mismatches: string[] } {
-  const mismatches: string[] = [];
-  if (onChainPool.tokenMint !== expected.tokenMint) {
-    mismatches.push(
-      `tokenMint mismatch: on-chain=${onChainPool.tokenMint} vs local=${expected.tokenMint}`
-    );
-  }
-  if (onChainPool.ticketRegistry !== expected.ticketRegistry) {
-    mismatches.push(
-      `ticketRegistry mismatch: on-chain=${onChainPool.ticketRegistry} vs local=${expected.ticketRegistry}`
-    );
-  }
-  if (onChainPool.feeWallet !== expected.feeWallet) {
-    mismatches.push(
-      `feeWallet mismatch: on-chain=${onChainPool.feeWallet} vs local=${expected.feeWallet}`
-    );
-  }
-  return { isMatch: mismatches.length === 0, mismatches };
-}
-
-const PROGRAM_DATA_AUTHORITY_FLAG_OFFSET = 12;
-const PROGRAM_DATA_AUTHORITY_PUBKEY_OFFSET = 13;
-const PUBKEY_LENGTH = 32;
-const MIN_PROGRAM_DATA_HEADER_LEN =
-  PROGRAM_DATA_AUTHORITY_PUBKEY_OFFSET + PUBKEY_LENGTH;
-
-export async function getProgramDeployStatus(
-  rpc: ReturnType<typeof createSolanaRpc>,
-  programAddress: Address
-): Promise<{ isDeployed: boolean; upgradeAuthority: Address | null }> {
-  const account = await rpc
-    .getAccountInfo(programAddress, { encoding: "base64" })
-    .send();
-  if (!account.value || !account.value.executable) {
-    return { isDeployed: false, upgradeAuthority: null };
-  }
-
-  const programDataAddress = await findProgramDataPda(programAddress);
-  const dataAccount = await rpc
-    .getAccountInfo(programDataAddress, { encoding: "base64" })
-    .send();
-  if (!dataAccount.value) {
-    return { isDeployed: true, upgradeAuthority: null };
-  }
-
-  const raw = decodeAccountBase64Data(dataAccount.value);
-  if (!raw || raw.length < MIN_PROGRAM_DATA_HEADER_LEN) {
-    return { isDeployed: true, upgradeAuthority: null };
-  }
-
-  // Verify UpgradeableLoaderState::ProgramData variant tag (3)
-  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-  if (view.getUint32(0, true) !== 3) {
-    return { isDeployed: true, upgradeAuthority: null };
-  }
-
-  const hasAuthority = raw[PROGRAM_DATA_AUTHORITY_FLAG_OFFSET] === 1;
-  const authority = hasAuthority
-    ? getBase58Decoder().decode(
-        raw.subarray(
-          PROGRAM_DATA_AUTHORITY_PUBKEY_OFFSET,
-          PROGRAM_DATA_AUTHORITY_PUBKEY_OFFSET + PUBKEY_LENGTH
-        )
-      )
-    : null;
-
-  return {
-    isDeployed: true,
-    upgradeAuthority: authority ? address(authority) : null,
-  };
 }
 
 async function deployOrUpgradeProgram(
@@ -385,23 +311,7 @@ async function handleDeploy(args: string[]) {
 
 async function handleCleanBuffers(args: string[]) {
   const payerKeypairPath = resolveDefaultKeypairPath(args[0]);
-  console.log(
-    `Reclaiming unused program deploy buffers with fee payer / authority ${payerKeypairPath}...`
-  );
-  execFileSync(
-    "solana",
-    [
-      "program",
-      "close",
-      "--buffers",
-      "--fee-payer",
-      payerKeypairPath,
-      "--url",
-      DEVNET_RPC_URL,
-    ],
-    { stdio: "inherit" }
-  );
-  console.log("✓ Buffer cleanup complete.");
+  cleanDeployBuffers(DEVNET_RPC_URL, payerKeypairPath);
 }
 
 async function handleCreateRandomness(args: string[]) {
@@ -419,69 +329,6 @@ async function handleCreateRandomness(args: string[]) {
   );
   const forceNew = flags.has("--force");
   await provisionDevnetRandomnessAccount({ payerKeypairPath, forceNew });
-}
-
-export const HUMA_LENDER_STATE_SPACE = 64n;
-
-export interface EnsureHumaLenderStateParams {
-  readonly rpc: ReturnType<typeof createSolanaRpc>;
-  readonly payer: KeyPairSigner;
-  readonly lenderStateSigner: KeyPairSigner;
-  readonly humaProgramId: Address;
-}
-
-/**
- * Idempotently verifies and allocates the Mock Huma lender_state account on-chain.
- */
-export async function ensureHumaLenderStateOnChain(
-  params: EnsureHumaLenderStateParams
-): Promise<void> {
-  const accountInfo = await fetchAccountInfo(
-    params.rpc,
-    params.lenderStateSigner.address
-  );
-
-  if (accountInfo?.value) {
-    const isOwnerValid = accountInfo.value.owner === params.humaProgramId;
-    const rawData = decodeAccountBase64Data(accountInfo.value);
-    const isSpaceValid = (rawData?.length ?? 0) >= 16;
-
-    if (isOwnerValid && isSpaceValid) {
-      console.log(
-        `Huma lender state account ${params.lenderStateSigner.address} already allocated on-chain.`
-      );
-      return;
-    }
-    if (!isOwnerValid) {
-      throw new Error(
-        `Existing Huma lender state account ${params.lenderStateSigner.address} is owned by ${accountInfo.value.owner}, expected ${params.humaProgramId}. Please re-run devnet init to generate a fresh keypair.`
-      );
-    }
-    console.warn(
-      `⚠️  Existing Huma lender state account has truncated space (${rawData?.length ?? 0}). Re-allocating...`
-    );
-  }
-
-  console.log(
-    `Allocating Huma lender state account (${params.lenderStateSigner.address}) on-chain...`
-  );
-  const rentExempt = await params.rpc
-    .getMinimumBalanceForRentExemption(HUMA_LENDER_STATE_SPACE)
-    .send();
-
-  const createAccountIx = buildCreateAccountInstruction({
-    payer: params.payer,
-    newAccount: params.lenderStateSigner,
-    lamports: rentExempt,
-    space: HUMA_LENDER_STATE_SPACE,
-    ownerProgramId: params.humaProgramId,
-  });
-
-  await sendTx(params.rpc, createAccountIx, [
-    params.payer,
-    params.lenderStateSigner,
-  ]);
-  console.log("✓ Huma lender state account allocated successfully on-chain.");
 }
 
 export interface SettleCliOptions {
@@ -838,80 +685,19 @@ async function handleInit(args: string[]) {
     .send();
 
   // Create Ticket Registry
-  console.log("Allocating Ticket Registry account...");
   const ticketRegistryKeyPath = path.resolve(
     STATE_DIR,
     "ticket-registry-key.json"
   );
-  let ticketRegistrySigner = await loadOrGenerateKeypair(
-    ticketRegistryKeyPath,
-    { overwriteIfInvalid: true, label: "Ticket Registry" }
-  );
-
-  let ticketRegistryAddress = ticketRegistrySigner.address;
-  console.log(`Ticket Registry address: ${ticketRegistryAddress}`);
-
-  let ticketRegistryInfo = await rpc
-    .getAccountInfo(ticketRegistryAddress, { encoding: "base64" })
-    .send();
-
-  // If ticket registry account exists on-chain, verify owner and discriminator
-  if (ticketRegistryInfo?.value) {
-    const isOwnerValid = ticketRegistryInfo.value.owner === anchorProgramId;
-    let shouldRegenerate = !isOwnerValid;
-
-    if (isOwnerValid && !poolInfo?.value) {
-      const rawData = decodeAccountBase64Data(ticketRegistryInfo.value);
-      const isZeroed = rawData
-        ? rawData.subarray(0, 8).every((b: number) => b === 0)
-        : true;
-      if (!isZeroed) {
-        shouldRegenerate = true;
-      }
-    }
-
-    if (shouldRegenerate) {
-      console.warn(
-        `⚠️  Existing Ticket Registry account is invalid (owner: ${ticketRegistryInfo.value.owner}, expected: ${anchorProgramId}, or non-zero discriminator). Regenerating fresh keypair...`
-      );
-      if (fs.existsSync(ticketRegistryKeyPath)) {
-        fs.unlinkSync(ticketRegistryKeyPath);
-      }
-      ticketRegistrySigner = await generateAndSaveKeypair(
-        ticketRegistryKeyPath
-      );
-      ticketRegistryAddress = ticketRegistrySigner.address;
-      console.log(`New Ticket Registry address: ${ticketRegistryAddress}`);
-      ticketRegistryInfo = await rpc
-        .getAccountInfo(ticketRegistryAddress, { encoding: "base64" })
-        .send();
-    }
-  }
-
-  if (!ticketRegistryInfo?.value) {
-    const space = BigInt(REGISTRY_INITIAL_SIZE);
-    const rentExempt = await rpc
-      .getMinimumBalanceForRentExemption(space)
-      .send();
-    console.log(
-      `Required rent exemption for Ticket Registry: ${Number(rentExempt) / 1_000_000_000} SOL`
-    );
-
-    const createAccountIx = buildCreateAccountInstruction({
+  const { ticketRegistrySigner, ticketRegistryAddress } =
+    await ensureTicketRegistryAllocated({
+      rpc,
       payer: adminSigner,
-      newAccount: ticketRegistrySigner,
-      lamports: rentExempt,
-      space,
-      ownerProgramId: address(anchorProgramId),
+      ticketRegistryKeyPath,
+      anchorProgramId,
+      poolExistsOnChain: !!poolInfo?.value,
+      forceRegenerate: true,
     });
-
-    console.log(
-      "Sending System CreateAccount transaction for Ticket Registry..."
-    );
-    await sendTx(rpc, createAccountIx, [adminSigner, ticketRegistrySigner]);
-  } else {
-    console.log("Ticket Registry account already allocated on-chain.");
-  }
 
   // Initialize Global Config
   const globalConfigAddress = await findGlobalConfigPda();
@@ -1030,8 +816,8 @@ async function handleInit(args: string[]) {
     randomnessAccount: randomnessAddressStr,
   };
 
-  writeDevnetAddresses(devnetAccounts);
-  syncDevnetToActiveEnv();
+  writeClusterAddresses("devnet", devnetAccounts);
+  syncClusterToActiveEnv("devnet");
 
   console.log("Devnet initialization sequence completed successfully!");
 }
@@ -1603,7 +1389,8 @@ async function handleSyncEnv(args: string[]) {
     `Re-synchronizing Devnet configuration from .env.devnet to ${targetFile}...`
   );
 
-  const devnetVars = syncDevnetToActiveEnv(
+  const devnetVars = syncClusterToActiveEnv(
+    "devnet",
     path.resolve(PROJECT_ROOT, targetFile)
   );
 

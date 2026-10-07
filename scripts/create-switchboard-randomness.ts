@@ -16,7 +16,7 @@ import {
   DEVNET_ENV_PATH,
   recordDevnetRandomnessAccount,
   assertActiveEnvIsNotLocalnet,
-} from "./devnet-state";
+} from "./cluster-state";
 import { readEnvFile } from "./env-utils";
 import { parseSwitchboardRandomnessHeader } from "../services/crank/vrf/randomness-provider";
 
