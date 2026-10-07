@@ -681,6 +681,22 @@ Transparency and cryptographic fairness are foundational to YieldBonds. Prize dr
 
 ---
 
+## Two-Phase Switchboard On-Demand VRF Commitment
+
+YieldBonds enforces a strict two-phase commit-and-reveal security protocol for verifiable randomness:
+
+1. **Phase 1: Seed Slot Commitment**: The Switchboard randomness account must be committed on-chain with \`seed_slot > 0\` before executing the harvest freeze. If uncommitted, the contract halts with \`RandomnessNotCommitted\` (Error \`6068\` / \`0x17b4\`).
+2. **Phase 2: Freshness Window & Pre-Reveal Guard**:
+   - **Freshness Window**: The randomness request must be resolved within 1,000 slots (~6.6 minutes). Requests older than 1,000 slots are rejected as stale (\`StaleRandomnessRequest\` / \`6030\`), allowing crank operators to rebind via \`crank_rebind_expired_randomness\`.
+   - **Pre-Reveal Guard**: The randomness account must NOT have been revealed prior to harvest freeze commitment (\`RandomnessAlreadyResolved\` / \`6069\` / \`0x17b5\`).
+3. **Phase 3: Oracle Resolution & Winner Picking**: Once Switchboard oracle nodes fulfill and resolve the randomness on-chain, \`reveal_and_pick_winners\` deterministically picks winners.
+
+### Cryptographic Anti-Front-Running Security Rationale
+
+Requiring \`reveal_slot == 0 && value == [0u8; 32]\` at the moment of harvest freeze guarantees that no party (neither crank operators, miners, nor users) can know or predict the random seed prior to freezing deposits and snapshotting ticket counts. This eliminates look-ahead bias and ticket-reordering front-running attacks.
+
+---
+
 ## Provable Fairness: The 44-Byte Cryptographic Formula
 
 Winner derivation is executed natively in \`anchor/programs/anchor/src/utils.rs\`:
@@ -718,6 +734,22 @@ La transparencia y la equidad criptográfica son fundamentales en YieldBonds. Lo
 4. **Derivación de Ganadores (\`reveal_and_pick_winners\`)**: El contrato inteligente calcula deterministamente los bonos ganadores mediante la fórmula criptográfica de 44 bytes y los guarda en el \`PayoutRegistry\`.
 5. **Bloqueo Temporal de Liquidación**: Se activa una pausa de seguridad obligatoria (defecto: 300 segundos / 5 minutos) que permite la auditoría pública y evita exploits de front-running.
 6. **Crank de Reinversión (\`reinvest_winnings\`)**: Tras expirar el bloqueo, el crank reinvierte los bonos enteros y acredita los saldos restantes.
+
+---
+
+## Compromiso VRF en Dos Fases con Switchboard On-Demand
+
+YieldBonds implementa un protocolo estricto de dos fases (commit-and-reveal) para la aleatoriedad verificable:
+
+1. **Fase 1: Compromiso de Slot de Semilla (Seed Slot)**: La cuenta de aleatoriedad de Switchboard debe confirmarse en cadena con \`seed_slot > 0\` antes de ejecutar la cosecha. Si no está confirmada, el contrato falla con \`RandomnessNotCommitted\` (Error \`6068\` / \`0x17b4\`).
+2. **Fase 2: Ventana de Frescura y Protección Previa a la Revelación**:
+   - **Ventana de Frescura**: La solicitud debe resolverse dentro de los 1,000 slots (~6.6 minutos). Solicitudes con más de 1,000 slots se consideran obsoletas (\`StaleRandomnessRequest\` / \`6030\`), permitiendo a los operadores de crank reasignar una nueva semilla vía \`crank_rebind_expired_randomness\`.
+   - **Protección Previa a la Revelación**: La cuenta de aleatoriedad NO debe haber sido revelada antes del compromiso de cosecha (\`RandomnessAlreadyResolved\` / \`6069\` / \`0x17b5\`).
+3. **Fase 3: Resolución del Oráculo y Selección de Ganadores**: Una vez que los nodos de Switchboard resuelven la aleatoriedad en la red, \`reveal_and_pick_winners\` selecciona deterministamente a los ganadores.
+
+### Justificación de Seguridad Criptográfica Anti-Front-Running
+
+Exigir que \`reveal_slot == 0 && value == [0u8; 32]\` al momento de la congelación de cosecha garantiza que ninguna entidad (ni operadores de crank, validadores o usuarios) pueda conocer o predecir la semilla aleatoria antes de fijar los depósitos y capturar los bonos. Esto elimina sesgos de anticipación y ataques de reordenamiento de boletos.
 
 ---
 
@@ -952,6 +984,9 @@ We eliminate unnecessary jargon across the YieldBonds interface. Here is our tra
 | **Bonus Bond** | **Loyalty / Dust Bond** | A full ticket earned automatically from aggregated prior fractional winnings. |
 | **Settlement Timelock** | **Verification Pause** | A 5-minute safety delay after winner selection allowing open public audit before payout. |
 | **Draw Target** | **Minimum Pot Threshold** | The required yield for a draw; if unmet, 100% of yield rolls over to the next cycle. |
+| **Pending Redemption** | **Queued Withdrawal** | An asynchronous withdrawal request processing through Huma credit facilities before funds disburse into the pool vault. |
+| **Guardian** | **Emergency Pauser** | A dedicated safety role authorized to instantly freeze pool deposits, withdrawals, and draws without multisig delays. |
+| **Seed Slot / Commitment Slot** | **Randomness Verification Slot** | The exact blockchain slot at which the draw's random seed was locked before oracle resolution. |
       `,
       es: `
 # Glosario Cripto en Lenguaje Sencillo
@@ -973,6 +1008,9 @@ Eliminamos tecnicismos innecesarios en la interfaz de YieldBonds. Esta es nuestr
 | **Bonus Bond** | **Bono de Bonificación** | Un bono completo generado automáticamente de la agregación de saldos restantes. |
 | **Settlement Timelock** | **Pausa de Verificación** | Pausa de seguridad de 5 minutos tras el sorteo para permitir la auditoría pública antes del pago. |
 | **Draw Target** | **Meta Mínima de la Bolsa** | Rendimiento mínimo para realizar el sorteo; si no se alcanza, el 100% se acumula para el siguiente ciclo. |
+| **Pending Redemption** | **Retiro en Cola** | Solicitud de retiro asíncrona que se procesa a través de Huma Finance antes de desembolsarse en el vault. |
+| **Guardian** | **Pausador de Emergencia** | Rol de seguridad autorizado para congelar instantáneamente depósitos, retiros y sorteos sin demoras multisig. |
+| **Seed Slot / Commitment Slot** | **Slot de Verificación de Aleatoriedad** | El slot exacto de la blockchain en el cual se fijó la semilla aleatoria del sorteo antes de su resolución por el oráculo. |
       `,
     },
   },
@@ -1151,8 +1189,8 @@ YieldBonds ofrece orientación contextual, indicadores visuales y paneles de tel
       es: "Índice de Errores y Herramienta Decodificadora",
     },
     summary: {
-      en: "Self-service lookup index and decoder tool for all 68 Anchor program error codes (6000-6067) and Solana RPC errors.",
-      es: "Índice de búsqueda y decodificador para los 68 códigos de error de Anchor (6000-6067) y errores RPC de Solana.",
+      en: "Self-service lookup index and decoder tool for all 70 Anchor program error codes (6000-6069) and Solana RPC errors.",
+      es: "Índice de búsqueda y decodificador para los 70 códigos de error de Anchor (6000-6069) y errores RPC de Solana.",
     },
     tags: [
       "errors",
@@ -1169,8 +1207,17 @@ YieldBonds ofrece orientación contextual, indicadores visuales y paneles de tel
       "0x17b2",
       "6067",
       "0x17b3",
+      "6068",
+      "0x17b4",
+      "6069",
+      "0x17b5",
       "vault",
       "decimals",
+      "commit",
+      "randomness",
+      "computebudget",
+      "cu",
+      "compute",
     ],
     content: {
       en: `
@@ -1430,7 +1477,7 @@ YieldBonds implementa un modelo de gobernanza de emergencia de dos niveles. Un r
 ];
 
 // =========================================================================
-// Complete 68 Anchor Error Codes (6000-6067) + Standard Solana Errors
+// Complete 70 Anchor Error Codes (6000-6069) + Standard Solana Errors
 // =========================================================================
 export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
   // Standard Solana & Wallet Errors
@@ -1493,6 +1540,29 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     category: "network",
   },
   {
+    code: "ComputeBudgetExceeded",
+    aliases: [
+      "COMPUTE_BUDGET_EXCEEDED",
+      "ComputationalBudgetExceeded",
+      "4615038", // SOLANA_ERROR__INSTRUCTION_ERROR__COMPUTATIONAL_BUDGET_EXCEEDED
+      "0xb",
+    ],
+    name: "ComputeBudgetExceeded",
+    summary: {
+      en: "The transaction exceeded its allocated Solana Compute Unit (CU) budget.",
+      es: "La transacción superó el presupuesto asignado de Unidades de Cómputo (CU) de Solana.",
+    },
+    diagnosis: {
+      en: "The instructions inside the transaction required more compute units (CU) than the requested limit (or default 200,000 CU).",
+      es: "Las instrucciones dentro de la transacción requirieron más unidades de cómputo (CU) que el límite solicitado (o el límite por defecto de 200,000 CU).",
+    },
+    solution: {
+      en: "Increase the transaction's compute unit limit using a SetComputeUnitLimit instruction or batch operations into smaller chunks.",
+      es: "Aumenta el límite de unidades de cómputo con la instrucción SetComputeUnitLimit o divide las operaciones en lotes más pequeños.",
+    },
+    category: "network",
+  },
+  {
     code: "4900",
     name: "WalletDisconnectedError",
     summary: {
@@ -1510,7 +1580,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     category: "wallet",
   },
 
-  // 68 Anchor Error Codes (6000 to 6067)
+  // 70 Anchor Error Codes (6000 to 6069)
   {
     code: "6000",
     numericCode: 6000,
@@ -2607,6 +2677,44 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     },
     category: "anchor",
   },
+  {
+    code: "6068",
+    numericCode: 6068,
+    hexCode: "0x17b4",
+    name: "RandomnessNotCommitted",
+    summary: {
+      en: "Switchboard randomness account has not been committed yet.",
+      es: "La cuenta de aleatoriedad Switchboard no ha sido confirmada (commit) todavía.",
+    },
+    diagnosis: {
+      en: "The Switchboard randomness account has a seed_slot of 0, meaning it was initialized but never committed to a block slot.",
+      es: "La cuenta de aleatoriedad Switchboard tiene un seed_slot de 0, lo que significa que fue inicializada pero nunca confirmada en un slot de bloque.",
+    },
+    solution: {
+      en: "Ensure the Switchboard commit instruction executes and confirms on-chain prior to submitting the protocol harvest instruction.",
+      es: "Asegúrate de que la instrucción commit de Switchboard se ejecute y confirme en la red antes de enviar la instrucción de cosecha del protocolo.",
+    },
+    category: "crank",
+  },
+  {
+    code: "6069",
+    numericCode: 6069,
+    hexCode: "0x17b5",
+    name: "RandomnessAlreadyResolved",
+    summary: {
+      en: "Randomness account has already been revealed prior to commitment.",
+      es: "La cuenta de aleatoriedad ya ha sido revelada antes de la confirmación.",
+    },
+    diagnosis: {
+      en: "The Switchboard randomness account already contains a revealed random value before the harvest instruction committed it.",
+      es: "La cuenta de aleatoriedad Switchboard ya contiene un valor aleatorio revelado antes de que la instrucción de cosecha la confirmara.",
+    },
+    solution: {
+      en: "Generate and commit a fresh Switchboard randomness account for the new draw cycle before submitting.",
+      es: "Genera y confirma una nueva cuenta de aleatoriedad Switchboard para el nuevo ciclo de sorteo antes de enviarla.",
+    },
+    category: "crank",
+  },
 ];
 
 // =========================================================================
@@ -2721,6 +2829,9 @@ export function searchErrorLookupItems(
     const hex = item.hexCode ? normalizeSearchText(item.hexCode) : "";
     const numeric = item.numericCode ? String(item.numericCode) : "";
     const name = normalizeSearchText(item.name);
+    const summary = item.summary
+      ? normalizeSearchText(item.summary[targetLocale] || item.summary.en)
+      : "";
     const diagnosis = normalizeSearchText(
       item.diagnosis[targetLocale] || item.diagnosis.en
     );
@@ -2736,6 +2847,7 @@ export function searchErrorLookupItems(
       hex.includes(cleanQuery) ||
       numeric.includes(cleanQuery) ||
       name.includes(cleanQuery) ||
+      summary.includes(cleanQuery) ||
       diagnosis.includes(cleanQuery) ||
       solution.includes(cleanQuery) ||
       matchesAliases

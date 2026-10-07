@@ -377,3 +377,55 @@ npm run pb-cli squads-approve -- --index 1 --memo "Approve fee rate update to 1.
 # Step 3: Execute approved proposal after timelock expires
 npm run pb-cli squads-execute -- --index 1
 ```
+
+---
+
+## Help Center & User Documentation (`/docs`)
+
+YieldBonds includes a built-in, comprehensive user documentation system and self-service help center accessible at `/docs` (and `/es/docs` in Spanish).
+
+### 1. 4-Tier Information Architecture
+
+The documentation is organized into 4 distinct categories designed for progressive disclosure:
+
+1. **`1-getting-started` (🚀 Getting Started)**:
+   - Protocol overview and Zero-Loss Savings mechanics.
+   - Solana wallet setup (Phantom, Solflare, Backpack) and seed phrase safety.
+   - Funding network fees (SOL) and deposit liquidity (USDC).
+   - Deposit, withdrawal, and wallet signature authorization steps.
+
+2. **`2-protocol-mechanics` (⚙️ Protocol Mechanics)**:
+   - Huma Finance credit yield generation architecture.
+   - Zero-copy `TicketRegistry` PDA and 1 USDC = 1 Bond ratio.
+   - Switchboard On-Demand VRF 6-stage draw cycle, two-phase commitment, and 44-byte SHA-256 derivation formula.
+   - Huma yield APY breakdown, multi-tier allocations, and pot rollover threshold protection.
+   - Circuit breakers, emergency controls, and Squads v4 multisig governance.
+
+3. **`3-in-app-help` (💡 In-App Guidance)**:
+   - Plain-Language Crypto Glossary translating complex Web3 jargon into user-friendly copy.
+   - 6 transaction lifecycle progress states (`idle`, `preparing`, `signing`, `broadcasting`, `confirming`, `success`/`error`).
+   - Contextual UI reference for tooltips, warning banners, dust badges, timelock countdowns, and inspector drawers.
+
+4. **`4-troubleshooting` (🛠️ Troubleshooting & Support)**:
+   - Complete 70 Anchor error codes (6000–6069) and standard Solana RPC errors index.
+   - Step-by-step resolution playbook for stuck transactions and blockhash expirations.
+   - Anti-phishing safety, verified protocol addresses, and emergency reporting channels.
+   - Frequently Asked Questions (FAQ) covering core protocol questions.
+
+### 2. Interactive Error Decoder Tool
+
+The Help Center features an interactive diagnostic tool (`/docs/4-troubleshooting/common-errors`) supporting:
+
+- **Instant Search**: Lookup by error code (decimal `6044` or hex `0x179c`), error name (`PayoutTimelockActive`), or Solana SDK alias (`4615038`, `COMPUTE_BUDGET_EXCEEDED`).
+- **URL Deep-Linking**: Directly share diagnostic links (e.g. `/docs/4-troubleshooting/common-errors?code=6068` or `?code=ComputeBudgetExceeded`) to open the exact error diagnosis and actionable steps.
+- **In-App Integration**: Failed transaction alerts feature a direct **"🛠️ Diagnose in Error Decoder"** button linking straight to the diagnosis.
+
+### 3. In-App Interactive Guidance Components
+
+- **`InteractiveTooltip`**: Hover and tap tooltips explaining APY, TVL, and Draw Targets.
+- **`YieldBreakdownTooltip` / `DrawTargetTooltip` / `TimelockTooltipContent`**: Visual breakdown modals for prize tiers and timelocks with strict `en-US` number formatting.
+- **`TransactionProgressModal` & `TransactionErrorDetails`**: Real-time transaction state tracker translating raw simulation errors into human-readable steps.
+
+### 4. Bilingual Localization Architecture
+
+All documentation articles, glossaries, error diagnoses, and UI microcopy feature full bilingual parity across **English (`en`)** and **Spanish (`es`)**, with unaccented diacritics-insensitive search indexing.

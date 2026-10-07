@@ -317,10 +317,7 @@ describe("PrizeHeroCard Component Suite", () => {
       })
     );
 
-    assert.ok(
-      html.includes("$12.34"),
-      "Should render display amount $12.34"
-    );
+    assert.ok(html.includes("$12.34"), "Should render display amount $12.34");
     assert.ok(
       html.includes("line-through"),
       "Should have line-through styling for voided prize"

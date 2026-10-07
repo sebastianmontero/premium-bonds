@@ -15,6 +15,7 @@ const FEATURED_ERROR_PRESETS = [
   "4001",
   "0x1",
   "BlockhashNotFound",
+  "ComputeBudgetExceeded",
   "6000",
   "6007",
   "6020",

@@ -243,9 +243,9 @@ describe("Documentation & Help Center Architecture Suite", () => {
     });
   });
 
-  describe("Complete 68 Anchor Error Codes & Hex Parity", () => {
-    it("should contain all 68 Anchor error codes (6000 to 6067)", () => {
-      for (let code = 6000; code <= 6067; code++) {
+  describe("Complete 70 Anchor Error Codes & Hex Parity", () => {
+    it("should contain all 70 Anchor error codes (6000 to 6069)", () => {
+      for (let code = 6000; code <= 6069; code++) {
         const item = ERROR_LOOKUP_ITEMS.find((e) => e.code === String(code));
         assert.ok(item, `Error code ${code} must exist in ERROR_LOOKUP_ITEMS`);
         assert.strictEqual(
@@ -257,7 +257,7 @@ describe("Documentation & Help Center Architecture Suite", () => {
     });
 
     it("should have exact hex parity for all Anchor error codes (6000+x = 0x1770+x)", () => {
-      for (let code = 6000; code <= 6067; code++) {
+      for (let code = 6000; code <= 6069; code++) {
         const item = ERROR_LOOKUP_ITEMS.find((e) => e.code === String(code));
         const expectedHex = `0x${code.toString(16)}`;
         assert.strictEqual(
@@ -268,7 +268,7 @@ describe("Documentation & Help Center Architecture Suite", () => {
       }
     });
 
-    it("should assert exact hex parity for newly added errors (6046 = 0x179e, 6063 = 0x17af, 6064 = 0x17b0, 6065 = 0x17b1, 6066 = 0x17b2, 6067 = 0x17b3)", () => {
+    it("should assert exact hex parity for newly added errors (6046 = 0x179e, 6063 = 0x17af, 6064 = 0x17b0, 6065 = 0x17b1, 6066 = 0x17b2, 6067 = 0x17b3, 6068 = 0x17b4, 6069 = 0x17b5)", () => {
       const e6046 = ERROR_LOOKUP_ITEMS.find((e) => e.code === "6046");
       assert.ok(e6046);
       assert.strictEqual(e6046.name, "ZeroSharesMinted");
@@ -306,6 +306,22 @@ describe("Documentation & Help Center Architecture Suite", () => {
       assert.strictEqual(e6067.numericCode, 6067);
       assert.ok(e6067.summary?.en && e6067.summary.en.length > 0);
       assert.ok(e6067.summary?.es && e6067.summary.es.length > 0);
+
+      const e6068 = ERROR_LOOKUP_ITEMS.find((e) => e.code === "6068");
+      assert.ok(e6068);
+      assert.strictEqual(e6068.name, "RandomnessNotCommitted");
+      assert.strictEqual(e6068.hexCode, "0x17b4");
+      assert.strictEqual(e6068.numericCode, 6068);
+      assert.ok(e6068.summary?.en && e6068.summary.en.length > 0);
+      assert.ok(e6068.summary?.es && e6068.summary.es.length > 0);
+
+      const e6069 = ERROR_LOOKUP_ITEMS.find((e) => e.code === "6069");
+      assert.ok(e6069);
+      assert.strictEqual(e6069.name, "RandomnessAlreadyResolved");
+      assert.strictEqual(e6069.hexCode, "0x17b5");
+      assert.strictEqual(e6069.numericCode, 6069);
+      assert.ok(e6069.summary?.en && e6069.summary.en.length > 0);
+      assert.ok(e6069.summary?.es && e6069.summary.es.length > 0);
     });
 
     it("should have complete bilingual diagnosis and solution for all error items", () => {
@@ -329,18 +345,27 @@ describe("Documentation & Help Center Architecture Suite", () => {
       }
     });
 
-    it("should contain standard Solana wallet and network errors (4001, 0x1, BlockhashNotFound, 4900)", () => {
+    it("should contain standard Solana wallet and network errors (4001, 0x1, BlockhashNotFound, 4900, ComputeBudgetExceeded)", () => {
       const walletReject = ERROR_LOOKUP_ITEMS.find((e) => e.code === "4001");
       const lowSol = ERROR_LOOKUP_ITEMS.find((e) => e.code === "0x1");
       const expiredBlockhash = ERROR_LOOKUP_ITEMS.find(
         (e) => e.code === "BlockhashNotFound"
       );
       const disconnected = ERROR_LOOKUP_ITEMS.find((e) => e.code === "4900");
+      const computeBudget = ERROR_LOOKUP_ITEMS.find(
+        (e) => e.code === "ComputeBudgetExceeded"
+      );
 
       assert.ok(walletReject, "4001 UserRejectedRequestError must exist");
       assert.ok(lowSol, "0x1 InsufficientFundsForFee must exist");
       assert.ok(expiredBlockhash, "BlockhashNotFound must exist");
       assert.ok(disconnected, "4900 WalletDisconnectedError must exist");
+      assert.ok(computeBudget, "ComputeBudgetExceeded must exist");
+      assert.ok(computeBudget.aliases?.includes("COMPUTE_BUDGET_EXCEEDED"));
+      assert.ok(computeBudget.aliases?.includes("4615038"));
+      assert.ok(computeBudget.aliases?.includes("0xb"));
+      assert.ok(computeBudget.diagnosis.en && computeBudget.diagnosis.es);
+      assert.ok(computeBudget.solution.en && computeBudget.solution.es);
     });
 
     it("should search error lookup items by decimal, hex, and name", () => {
@@ -354,6 +379,12 @@ describe("Documentation & Help Center Architecture Suite", () => {
       const res6067 = searchErrorLookupItems("6067");
       assert.ok(res6067.some((e) => e.name === "InvalidTokenDecimals"));
 
+      const res6068 = searchErrorLookupItems("6068");
+      assert.ok(res6068.some((e) => e.name === "RandomnessNotCommitted"));
+
+      const res6069 = searchErrorLookupItems("6069");
+      assert.ok(res6069.some((e) => e.name === "RandomnessAlreadyResolved"));
+
       // By hex
       const resHex = searchErrorLookupItems("0x179c");
       assert.ok(resHex.some((e) => e.code === "6044"));
@@ -364,7 +395,13 @@ describe("Documentation & Help Center Architecture Suite", () => {
       const resHex6067 = searchErrorLookupItems("0x17b3");
       assert.ok(resHex6067.some((e) => e.code === "6067"));
 
-      // By keyword
+      const resHex6068 = searchErrorLookupItems("0x17b4");
+      assert.ok(resHex6068.some((e) => e.code === "6068"));
+
+      const resHex6069 = searchErrorLookupItems("0x17b5");
+      assert.ok(resHex6069.some((e) => e.code === "6069"));
+
+      // By keyword / alias / summary
       const resKeyword = searchErrorLookupItems("insolvent");
       assert.ok(resKeyword.some((e) => e.code === "6047"));
 
@@ -373,6 +410,19 @@ describe("Documentation & Help Center Architecture Suite", () => {
 
       const resDecimals = searchErrorLookupItems("decimals");
       assert.ok(resDecimals.some((e) => e.code === "6067"));
+
+      const resCompute = searchErrorLookupItems("computebudget");
+      assert.ok(resCompute.some((e) => e.code === "ComputeBudgetExceeded"));
+
+      const resAlias4615038 = searchErrorLookupItems("4615038");
+      assert.ok(
+        resAlias4615038.some((e) => e.code === "ComputeBudgetExceeded")
+      );
+
+      const resSummary = searchErrorLookupItems(
+        "Switchboard randomness account"
+      );
+      assert.ok(resSummary.some((e) => e.code === "6068"));
     });
   });
 });

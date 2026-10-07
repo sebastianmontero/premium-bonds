@@ -16,13 +16,15 @@ import {
   ANCHOR_ERROR__INVALID_BATCH_SIZE,
   ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
   ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
+  ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED,
+  ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
   getAnchorErrorMessage,
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 68 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 68 errors defined from 6000 to 6067 inclusive
-    for (let code = 6000; code <= 6067; code++) {
+  it("should have complete 70 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 70 errors defined from 6000 to 6069 inclusive
+    for (let code = 6000; code <= 6069; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
@@ -54,6 +56,16 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
       ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
       6067,
       "ANCHOR_ERROR__INVALID_TOKEN_DECIMALS must equal 6067"
+    );
+    assert.strictEqual(
+      ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED,
+      6068,
+      "ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED must equal 6068"
+    );
+    assert.strictEqual(
+      ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
+      6069,
+      "ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED must equal 6069"
     );
 
     const poolNotActiveMsg = getAnchorErrorMessage(
@@ -249,6 +261,71 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
     );
     assert.ok(
       parsed6066.actionableStep?.includes("yield venue has not yet disbursed")
+    );
+
+    // 6067: InvalidTokenDecimals
+    assert.strictEqual(
+      ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
+      6067,
+      "ANCHOR_ERROR__INVALID_TOKEN_DECIMALS must equal 6067"
+    );
+    const parsed6067 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: InvalidTokenDecimals. Error Number: 6067.",
+    });
+    assert.strictEqual(parsed6067.code, 6067);
+    assert.strictEqual(parsed6067.title, "Program Error: InvalidTokenDecimals");
+    assert.ok(parsed6067.message.includes("Token mint decimals must equal 6"));
+    assert.ok(
+      parsed6067.actionableStep?.includes(
+        "ensure both the underlying token mint"
+      )
+    );
+
+    // 6068: RandomnessNotCommitted
+    assert.strictEqual(
+      ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED,
+      6068,
+      "ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED must equal 6068"
+    );
+    const parsed6068 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: RandomnessNotCommitted. Error Number: 6068.",
+    });
+    assert.strictEqual(parsed6068.code, 6068);
+    assert.strictEqual(
+      parsed6068.title,
+      "Program Error: RandomnessNotCommitted"
+    );
+    assert.ok(
+      parsed6068.message.includes(
+        "Switchboard randomness account has not been committed"
+      )
+    );
+    assert.ok(parsed6068.actionableStep?.includes("Switchboard commit"));
+
+    // 6069: RandomnessAlreadyResolved
+    assert.strictEqual(
+      ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
+      6069,
+      "ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED must equal 6069"
+    );
+    const parsed6069 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: RandomnessAlreadyResolved. Error Number: 6069.",
+    });
+    assert.strictEqual(parsed6069.code, 6069);
+    assert.strictEqual(
+      parsed6069.title,
+      "Program Error: RandomnessAlreadyResolved"
+    );
+    assert.ok(
+      parsed6069.message.includes(
+        "Randomness account has already been revealed"
+      )
+    );
+    assert.ok(
+      parsed6069.actionableStep?.includes("fresh Switchboard randomness")
     );
   });
 
