@@ -41,8 +41,53 @@ export function ensureEnvLoaded(): void {
   isEnvLoaded = true;
 }
 
-import { parseOptionalAddress } from "../../app/lib/bonds-sdk";
+import {
+  parseOptionalAddress,
+  REGISTRY_EXPANSION_CHUNK_USERS,
+} from "../../app/lib/bonds-sdk";
 export { parseOptionalAddress };
+
+export const MIN_REGISTRY_HEADROOM_SLOTS = REGISTRY_EXPANSION_CHUNK_USERS; // 160
+export const DEFAULT_REGISTRY_HEADROOM_SLOTS = 2 * REGISTRY_EXPANSION_CHUNK_USERS; // 320
+export const MAX_REGISTRY_HEADROOM_SLOTS = 10 * REGISTRY_EXPANSION_CHUNK_USERS; // 1600
+export const DEFAULT_MAX_EXPANSIONS_PER_HOUR = 24;
+export const DEFAULT_RPC_SETTLE_COOLDOWN_MS = 15_000;
+export const MIN_SIGNER_EXPANSION_LAMPORTS = 150_000_000n; // 0.15 SOL (0.075 rent + 0.075 gas)
+
+export interface RegistryExpansionConfig {
+  headroomSlots: number;
+  maxExpansionsPerHour: number;
+  rpcCooldownMs: number;
+}
+
+export function clampHeadroomSlots(slots: number): number {
+  if (isNaN(slots)) return DEFAULT_REGISTRY_HEADROOM_SLOTS;
+  return Math.max(
+    MIN_REGISTRY_HEADROOM_SLOTS,
+    Math.min(MAX_REGISTRY_HEADROOM_SLOTS, Math.floor(slots))
+  );
+}
+
+export function parseHeadroomSlots(
+  raw?: string,
+  defaultVal = DEFAULT_REGISTRY_HEADROOM_SLOTS
+): number {
+  if (!raw) return clampHeadroomSlots(defaultVal);
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed)) {
+    console.warn(
+      `[CrankConfig] Invalid CRANK_REGISTRY_HEADROOM_SLOTS "${raw}". Using default ${defaultVal}.`
+    );
+    return clampHeadroomSlots(defaultVal);
+  }
+  const clamped = clampHeadroomSlots(parsed);
+  if (clamped !== parsed) {
+    console.warn(
+      `[CrankConfig] Clamped CRANK_REGISTRY_HEADROOM_SLOTS from ${parsed} to ${clamped} (bounds: [${MIN_REGISTRY_HEADROOM_SLOTS}, ${MAX_REGISTRY_HEADROOM_SLOTS}]).`
+    );
+  }
+  return clamped;
+}
 
 export function parsePoolHumaLenderStates(
   env: NodeJS.ProcessEnv = process.env
@@ -102,9 +147,16 @@ export interface CrankConfig {
   humaPoolUnderlyingToken?: Address;
   dryRun: boolean;
   allowNonJobsSigner?: boolean;
+  registryExpansion?: RegistryExpansionConfig;
 }
 
-export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
+export type CrankConfigOverrides = Partial<
+  Omit<CrankConfig, "registryExpansion">
+> & {
+  registryExpansion?: Partial<RegistryExpansionConfig>;
+};
+
+export function loadConfig(overrides?: CrankConfigOverrides): CrankConfig {
   ensureEnvLoaded();
   const rpcUrl = resolveSolanaRpcUrl(overrides?.rpcUrl);
 
@@ -214,6 +266,29 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
     allowNonJobsSigner:
       overrides?.allowNonJobsSigner ??
       process.env.ALLOW_NON_JOBS_SIGNER === "true",
+    registryExpansion: {
+      headroomSlots:
+        overrides?.registryExpansion?.headroomSlots !== undefined
+          ? clampHeadroomSlots(overrides.registryExpansion.headroomSlots)
+          : parseHeadroomSlots(
+              process.env.CRANK_REGISTRY_HEADROOM_SLOTS,
+              DEFAULT_REGISTRY_HEADROOM_SLOTS
+            ),
+      maxExpansionsPerHour:
+        overrides?.registryExpansion?.maxExpansionsPerHour !== undefined
+          ? overrides.registryExpansion.maxExpansionsPerHour
+          : parseNumber(
+              process.env.CRANK_REGISTRY_MAX_EXPANSIONS_PER_HOUR,
+              DEFAULT_MAX_EXPANSIONS_PER_HOUR
+            ),
+      rpcCooldownMs:
+        overrides?.registryExpansion?.rpcCooldownMs !== undefined
+          ? overrides.registryExpansion.rpcCooldownMs
+          : parseNumber(
+              process.env.CRANK_REGISTRY_RPC_COOLDOWN_MS,
+              DEFAULT_RPC_SETTLE_COOLDOWN_MS
+            ),
+    },
   };
 }
 

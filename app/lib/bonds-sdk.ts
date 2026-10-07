@@ -107,6 +107,9 @@ export {
   REGISTRY_INITIAL_SIZE,
   REGISTRY_INITIAL_CAPACITY,
   REGISTRY_MAX_CAPACITY,
+  REGISTRY_EXPANSION_CHUNK_USERS,
+  getRemainingRegistrySlots,
+  isRegistryHeadroomDeficit,
   ticketRegistrySpace,
   ticketRegistryCapacity,
   canExpandTicketRegistry,
@@ -124,6 +127,7 @@ export {
 export type {
   UserEntryInfo,
   ResolvedUserTickets,
+  RegistrySlotStats,
 } from "./ticket-registry-helpers";
 
 // ─── Constants ───────────────────────────────────────────────────────────────

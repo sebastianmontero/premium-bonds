@@ -24,6 +24,7 @@ import {
   SerializeTicketRegistryOptions,
   TICKET_REGISTRY_DISCRIMINATOR,
   TicketRegistry,
+  REGISTRY_INITIAL_CAPACITY,
 } from "../ticket-registry-helpers";
 import {
   serializePayoutRegistry,
@@ -213,7 +214,7 @@ export function buildMockTicketRegistry(
     drawCycleId: 1,
     version: 1,
     userCount: 10,
-    capacity: 100,
+    capacity: REGISTRY_INITIAL_CAPACITY,
     totalActiveTickets: 500,
     totalPendingTickets: 0,
     drawPreparedUpTo: 10,

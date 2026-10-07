@@ -4,21 +4,57 @@ import {
   PoolStatus,
   canExpandTicketRegistry,
   ticketRegistrySpace,
+  getRemainingRegistrySlots,
+  isRegistryHeadroomDeficit,
+  REGISTRY_EXPANSION_CHUNK_USERS,
 } from "../../../app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
   PoolStateSnapshot,
   ICrankTask,
   CrankTaskOutcome,
+  WorkerDeferredOutcome,
 } from "../types";
 import { IAlertService } from "../alerts/alert-notifier";
+import { isPoolStatus } from "../state/snapshot-classifier";
+import {
+  DEFAULT_REGISTRY_HEADROOM_SLOTS,
+  DEFAULT_MAX_EXPANSIONS_PER_HOUR,
+  DEFAULT_RPC_SETTLE_COOLDOWN_MS,
+  MIN_SIGNER_EXPANSION_LAMPORTS,
+  RegistryExpansionConfig,
+  clampHeadroomSlots,
+} from "../config";
+import {
+  RegistryExpansionThrottler,
+  ExpansionAlertCategory,
+} from "./registry-expansion-throttler";
+
+export const DEFAULT_CAPACITY_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
+export const CAPACITY_EXPANSION_COMPUTE_UNITS = 80_000;
 
 export class CapacitySentinelWorker implements ICrankTask {
   readonly name = "CapacitySentinelWorker";
-  private static readonly CRITICAL_ALERT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
-  private readonly lastCriticalAlertAt = new Map<number, number>();
+  private readonly throttler: RegistryExpansionThrottler;
+  private readonly pendingTargetCapacities = new Map<number, number>();
 
-  constructor(private readonly alertNotifier?: IAlertService) {}
+  constructor(
+    private readonly alertNotifier?: IAlertService,
+    private readonly configOverrides?: Partial<RegistryExpansionConfig>,
+    clock?: () => number
+  ) {
+    this.throttler = new RegistryExpansionThrottler(
+      {
+        rpcCooldownMs:
+          configOverrides?.rpcCooldownMs ?? DEFAULT_RPC_SETTLE_COOLDOWN_MS,
+        maxExpansionsPerHour:
+          configOverrides?.maxExpansionsPerHour ??
+          DEFAULT_MAX_EXPANSIONS_PER_HOUR,
+        alertCooldownMs: DEFAULT_CAPACITY_ALERT_COOLDOWN_MS,
+      },
+      clock
+    );
+  }
 
   canHandle(snapshot: PoolStateSnapshot): boolean {
     return (
@@ -33,22 +69,21 @@ export class CapacitySentinelWorker implements ICrankTask {
     context: CrankExecutionContext
   ): Promise<CrankTaskOutcome> {
     const registry = snapshot.ticketRegistry;
-    if (!registry || registry.capacity <= 0) {
+    if (
+      !registry ||
+      !Number.isSafeInteger(registry.capacity) ||
+      registry.capacity <= 0
+    ) {
       return { shouldExecute: false, reason: "Invalid registry capacity" };
     }
 
-    // Skip if pool is not active
-    if (
-      snapshot.pool.status !== PoolStatus.Active &&
-      (snapshot.pool.status as unknown) !== "Active"
-    ) {
+    if (!isPoolStatus(snapshot.pool.status, PoolStatus.Active)) {
       return {
         shouldExecute: false,
         reason: `Pool is not Active (${snapshot.pool.status}); skipping capacity resize`,
       };
     }
 
-    // Do not resize if draw is currently in progress
     if (snapshot.pool.isFrozenForDraw === 1) {
       return {
         shouldExecute: false,
@@ -56,47 +91,161 @@ export class CapacitySentinelWorker implements ICrankTask {
       };
     }
 
-    const utilization = registry.userCount / registry.capacity;
-    if (utilization >= 0.85) {
-      // Check discrete capacity ceiling before triggering expansion
-      if (!canExpandTicketRegistry(registry.capacity)) {
-        const currentByteLen = ticketRegistrySpace(registry.capacity);
-        const now = Date.now();
-        const lastAlert = this.lastCriticalAlertAt.get(snapshot.poolId) ?? 0;
+    const rawThreshold =
+      this.configOverrides?.headroomSlots ??
+      context.config?.registryExpansion?.headroomSlots ??
+      DEFAULT_REGISTRY_HEADROOM_SLOTS;
+    const headroomThreshold = clampHeadroomSlots(rawThreshold);
 
-        if (
-          this.alertNotifier &&
-          now - lastAlert >= CapacitySentinelWorker.CRITICAL_ALERT_COOLDOWN_MS
-        ) {
-          this.lastCriticalAlertAt.set(snapshot.poolId, now);
-          await this.alertNotifier.notifyAlert(
-            "REGISTRY_CAPACITY_CRITICAL",
-            `Ticket registry for Pool #${snapshot.poolId} has reached maximum 10MB size limit (${currentByteLen} bytes, ${registry.capacity} users). Cannot expand further!`,
-            snapshot.poolId,
-            "critical"
-          );
-        }
-        return {
-          shouldExecute: false,
-          reason: `Ticket registry is at maximum SVM account size limit (10MB, ${registry.capacity} users). Cannot expand further.`,
-        };
-      }
+    const remainingSlots = getRemainingRegistrySlots(registry);
 
-      const instructions = await this.buildInstructions(snapshot, context);
+    if (!isRegistryHeadroomDeficit(registry, headroomThreshold)) {
       return {
-        shouldExecute: true,
-        reason: `Registry utilization is ${(utilization * 100).toFixed(1)}% (${registry.userCount}/${registry.capacity}). Triggering +10KB expansion.`,
-        instructions,
-        computeUnitLimit: this.getComputeUnitLimit(),
-        priorityFeeTier: "low",
-        writableAccounts: [snapshot.ticketRegistryAddress],
+        shouldExecute: false,
+        reason: `Registry headroom is healthy: ${remainingSlots} slots remaining (threshold: ${headroomThreshold})`,
       };
     }
 
+    // 10MB account ceiling check
+    if (!canExpandTicketRegistry(registry.capacity)) {
+      const currentByteLen = ticketRegistrySpace(registry.capacity);
+      await this.notifyAlertIfEligible(
+        snapshot.poolId,
+        "REGISTRY_CAPACITY_CRITICAL",
+        "REGISTRY_CAPACITY_CRITICAL",
+        `Ticket registry for Pool #${snapshot.poolId} has reached maximum 10MB size limit (${currentByteLen} bytes, ${registry.capacity} users). Cannot expand further!`,
+        "critical"
+      );
+      return {
+        shouldExecute: false,
+        reason: `Ticket registry is at maximum SVM account size limit (10MB, ${registry.capacity} users). Cannot expand further.`,
+      };
+    }
+
+    // RPC propagation settle check (Omit retryAfterMs to prevent scheduler starvation)
+    if (
+      this.throttler.isAwaitingRpcPropagation(
+        snapshot.poolId,
+        registry.capacity
+      )
+    ) {
+      const waitSec = this.throttler.getRpcWaitRemainingSeconds(
+        snapshot.poolId
+      );
+      return {
+        shouldExecute: false,
+        reason: `Awaiting RPC propagation for recent expansion (${waitSec}s remaining)`,
+      };
+    }
+
+    // Hourly spend ceiling check (Omit retryAfterMs)
+    if (this.throttler.isHourlyRateLimited(snapshot.poolId, headroomThreshold)) {
+      await this.notifyAlertIfEligible(
+        snapshot.poolId,
+        "EXPANSION_RATE_LIMIT",
+        "REGISTRY_EXPANSION_RATE_LIMIT_EXCEEDED",
+        `Pool #${snapshot.poolId} has reached expansion rate limit in 1h. Throttling automatic resizes.`,
+        "error"
+      );
+      return {
+        shouldExecute: false,
+        reason: `Hourly expansion rate limit exceeded for pool #${snapshot.poolId}`,
+      };
+    }
+
+    // Hot-wallet SOL reserve check (Prevent false circuit breaker halts)
+    try {
+      const balanceRes = await context.rpc
+        .getBalance(context.signer.address)
+        .send();
+      const balanceLamports = balanceRes?.value ?? 0n;
+      if (balanceLamports < MIN_SIGNER_EXPANSION_LAMPORTS) {
+        await this.notifyAlertIfEligible(
+          snapshot.poolId,
+          "LOW_SOL_BALANCE",
+          "CRANK_INSUFFICIENT_SOL_FOR_EXPANSION",
+          `Signer SOL balance (${balanceLamports} lamports) is below required 0.15 SOL reserve for expansion rent. Skipping resize to prevent circuit breaker trip.`,
+          "warning"
+        );
+        return {
+          shouldExecute: false,
+          reason: `Signer SOL balance insufficient for expansion rent (${balanceLamports} < ${MIN_SIGNER_EXPANSION_LAMPORTS})`,
+        };
+      }
+    } catch (err: unknown) {
+      console.warn(
+        "[CapacitySentinelWorker] Failed to query signer balance before expansion:",
+        err
+      );
+      return {
+        shouldExecute: false,
+        reason:
+          "Failed to verify signer SOL balance; deferring expansion to avoid circuit breaker trip",
+      };
+    }
+
+    const instructions = await this.buildInstructions(snapshot, context);
+    const targetCapacity = registry.capacity + REGISTRY_EXPANSION_CHUNK_USERS;
+    this.pendingTargetCapacities.set(snapshot.poolId, targetCapacity);
+
     return {
-      shouldExecute: false,
-      reason: `Registry utilization is normal (${(utilization * 100).toFixed(1)}%)`,
+      shouldExecute: true,
+      reason: `Registry headroom deficit: ${remainingSlots} slots remaining (threshold: ${headroomThreshold}). Triggering +10KB (+${REGISTRY_EXPANSION_CHUNK_USERS} slots) expansion.`,
+      instructions,
+      computeUnitLimit: this.getComputeUnitLimit(),
+      priorityFeeTier: "low",
+      writableAccounts: [snapshot.ticketRegistryAddress],
     };
+  }
+
+  private async notifyAlertIfEligible(
+    poolId: number,
+    category: ExpansionAlertCategory,
+    eventType: string,
+    message: string,
+    severity: "warning" | "error" | "critical"
+  ): Promise<void> {
+    if (this.alertNotifier && this.throttler.shouldAlert(poolId, category)) {
+      this.throttler.recordAlert(poolId, category);
+      await this.alertNotifier.notifyAlert(
+        eventType,
+        message,
+        poolId,
+        severity
+      );
+    }
+  }
+
+  onSuccess(poolId: number, _signature?: string): void {
+    const targetCapacity = this.pendingTargetCapacities.get(poolId);
+    this.pendingTargetCapacities.delete(poolId);
+    if (targetCapacity !== undefined) {
+      this.throttler.recordExpansion(poolId, targetCapacity);
+    }
+  }
+
+  onError(poolId: number, _error?: unknown): void {
+    this.pendingTargetCapacities.delete(poolId);
+  }
+
+  onDeferred(
+    poolId: number,
+    _outcome?: WorkerDeferredOutcome
+  ): void {
+    this.pendingTargetCapacities.delete(poolId);
+  }
+
+  reset(poolId?: number): void {
+    if (poolId !== undefined) {
+      this.pendingTargetCapacities.delete(poolId);
+    } else {
+      this.pendingTargetCapacities.clear();
+    }
+    this.throttler.reset(poolId);
+  }
+
+  getThrottler(): RegistryExpansionThrottler {
+    return this.throttler;
   }
 
   async buildInstructions(
@@ -112,6 +261,6 @@ export class CapacitySentinelWorker implements ICrankTask {
   }
 
   getComputeUnitLimit(): number {
-    return 80_000;
+    return CAPACITY_EXPANSION_COMPUTE_UNITS;
   }
 }

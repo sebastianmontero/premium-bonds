@@ -11,7 +11,14 @@ import { MetricsServer } from "../metrics/metrics-server";
 import { CrankConfig } from "../config";
 import { CircuitBreaker } from "../executor/circuit-breaker";
 import { AlertNotifier } from "../alerts/alert-notifier";
-import { PoolStateSnapshot } from "../types";
+import {
+  PoolStateSnapshot,
+  toPoolId,
+  toDrawCycleId,
+  toUnixTimestamp,
+  ICrankTask,
+} from "../types";
+import { CapacitySentinelWorker } from "../workers/capacity-sentinel.worker";
 import { PoolStatus } from "../../../app/lib/bonds-sdk";
 import {
   buildMockPrizePool,
@@ -139,125 +146,158 @@ describe("AdaptiveCrankScheduler Rate Limiting & Error Isolation Unit Tests", ()
     const signer = await generateKeyPairSigner();
     const metrics = new MetricsServer(0);
     const config = createTestConfig({ poolIds: [1] });
-    const scheduler = new AdaptiveCrankScheduler(config, signer, metrics);
+    const breaker = new CircuitBreaker(5, 60_000);
 
-    // Mock successful snapshot
-    const mockSnapshot = {
-      poolId: 1,
+    const mockSnapshot: PoolStateSnapshot = {
+      poolId: toPoolId(1),
       poolAddress: TEST_ADDRESSES.USER,
-      pool: { currentDrawCycleId: 1, isFrozenForDraw: 0 },
+      pool: buildMockPrizePool({
+        status: PoolStatus.Active,
+        currentDrawCycleId: 1,
+      }),
       ticketRegistryAddress: TEST_ADDRESSES.USER,
-      ticketRegistry: {},
+      ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 100n,
-      currentTimestamp: 1000n,
+      currentTimestamp: toUnixTimestamp(1000n),
       state: "YIELD_HARVEST_READY",
+      currentCycleId: toDrawCycleId(1),
     };
 
-    // Inject failing task that throws network error
     const socketErr: any = new Error("fetch failed");
     socketErr.code = "UND_ERR_SOCKET";
 
-    (scheduler as any).tasks = [
-      {
-        name: "TestFailingWorker",
-        canHandle: () => true,
-        evaluate: async () => {
-          throw socketErr;
-        },
+    const failingTask: ICrankTask = {
+      name: "TestFailingWorker",
+      canHandle: () => true,
+      evaluate: async () => {
+        throw socketErr;
       },
-    ];
-
-    const breaker = (scheduler as any).breaker;
-
-    // Run processPool with mocked snapshot fetcher
-    (scheduler as any).processPool = async (poolId: number) => {
-      const task = (scheduler as any).tasks[0];
-      try {
-        await task.evaluate(mockSnapshot, (scheduler as any).context);
-      } catch (err: unknown) {
-        (scheduler as any).applyRateLimitCooldown(poolId, err);
-        metrics.incrementError("TestFailingWorker", "rpc_network_error");
-        // DO NOT trip circuit breaker
-      }
-      return false;
     };
 
-    await (scheduler as any).processPool(1);
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      undefined,
+      breaker,
+      undefined,
+      async () => mockSnapshot
+    );
+    (scheduler as any).tasks = [failingTask];
 
-    assert.strictEqual(breaker.canExecute(1), true);
-    assert.strictEqual(breaker.getState(1), "CLOSED");
-    assert.ok((scheduler as any).globalRpcCooldownUntil > Date.now());
+    const result = await (scheduler as any).processPool(1);
+    assert.strictEqual(
+      result,
+      false,
+      "processPool should return false on transient evaluation error"
+    );
+    assert.strictEqual(
+      breaker.canExecute(1),
+      true,
+      "Breaker must stay CLOSED after evaluate error"
+    );
+    assert.strictEqual(
+      breaker.getState(1),
+      "CLOSED",
+      "Breaker state must remain CLOSED"
+    );
+    assert.ok(
+      (scheduler as any).globalRpcCooldownUntil > Date.now(),
+      "Global cooldown must be activated"
+    );
   });
 
-  it("should isolate TxExecutor RPC transport failures and NOT trip CircuitBreaker", async () => {
+  it("should isolate TxExecutor RPC transport failures, invoke task.onError, and NOT trip CircuitBreaker", async () => {
     const signer = await generateKeyPairSigner();
     const metrics = new MetricsServer(0);
     const config = createTestConfig({ poolIds: [1] });
-    const scheduler = new AdaptiveCrankScheduler(config, signer, metrics);
-
-    const breaker = (scheduler as any).breaker;
-
     const rpcErr = createMockHttpSolanaError(429);
+    const breaker = new CircuitBreaker(5, 60_000);
 
     // Mock executor returning an ERROR outcome caused by 429
-    (scheduler as any).executor = {
+    const mockExecutor = {
       executeInstructions: async () => ({
         workerName: "HarvestYieldWorker",
         executed: false,
         reason: "HTTP error (429): Too Many Requests",
         outcome: {
-          status: "ERROR",
+          status: "ERROR" as const,
           reason: "HTTP error (429): Too Many Requests",
           error: rpcErr,
         },
       }),
     };
 
-    const mockSnapshot = {
-      poolId: 1,
+    const mockSnapshot: PoolStateSnapshot = {
+      poolId: toPoolId(1),
       poolAddress: TEST_ADDRESSES.USER,
-      pool: { currentDrawCycleId: 1, isFrozenForDraw: 0 },
+      pool: buildMockPrizePool({
+        status: PoolStatus.Active,
+        currentDrawCycleId: 1,
+      }),
       ticketRegistryAddress: TEST_ADDRESSES.USER,
-      ticketRegistry: {},
+      ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 100n,
-      currentTimestamp: 1000n,
+      currentTimestamp: toUnixTimestamp(1000n),
       state: "YIELD_HARVEST_READY",
+      currentCycleId: toDrawCycleId(1),
     };
 
-    (scheduler as any).tasks = [
-      {
-        name: "HarvestYieldWorker",
-        canHandle: () => true,
-        evaluate: async () => ({
-          shouldExecute: true,
-          reason: "Harvest due",
-          instructions: [],
-          computeUnitLimit: 150000,
-        }),
+    let onErrorCalled = false;
+    let errorPassedToHook: unknown = null;
+    let poolPassedToHook: number | null = null;
+
+    const mockTask: ICrankTask = {
+      name: "HarvestYieldWorker",
+      canHandle: () => true,
+      evaluate: async () => ({
+        shouldExecute: true as const,
+        reason: "Harvest due",
+        instructions: [],
+        computeUnitLimit: 150000,
+      }),
+      onError: (poolId: number, err?: unknown) => {
+        onErrorCalled = true;
+        poolPassedToHook = poolId;
+        errorPassedToHook = err;
       },
-    ];
-
-    // Call processPool logic with snapshot stub
-    let poolRan = false;
-    (scheduler as any).processPool = async (poolId: number) => {
-      const task = (scheduler as any).tasks[0];
-      await task.evaluate(mockSnapshot, (scheduler as any).context);
-      const result = await (scheduler as any).executor.executeInstructions();
-
-      const errToInspect =
-        (result as any).error ?? (result.outcome as any).error ?? result.reason;
-      if (errToInspect) {
-        (scheduler as any).applyRateLimitCooldown(poolId, errToInspect);
-        metrics.incrementError(task.name, "rpc_rate_limited");
-      } else {
-        breaker.recordPoolFailure(poolId, result.reason);
-      }
-      poolRan = true;
-      return false;
     };
 
-    await (scheduler as any).processPool(1);
-    assert.strictEqual(poolRan, true);
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      mockExecutor as any,
+      breaker,
+      undefined,
+      async () => mockSnapshot
+    );
+
+    (scheduler as any).tasks = [mockTask];
+
+    const result = await (scheduler as any).processPool(1);
+    assert.strictEqual(
+      result,
+      false,
+      "processPool should return false on transport failure"
+    );
+    assert.strictEqual(
+      onErrorCalled,
+      true,
+      "task.onError must be invoked on retryable RPC error"
+    );
+    assert.strictEqual(
+      poolPassedToHook,
+      1,
+      "task.onError must receive target poolId"
+    );
+    assert.strictEqual(
+      errorPassedToHook,
+      rpcErr,
+      "task.onError must receive original RPC error"
+    );
     assert.strictEqual(breaker.canExecute(1), true, "Breaker must stay CLOSED");
     assert.strictEqual(
       breaker.getState(1),
@@ -266,58 +306,160 @@ describe("AdaptiveCrankScheduler Rate Limiting & Error Isolation Unit Tests", ()
     );
     assert.ok(
       (scheduler as any).globalRpcCooldownUntil > Date.now(),
-      "Cooldown must be activated"
+      "Global cooldown must be activated"
+    );
+    assert.ok(
+      ((scheduler as any).nextEligibleTickMs.get(1) ?? 0) > Date.now(),
+      "Pool-specific nextEligibleTick must be set in the future"
     );
   });
 
-  it("should trip CircuitBreaker on legitimate smart contract revert errors", async () => {
+  it("should trip CircuitBreaker on legitimate smart contract revert errors via real processPool", async () => {
     const signer = await generateKeyPairSigner();
     const metrics = new MetricsServer(0);
     const config = createTestConfig({ poolIds: [1] });
-    const scheduler = new AdaptiveCrankScheduler(config, signer, metrics);
-    const breaker = (scheduler as any).breaker;
+    const breaker = new CircuitBreaker(5, 60_000);
 
-    // Simulate contract failure in processPool
     const contractError = new Error(
       "custom program error: 0x1770 (6000 PoolNotActive)"
     );
 
-    (scheduler as any).executor = {
+    const mockExecutor = {
       executeInstructions: async () => ({
         workerName: "HarvestYieldWorker",
         executed: false,
         reason: "custom program error: 0x1770",
         outcome: {
-          status: "ERROR",
+          status: "ERROR" as const,
           reason: "custom program error: 0x1770",
           error: contractError,
         },
       }),
     };
 
-    (scheduler as any).tasks = [
-      {
-        name: "HarvestYieldWorker",
-        canHandle: () => true,
-        evaluate: async () => ({
-          shouldExecute: true,
-          reason: "Harvest due",
-          instructions: [],
-          computeUnitLimit: 150000,
-        }),
-      },
-    ];
+    const mockSnapshot: PoolStateSnapshot = {
+      poolId: toPoolId(1),
+      poolAddress: TEST_ADDRESSES.USER,
+      pool: buildMockPrizePool({
+        status: PoolStatus.Active,
+        currentDrawCycleId: 1,
+      }),
+      ticketRegistryAddress: TEST_ADDRESSES.USER,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 100n,
+      currentTimestamp: toUnixTimestamp(1000n),
+      state: "YIELD_HARVEST_READY",
+      currentCycleId: toDrawCycleId(1),
+    };
 
-    // Simulating 5 contract revert failures to trip the 5-failure threshold
+    const mockTask: ICrankTask = {
+      name: "HarvestYieldWorker",
+      canHandle: () => true,
+      evaluate: async () => ({
+        shouldExecute: true as const,
+        reason: "Harvest due",
+        instructions: [],
+        computeUnitLimit: 150000,
+      }),
+    };
+
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      mockExecutor as any,
+      breaker,
+      undefined,
+      async () => mockSnapshot
+    );
+    (scheduler as any).tasks = [mockTask];
+
+    // Execute 5 contract revert failures directly via processPool
     for (let i = 0; i < 5; i++) {
-      breaker.recordPoolFailure(1, "custom program error: 0x1770");
+      await (scheduler as any).processPool(1);
     }
+
     assert.strictEqual(
       breaker.canExecute(1),
       false,
       "Contract failure reaching threshold must trip breaker to OPEN"
     );
     assert.strictEqual(breaker.getState(1), "OPEN");
+  });
+
+  it("should cleanly purge CapacitySentinelWorker pending target capacity when scheduler encounters retryable RPC error", async () => {
+    const signer = await generateKeyPairSigner();
+    const metrics = new MetricsServer(0);
+    const config = createTestConfig({ poolIds: [1] });
+    const rpcErr = createMockHttpSolanaError(429);
+    const breaker = new CircuitBreaker(5, 60_000);
+
+    const mockExecutor = {
+      executeInstructions: async () => ({
+        workerName: "CapacitySentinelWorker",
+        executed: false,
+        reason: "HTTP error (429): Rate Limited",
+        outcome: {
+          status: "ERROR" as const,
+          reason: "HTTP error (429): Rate Limited",
+          error: rpcErr,
+        },
+      }),
+    };
+
+    const sentinel = new CapacitySentinelWorker(
+      undefined,
+      { headroomSlots: 320, rpcCooldownMs: 10_000 },
+      () => 1_000_000
+    );
+
+    const deficitSnapshot: PoolStateSnapshot = {
+      poolId: toPoolId(1),
+      poolAddress: TEST_ADDRESSES.USER,
+      pool: buildMockPrizePool({
+        status: PoolStatus.Active,
+        currentDrawCycleId: 1,
+        isFrozenForDraw: 0,
+      }),
+      ticketRegistryAddress: TEST_ADDRESSES.USER,
+      ticketRegistry: buildMockTicketRegistry({
+        capacity: 4096,
+        userCount: 4000,
+      }),
+      currentSlot: 100n,
+      currentTimestamp: toUnixTimestamp(1000n),
+      state: "IDLE",
+      nextDrawAt: toUnixTimestamp(2000n),
+    };
+
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      mockExecutor as any,
+      breaker,
+      undefined,
+      async () => deficitSnapshot
+    );
+    (scheduler as any).tasks = [sentinel];
+
+    // Run processPool: sentinel triggers, executor fails with 429, scheduler dispatches onError
+    const result = await (scheduler as any).processPool(1);
+    assert.strictEqual(result, false);
+
+    // Verify throttler did NOT record a false expansion and is NOT awaiting propagation
+    assert.strictEqual(
+      sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096),
+      false,
+      "Throttler must not await propagation since expansion was aborted"
+    );
+    assert.strictEqual(
+      breaker.getState(1),
+      "CLOSED",
+      "Breaker must remain CLOSED"
+    );
   });
 
   it("should break concurrent worker queue when a sibling pool triggers global cooldown", async () => {

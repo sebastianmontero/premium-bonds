@@ -16,6 +16,7 @@ describe("Metrics Server Unit Tests", () => {
       server.incrementError("PrepareDrawWorker", "RpcTimeout");
       server.updateSolBalance(2.5);
       server.updatePoolState(1, 2, false, "IDLE");
+      server.updateRegistryStats(1, 4096, 3800);
 
       // Test /health
       const healthRes = await fetch(`http://127.0.0.1:${testPort}/health`);
@@ -23,12 +24,23 @@ describe("Metrics Server Unit Tests", () => {
         status: string;
         solBalance: number;
         pools: Array<{ poolId: number; activeCycle: number }>;
+        registry: Array<{
+          poolId: number;
+          capacity: number;
+          userCount: number;
+          headroom: number;
+        }>;
       };
       assert.strictEqual(healthJson.status, "ok");
       assert.strictEqual(healthJson.solBalance, 2.5);
       assert.strictEqual(healthJson.pools.length, 1);
       assert.strictEqual(healthJson.pools[0].poolId, 1);
       assert.strictEqual(healthJson.pools[0].activeCycle, 2);
+      assert.strictEqual(healthJson.registry.length, 1);
+      assert.strictEqual(healthJson.registry[0].poolId, 1);
+      assert.strictEqual(healthJson.registry[0].capacity, 4096);
+      assert.strictEqual(healthJson.registry[0].userCount, 3800);
+      assert.strictEqual(healthJson.registry[0].headroom, 296);
 
       // Test /metrics
       const metricsRes = await fetch(`http://127.0.0.1:${testPort}/metrics`);
@@ -42,6 +54,18 @@ describe("Metrics Server Unit Tests", () => {
       assert.match(
         metricsText,
         /yieldbonds_crank_errors_total\{worker="PrepareDrawWorker",error_type="RpcTimeout"\} 1/
+      );
+      assert.match(
+        metricsText,
+        /yieldbonds_pool_registry_capacity\{pool_id="1"\} 4096/
+      );
+      assert.match(
+        metricsText,
+        /yieldbonds_pool_registry_user_count\{pool_id="1"\} 3800/
+      );
+      assert.match(
+        metricsText,
+        /yieldbonds_pool_registry_headroom_slots\{pool_id="1"\} 296/
       );
     } finally {
       await server.stop();

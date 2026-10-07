@@ -7,12 +7,20 @@ export interface PoolMetricSnapshot {
   status: string;
 }
 
+export interface RegistryMetricSnapshot {
+  poolId: number;
+  capacity: number;
+  userCount: number;
+  headroom: number;
+}
+
 export class MetricsServer {
   private server: http.Server | null = null;
   private txCounters: Map<string, number> = new Map();
   private errorCounters: Map<string, Map<string, number>> = new Map();
   private deferredCounters: Map<string, number> = new Map();
   private poolMetrics: Map<number, PoolMetricSnapshot> = new Map();
+  private registryMetrics: Map<number, RegistryMetricSnapshot> = new Map();
   private payoutRegistryClaimable: Map<
     string,
     { poolId: number; cycleId: number; claimable: boolean }
@@ -55,6 +63,20 @@ export class MetricsServer {
     });
   }
 
+  updateRegistryStats(
+    poolId: number,
+    capacity: number,
+    userCount: number
+  ): void {
+    const headroom = Math.max(0, capacity - userCount);
+    this.registryMetrics.set(poolId, {
+      poolId,
+      capacity,
+      userCount,
+      headroom,
+    });
+  }
+
   setPayoutRegistryClaimable(
     poolId: number,
     cycleId: number,
@@ -89,6 +111,7 @@ export class MetricsServer {
               uptimeSeconds: Math.floor((Date.now() - this.startTime) / 1000),
               solBalance: this.crankSolBalance,
               pools: Array.from(this.poolMetrics.values()),
+              registry: Array.from(this.registryMetrics.values()),
             })
           );
           return;
@@ -136,6 +159,30 @@ export class MetricsServer {
             metricsOutput += `yieldbonds_pool_cycle_id{pool_id="${poolId}"} ${data.activeCycle}\n`;
           }
           metricsOutput += "\n";
+
+          // Ticket Registry Metrics
+          if (this.registryMetrics.size > 0) {
+            metricsOutput += `# HELP yieldbonds_pool_registry_capacity Total user capacity of ticket registry\n`;
+            metricsOutput += `# TYPE yieldbonds_pool_registry_capacity gauge\n`;
+            for (const [poolId, data] of this.registryMetrics.entries()) {
+              metricsOutput += `yieldbonds_pool_registry_capacity{pool_id="${poolId}"} ${data.capacity}\n`;
+            }
+            metricsOutput += "\n";
+
+            metricsOutput += `# HELP yieldbonds_pool_registry_user_count Active registered users in ticket registry\n`;
+            metricsOutput += `# TYPE yieldbonds_pool_registry_user_count gauge\n`;
+            for (const [poolId, data] of this.registryMetrics.entries()) {
+              metricsOutput += `yieldbonds_pool_registry_user_count{pool_id="${poolId}"} ${data.userCount}\n`;
+            }
+            metricsOutput += "\n";
+
+            metricsOutput += `# HELP yieldbonds_pool_registry_headroom_slots Remaining available user slots before registry is full\n`;
+            metricsOutput += `# TYPE yieldbonds_pool_registry_headroom_slots gauge\n`;
+            for (const [poolId, data] of this.registryMetrics.entries()) {
+              metricsOutput += `yieldbonds_pool_registry_headroom_slots{pool_id="${poolId}"} ${data.headroom}\n`;
+            }
+            metricsOutput += "\n";
+          }
 
           // Payout Registry Claimable Gauges
           if (this.payoutRegistryClaimable.size > 0) {

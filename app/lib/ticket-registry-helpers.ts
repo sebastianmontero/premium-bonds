@@ -31,6 +31,57 @@ export const REGISTRY_INITIAL_CAPACITY = 4_096;
 export const REGISTRY_MAX_CAPACITY = 163_776;
 
 /**
+ * Number of user entry slots added per on-chain resize_registry invocation (exactly 160).
+ */
+export const REGISTRY_EXPANSION_CHUNK_USERS =
+  REGISTRY_REALLOC_STEP / USER_ENTRY_SIZE;
+
+export interface RegistrySlotStats {
+  readonly capacity: number;
+  readonly userCount: number;
+}
+
+/**
+ * Calculates remaining available user entry slots in the ticket registry.
+ */
+export function getRemainingRegistrySlots(stats: RegistrySlotStats): number;
+export function getRemainingRegistrySlots(
+  capacity: number,
+  userCount: number
+): number;
+export function getRemainingRegistrySlots(
+  first: RegistrySlotStats | number,
+  second?: number
+): number {
+  const capacity = typeof first === "number" ? first : first.capacity;
+  const userCount = typeof first === "number" ? (second ?? 0) : first.userCount;
+  return Math.max(0, capacity - userCount);
+}
+
+/**
+ * Evaluates whether remaining headroom has dropped to or below the trigger threshold.
+ */
+export function isRegistryHeadroomDeficit(
+  stats: RegistrySlotStats,
+  headroomThreshold: number
+): boolean;
+export function isRegistryHeadroomDeficit(
+  capacity: number,
+  userCount: number,
+  headroomThreshold: number
+): boolean;
+export function isRegistryHeadroomDeficit(
+  first: RegistrySlotStats | number,
+  second: number,
+  third?: number
+): boolean {
+  if (typeof first === "number") {
+    return getRemainingRegistrySlots(first, second) <= (third ?? 0);
+  }
+  return getRemainingRegistrySlots(first) <= second;
+}
+
+/**
  * Calculates the total byte size of a TicketRegistry account for a given user capacity.
  * Invariant: 104-byte header + capacity * 64-byte entry.
  * @throws {RangeError} If capacity is not a non-negative safe integer.

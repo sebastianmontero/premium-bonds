@@ -55,6 +55,9 @@ import {
   ticketRegistryCapacity,
   canExpandTicketRegistry,
   isRegistryAtMaxCapacity,
+  REGISTRY_EXPANSION_CHUNK_USERS,
+  getRemainingRegistrySlots,
+  isRegistryHeadroomDeficit,
   UserEntryInfo,
   buildNominateAdminInstruction,
   buildCancelAdminNominationInstruction,
@@ -1127,4 +1130,71 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
       assert.strictEqual(parsed.entries.length, 0);
     });
   });
+
+  describe("Ticket Registry Headroom & Slot Calculations", () => {
+    it("should calculate remaining slots accurately for both object and positional overloads", () => {
+      // Positional
+      assert.strictEqual(getRemainingRegistrySlots(4096, 3800), 296);
+      // Object (RegistrySlotStats)
+      assert.strictEqual(
+        getRemainingRegistrySlots({ capacity: 4096, userCount: 3800 }),
+        296
+      );
+      // Default userCount fallback when omitted in positional overload
+      assert.strictEqual(getRemainingRegistrySlots(4096), 4096);
+    });
+
+    it("should evaluate exact boundary condition (remainingSlots <= threshold) for deficit", () => {
+      const threshold = 320;
+      // Exactly at threshold (320 remaining: 4096 - 3776 = 320) -> DEFICIT (true)
+      assert.strictEqual(
+        isRegistryHeadroomDeficit(4096, 3776, threshold),
+        true
+      );
+      assert.strictEqual(
+        isRegistryHeadroomDeficit(
+          { capacity: 4096, userCount: 3776 },
+          threshold
+        ),
+        true
+      );
+
+      // One slot above threshold (321 remaining: 4096 - 3775 = 321) -> HEALTHY (false)
+      assert.strictEqual(
+        isRegistryHeadroomDeficit(4096, 3775, threshold),
+        false
+      );
+      assert.strictEqual(
+        isRegistryHeadroomDeficit(
+          { capacity: 4096, userCount: 3775 },
+          threshold
+        ),
+        false
+      );
+    });
+
+    it("should handle empty, full, and overflow registry states safely", () => {
+      // Empty registry: full capacity remaining
+      assert.strictEqual(getRemainingRegistrySlots(4096, 0), 4096);
+      assert.strictEqual(isRegistryHeadroomDeficit(4096, 0, 320), false);
+
+      // Full registry: 0 remaining -> deficit
+      assert.strictEqual(getRemainingRegistrySlots(4096, 4096), 0);
+      assert.strictEqual(isRegistryHeadroomDeficit(4096, 4096, 320), true);
+      assert.strictEqual(isRegistryHeadroomDeficit(4096, 4096, 0), true);
+
+      // Overflow registry (userCount > capacity): clamps to 0 remaining without negative numbers
+      assert.strictEqual(getRemainingRegistrySlots(4096, 5000), 0);
+      assert.strictEqual(isRegistryHeadroomDeficit(4096, 5000, 320), true);
+    });
+
+    it("should enforce chunk constants derived from Solana realloc bounds", () => {
+      assert.strictEqual(REGISTRY_EXPANSION_CHUNK_USERS, 160);
+      assert.strictEqual(
+        REGISTRY_EXPANSION_CHUNK_USERS,
+        REGISTRY_REALLOC_STEP / USER_ENTRY_SIZE
+      );
+    });
+  });
 });
+

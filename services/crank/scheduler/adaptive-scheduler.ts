@@ -136,7 +136,10 @@ export class AdaptiveCrankScheduler {
       new RebindRandomnessWorker(this.vrfProvider),
       new AtomicRevealWorker(this.vrfProvider),
       new ReinvestWinningsWorker(),
-      new CapacitySentinelWorker(this.alertNotifier),
+      new CapacitySentinelWorker(
+        this.alertNotifier,
+        config.registryExpansion
+      ),
       new DisburseSentinelWorker(),
     ];
   }
@@ -373,6 +376,14 @@ export class AdaptiveCrankScheduler {
       snapshot.state
     );
 
+    if (snapshot.ticketRegistry) {
+      this.metrics.updateRegistryStats(
+        poolId,
+        snapshot.ticketRegistry.capacity,
+        snapshot.ticketRegistry.userCount
+      );
+    }
+
     // Health recovery: Proactively reset breaker if pool is Active and healthy
     if (
       isPoolStatus(snapshot.pool.status, PoolStatus.Active) &&
@@ -487,6 +498,9 @@ export class AdaptiveCrankScheduler {
             if (isRetryableRpcError(errToInspect)) {
               console.warn(
                 `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} failed due to transient RPC transport error: ${result.reason}. Applying rate limit cooldown.`
+              );
+              await this.safeInvokeHook(() =>
+                task.onError?.(poolId, errToInspect)
               );
               this.applyRateLimitCooldown(poolId, errToInspect);
               this.metrics.incrementError(

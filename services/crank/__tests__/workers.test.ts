@@ -34,14 +34,29 @@ const mockAddress = TEST_ADDRESSES.USER;
 
 function createMockContext(
   signer: KeyPairSigner,
-  configOverrides?: Partial<CrankExecutionContext["config"]>
+  configOverrides?: Partial<CrankExecutionContext["config"]>,
+  rpcOverrides?: Record<string, unknown>
 ): CrankExecutionContext {
   const rpcUrl = configOverrides?.rpcUrl ?? "http://127.0.0.1:8899";
   const mockHuma = createMockHumaAddresses();
+  const baseRpc = createResilientRpc(rpcUrl);
+  const rpc = new Proxy(baseRpc, {
+    get(target, prop, receiver) {
+      if (rpcOverrides && prop in rpcOverrides) {
+        return (rpcOverrides as Record<string | symbol, unknown>)[prop];
+      }
+      if (prop === "getBalance") {
+        return () => ({
+          send: async () => ({ value: 10_000_000_000n }),
+        });
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
   return {
     signer,
     rpcUrl,
-    rpc: createResilientRpc(rpcUrl),
+    rpc,
     maxPrepareBatchSize: 500,
     maxReinvestBatchSize: 5,
     enableAutoDisburse: true,
@@ -485,7 +500,7 @@ describe("Strategy Workers Unit Tests", () => {
     assert.match(outcome.reason, /PayoutRegistry is voided/);
   });
 
-  it("CapacitySentinelWorker should trigger only above 85% utilization when not frozen", async () => {
+  it("CapacitySentinelWorker should trigger when remainingSlots <= headroomThreshold", async () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const sentinel = new CapacitySentinelWorker();
@@ -500,45 +515,301 @@ describe("Strategy Workers Unit Tests", () => {
       nextDrawAt: toUnixTimestamp(2000),
     };
 
-    // 80% utilization -> should NOT trigger
-    const snapshot80 = {
+    // Capacity 4,096, userCount 3,700 (remaining: 396 > 320 default threshold) -> should NOT trigger
+    const snapshot3700 = {
       ...baseSnapshot,
       pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
       ticketRegistry: buildMockTicketRegistry({
-        userCount: 80,
-        capacity: 100,
+        userCount: 3700,
+        capacity: 4096,
       }),
     };
-    const outcome80 = await sentinel.evaluate(snapshot80, ctx);
-    assert.strictEqual(outcome80.shouldExecute, false);
+    const outcome3700 = await sentinel.evaluate(snapshot3700, ctx);
+    assert.strictEqual(outcome3700.shouldExecute, false);
+    assert.match(outcome3700.reason, /Registry headroom is healthy: 396 slots remaining/);
 
-    // 90% utilization -> should trigger
-    const snapshot90 = {
+    // Capacity 4,096, userCount 3,800 (remaining: 296 <= 320 threshold) -> should trigger
+    const snapshot3800 = {
       ...baseSnapshot,
       pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
       ticketRegistry: buildMockTicketRegistry({
-        userCount: 90,
-        capacity: 100,
+        userCount: 3800,
+        capacity: 4096,
       }),
     };
-    const outcome90 = await sentinel.evaluate(snapshot90, ctx);
-    assert.strictEqual(outcome90.shouldExecute, true);
-    if (outcome90.shouldExecute) {
-      assert.match(outcome90.reason, /90.0%/);
-      assert.strictEqual(outcome90.computeUnitLimit, 80_000);
+    const outcome3800 = await sentinel.evaluate(snapshot3800, ctx);
+    assert.strictEqual(outcome3800.shouldExecute, true);
+    if (outcome3800.shouldExecute) {
+      assert.match(outcome3800.reason, /Registry headroom deficit: 296 slots remaining/);
+      assert.match(outcome3800.reason, /\+160 slots/);
+      assert.strictEqual(outcome3800.computeUnitLimit, 80_000);
+      assert.strictEqual(outcome3800.retryAfterMs, undefined);
     }
 
-    // 90% utilization but pool is frozen -> should NOT trigger
+    // Large scale: Capacity 100,000, userCount 85,000 (85% utilization, remaining 15,000 > 320)
+    // Percentage model would have triggered; headroom model does NOT trigger!
+    const snapshot85k = {
+      ...baseSnapshot,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 85_000,
+        capacity: 100_000,
+      }),
+    };
+    const outcome85k = await sentinel.evaluate(snapshot85k, ctx);
+    assert.strictEqual(outcome85k.shouldExecute, false);
+    assert.match(outcome85k.reason, /Registry headroom is healthy: 15000 slots remaining/);
+
+    // Large scale: Capacity 100,000, userCount 99,700 (remaining: 300 <= 320) -> should trigger
+    const snapshot99700 = {
+      ...baseSnapshot,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 99_700,
+        capacity: 100_000,
+      }),
+    };
+    const outcome99700 = await sentinel.evaluate(snapshot99700, ctx);
+    assert.strictEqual(outcome99700.shouldExecute, true);
+
+    // Deficit but pool is frozen for draw -> should NOT trigger
     const snapshotFrozen = {
       ...baseSnapshot,
       pool: buildMockPrizePool({ isFrozenForDraw: 1 }),
       ticketRegistry: buildMockTicketRegistry({
-        userCount: 90,
-        capacity: 100,
+        userCount: 3800,
+        capacity: 4096,
       }),
     };
     const outcomeFrozen = await sentinel.evaluate(snapshotFrozen, ctx);
     assert.strictEqual(outcomeFrozen.shouldExecute, false);
+    assert.match(outcomeFrozen.reason, /Pool is frozen for draw/);
+  });
+
+  it("CapacitySentinelWorker should wait for RPC settle cooldown and never set retryAfterMs", async () => {
+    let mockTime = 1_000_000;
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const sentinel = new CapacitySentinelWorker(undefined, undefined, () => mockTime);
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 3900,
+        capacity: 4096,
+      }),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    // First eval -> triggers
+    const outcome1 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome1.shouldExecute, true);
+
+    // Crank executor succeeds -> commits target capacity 4256
+    sentinel.onSuccess(1, "sig_123");
+
+    // Second eval immediately with stale capacity 4096 -> awaiting RPC propagation
+    const outcome2 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome2.shouldExecute, false);
+    assert.strictEqual(outcome2.retryAfterMs, undefined, "Must NOT set retryAfterMs to avoid scheduler starvation");
+    assert.match(outcome2.reason, /Awaiting RPC propagation for recent expansion/);
+
+    // Advance clock by 16s -> can trigger again
+    mockTime += 16_000;
+    const outcome3 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome3.shouldExecute, true);
+  });
+
+  it("CapacitySentinelWorker should skip and alert when hourly rate limit is reached without setting retryAfterMs", async () => {
+    let mockTime = 1_000_000;
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const alerts: { eventType: string; message: string; severity?: string }[] =
+      [];
+    const mockNotifier = {
+      notifyAlert: async (
+        eventType: string,
+        message: string,
+        _poolId?: number,
+        severity?: string
+      ) => {
+        alerts.push({ eventType, message, severity });
+      },
+      notifyLowBalance: async () => {},
+    };
+
+    // Configured max 3 expansions per hour, headroom threshold 160 (dynamic limit: 1 + 4 = 5)
+    const sentinel = new CapacitySentinelWorker(
+      mockNotifier,
+      { maxExpansionsPerHour: 3, headroomSlots: 160, rpcCooldownMs: 1000 },
+      () => mockTime
+    );
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 4000,
+        capacity: 4096,
+      }),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    // Record 5 expansions to hit the hourly limit
+    const throttler = sentinel.getThrottler();
+    for (let i = 0; i < 5; i++) {
+      throttler.recordExpansion(1, 4096 + (i + 1) * 160);
+      mockTime += 2000; // pass RPC cooldown each time
+    }
+
+    // Now evaluate: should return false due to hourly rate limit, emit alert, and omit retryAfterMs
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.strictEqual(
+      outcome.retryAfterMs,
+      undefined,
+      "Must NOT set retryAfterMs on rate limit"
+    );
+    assert.match(
+      outcome.reason,
+      /Hourly expansion rate limit exceeded for pool #1/
+    );
+    assert.strictEqual(alerts.length, 1);
+    assert.strictEqual(
+      alerts[0].eventType,
+      "REGISTRY_EXPANSION_RATE_LIMIT_EXCEEDED"
+    );
+    assert.strictEqual(alerts[0].severity, "error");
+  });
+
+  it("CapacitySentinelWorker should cleanly purge pending state on onError, onDeferred, and reset", async () => {
+    const mockTime = 1_000_000;
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const sentinel = new CapacitySentinelWorker(undefined, undefined, () => mockTime);
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 3900,
+        capacity: 4096,
+      }),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    // 1. Evaluate triggers -> records pending target capacity
+    const outcome1 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome1.shouldExecute, true);
+
+    // 2. Transaction fails with onError -> purges pending state without recording expansion in throttler
+    sentinel.onError(1, new Error("Tx simulation failure"));
+
+    // Stale capacity 4096 is NOT awaiting RPC propagation because onError purged pending target before recording
+    assert.strictEqual(sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096), false);
+
+    // 3. Evaluate triggers again -> records pending target capacity
+    const outcome2 = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome2.shouldExecute, true);
+
+    // 4. Transaction is deferred with onDeferred -> purges pending state without recording expansion
+    sentinel.onDeferred(1, { status: "CONCURRENCY_RACE_LOST", reason: "Blockhash expired" });
+    assert.strictEqual(sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096), false);
+
+    // 5. Reset clears both pending map and throttler state
+    sentinel.reset(1);
+    assert.strictEqual(sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096), false);
+  });
+
+  it("CapacitySentinelWorker should skip and alert when signer balance is below 0.15 SOL", async () => {
+    const signer = await generateKeyPairSigner();
+    const alerts: { eventType: string; message: string; severity?: string }[] = [];
+    const mockNotifier = {
+      notifyAlert: async (eventType: string, message: string, _poolId?: number, severity?: string) => {
+        alerts.push({ eventType, message, severity });
+      },
+      notifyLowBalance: async () => {},
+    };
+
+    // Signer balance is 0.05 SOL (50,000,000 lamports < 150,000,000 lamports)
+    const ctx = createMockContext(signer, undefined, {
+      getBalance: () => ({
+        send: async () => ({ value: 50_000_000n }),
+      }),
+    });
+
+    const sentinel = new CapacitySentinelWorker(mockNotifier);
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 3900,
+        capacity: 4096,
+      }),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.strictEqual(outcome.retryAfterMs, undefined);
+    assert.match(outcome.reason, /Signer SOL balance insufficient for expansion rent/);
+    assert.strictEqual(alerts.length, 1);
+    assert.strictEqual(alerts[0].eventType, "CRANK_INSUFFICIENT_SOL_FOR_EXPANSION");
+    assert.strictEqual(alerts[0].severity, "warning");
+  });
+
+  it("CapacitySentinelWorker should defer safely if balance check fails with RPC error", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer, undefined, {
+      getBalance: () => ({
+        send: async () => {
+          throw new Error("RPC network timeout");
+        },
+      }),
+    });
+
+    const sentinel = new CapacitySentinelWorker();
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry({
+        userCount: 3900,
+        capacity: 4096,
+      }),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.match(outcome.reason, /Failed to verify signer SOL balance; deferring expansion/);
   });
 
   it("CapacitySentinelWorker should allow expansion at N=997 capacity (163,616 users) but halt and alert at N=998 max ceiling (163,776 users)", async () => {
@@ -571,13 +842,13 @@ describe("Strategy Workers Unit Tests", () => {
       nextDrawAt: toUnixTimestamp(2000),
     };
 
-    // Capacity = 163,616 (N=997), userCount = 140,000 (85.5% utilization)
+    // Capacity = 163,616 (N=997), userCount = 163,400 (remaining: 216 <= 320)
     // 104 + 163,616 * 64 + 10,240 = 10,481,768 <= 10,485,760 -> can expand
     const snapshotNearCeiling = {
       ...baseSnapshot,
       pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
       ticketRegistry: buildMockTicketRegistry({
-        userCount: 140_000,
+        userCount: 163_400,
         capacity: 163_616,
       }),
     };
@@ -588,13 +859,13 @@ describe("Strategy Workers Unit Tests", () => {
     assert.strictEqual(outcomeNearCeiling.shouldExecute, true);
     assert.strictEqual(alerts.length, 0);
 
-    // Capacity = 163,776 (N=998 max ceiling), userCount = 140,000 (85.5% utilization)
+    // Capacity = 163,776 (N=998 max ceiling), userCount = 163,600 (remaining: 176 <= 320)
     // 104 + 163,776 * 64 + 10,240 = 10,492,008 > 10,485,760 -> cannot expand
     const snapshotAtMaxCeiling = {
       ...baseSnapshot,
       pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
       ticketRegistry: buildMockTicketRegistry({
-        userCount: 140_000,
+        userCount: 163_600,
         capacity: 163_776,
       }),
     };
