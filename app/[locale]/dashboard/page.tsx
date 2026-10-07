@@ -63,7 +63,7 @@ export default function DashboardPage() {
   } = useBondsContext();
 
   // Register active query observer on Dashboard page to enable native refetchOnMount
-  const { data: poolData } = usePrizePool(1);
+  const { data: poolData, isFetching: isPoolFetching } = usePrizePool(1);
   const activePool = poolData ?? onChainPool;
 
   const poolTokenSymbol = activePool?.tokenSymbol ?? "USDC";
@@ -541,6 +541,10 @@ export default function DashboardPage() {
               userTickets={activeTickets}
               onDeposit={() => setShowDeposit(true)}
               onWithdraw={() => setShowWithdraw(true)}
+              isStatsLoading={
+                isPoolFetching &&
+                activePool.totalPrizesDistributed === undefined
+              }
             />
           </div>
         </div>

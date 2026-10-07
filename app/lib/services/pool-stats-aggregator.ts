@@ -16,15 +16,27 @@ interface CacheEntry {
   expiresAt: number;
 }
 
-export const POOL_STATS_TTL_MS = 10_000;
-export const STALE_ERROR_RETRY_MS = 10_000;
-export const DB_QUERY_TIMEOUT_MS = 3_000;
+export const POOL_STATS_TTL_MS = 3_600_000;
+export const STALE_ERROR_RETRY_MS = 30_000;
+export const DB_QUERY_TIMEOUT_MS = 5_000;
 
 import type { createSolanaRpc } from "@solana/kit";
 
 export interface PoolFetchOptions {
   bypassCache?: boolean;
   rpc?: ReturnType<typeof createSolanaRpc>;
+}
+
+export interface PoolStatsAggregatorOptions {
+  db?: typeof defaultDb | DbAggregationClient;
+  isConfigured?: boolean;
+  getPoolInfo?: (
+    poolId: number,
+    options?: PoolFetchOptions
+  ) => Promise<PoolInfo | null>;
+  ttlMs?: number;
+  errorRetryMs?: number;
+  queryTimeoutMs?: number;
 }
 
 function withTimeout<T>(
@@ -66,18 +78,24 @@ export class PoolStatsAggregator {
     number,
     Promise<DrawHistoryStats | undefined>
   >();
+  private readonly db: typeof defaultDb | DbAggregationClient;
+  private readonly isConfigured: boolean;
+  private readonly getPoolInfo: (
+    poolId: number,
+    options?: PoolFetchOptions
+  ) => Promise<PoolInfo | null>;
+  private readonly ttlMs: number;
+  private readonly errorRetryMs: number;
+  private readonly queryTimeoutMs: number;
 
-  constructor(
-    private readonly db: typeof defaultDb | DbAggregationClient = defaultDb,
-    private readonly isConfigured: boolean = defaultIsConfigured,
-    private readonly getPoolInfo: (
-      poolId: number,
-      options?: PoolFetchOptions
-    ) => Promise<PoolInfo | null> = defaultGetPoolInfo,
-    private readonly ttlMs: number = POOL_STATS_TTL_MS,
-    private readonly errorRetryMs: number = STALE_ERROR_RETRY_MS,
-    private readonly queryTimeoutMs: number = DB_QUERY_TIMEOUT_MS
-  ) {}
+  constructor(options: PoolStatsAggregatorOptions = {}) {
+    this.db = options.db ?? defaultDb;
+    this.isConfigured = options.isConfigured ?? defaultIsConfigured;
+    this.getPoolInfo = options.getPoolInfo ?? defaultGetPoolInfo;
+    this.ttlMs = options.ttlMs ?? POOL_STATS_TTL_MS;
+    this.errorRetryMs = options.errorRetryMs ?? STALE_ERROR_RETRY_MS;
+    this.queryTimeoutMs = options.queryTimeoutMs ?? DB_QUERY_TIMEOUT_MS;
+  }
 
   async getPoolDrawStats(
     poolId: number = 1,
@@ -194,10 +212,15 @@ export class PoolStatsAggregator {
 
   invalidatePoolStats(poolId?: number): void {
     if (poolId !== undefined) {
-      this.cache.delete(poolId);
+      const entry = this.cache.get(poolId);
+      if (entry) {
+        entry.expiresAt = 0;
+      }
       this.inflight.delete(poolId);
     } else {
-      this.cache.clear();
+      for (const entry of this.cache.values()) {
+        entry.expiresAt = 0;
+      }
       this.inflight.clear();
     }
   }

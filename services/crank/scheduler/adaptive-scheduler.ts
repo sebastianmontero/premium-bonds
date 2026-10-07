@@ -136,10 +136,7 @@ export class AdaptiveCrankScheduler {
       new RebindRandomnessWorker(this.vrfProvider),
       new AtomicRevealWorker(this.vrfProvider),
       new ReinvestWinningsWorker(),
-      new CapacitySentinelWorker(
-        this.alertNotifier,
-        config.registryExpansion
-      ),
+      new CapacitySentinelWorker(this.alertNotifier, config.registryExpansion),
       new DisburseSentinelWorker(),
     ];
   }

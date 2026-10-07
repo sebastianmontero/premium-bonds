@@ -17,11 +17,12 @@ import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
 
-interface PoolCardProps {
+export interface PoolCardProps {
   pool: PoolInfo;
   userTickets: UserTicketInfo | null;
   onDeposit: () => void;
   onWithdraw: () => void;
+  isStatsLoading?: boolean;
 }
 
 export function PoolCard({
@@ -29,6 +30,7 @@ export function PoolCard({
   userTickets,
   onDeposit,
   onWithdraw,
+  isStatsLoading = false,
 }: PoolCardProps) {
   const t = useTranslations("Pools");
   const [showAllTiersModal, setShowAllTiersModal] = useState(false);
@@ -145,9 +147,13 @@ export function PoolCard({
         <StatCell
           label={t("totalPrizesDistributed")}
           value={
-            pool.totalPrizesDistributed !== undefined
-              ? formatCurrency(pool.totalPrizesDistributed, pool)
-              : "--"
+            pool.totalPrizesDistributed !== undefined ? (
+              formatCurrency(pool.totalPrizesDistributed, pool)
+            ) : isStatsLoading ? (
+              <StatSkeleton />
+            ) : (
+              "—"
+            )
           }
           accent="text-on-surface"
         />
@@ -348,23 +354,33 @@ export function PoolCard({
   );
 }
 
+function StatSkeleton() {
+  return (
+    <div className="flex h-7 items-center" aria-hidden="true">
+      <span className="inline-block h-6 w-24 my-0.5 animate-pulse rounded-md bg-surface-container-high/60" />
+    </div>
+  );
+}
+
 function StatCell({
   label,
   value,
-  accent,
+  accent = "text-on-surface",
 }: {
   label: string;
-  value: string;
-  accent: string;
+  value: React.ReactNode;
+  accent?: string;
 }) {
   return (
     <div className="space-y-0.5">
       <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
         {label}
       </p>
-      <p className={`font-display text-xl font-bold tracking-tight ${accent}`}>
+      <div
+        className={`font-display text-xl font-bold tracking-tight ${accent}`}
+      >
         {value}
-      </p>
+      </div>
     </div>
   );
 }

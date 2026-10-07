@@ -200,7 +200,10 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
       ],
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
     await aggregator.getPoolDrawStats(1);
     assert.strictEqual(queryCount, 1);
 

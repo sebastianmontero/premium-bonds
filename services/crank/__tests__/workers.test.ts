@@ -526,7 +526,10 @@ describe("Strategy Workers Unit Tests", () => {
     };
     const outcome3700 = await sentinel.evaluate(snapshot3700, ctx);
     assert.strictEqual(outcome3700.shouldExecute, false);
-    assert.match(outcome3700.reason, /Registry headroom is healthy: 396 slots remaining/);
+    assert.match(
+      outcome3700.reason,
+      /Registry headroom is healthy: 396 slots remaining/
+    );
 
     // Capacity 4,096, userCount 3,800 (remaining: 296 <= 320 threshold) -> should trigger
     const snapshot3800 = {
@@ -540,7 +543,10 @@ describe("Strategy Workers Unit Tests", () => {
     const outcome3800 = await sentinel.evaluate(snapshot3800, ctx);
     assert.strictEqual(outcome3800.shouldExecute, true);
     if (outcome3800.shouldExecute) {
-      assert.match(outcome3800.reason, /Registry headroom deficit: 296 slots remaining/);
+      assert.match(
+        outcome3800.reason,
+        /Registry headroom deficit: 296 slots remaining/
+      );
       assert.match(outcome3800.reason, /\+160 slots/);
       assert.strictEqual(outcome3800.computeUnitLimit, 80_000);
       assert.strictEqual(outcome3800.retryAfterMs, undefined);
@@ -558,7 +564,10 @@ describe("Strategy Workers Unit Tests", () => {
     };
     const outcome85k = await sentinel.evaluate(snapshot85k, ctx);
     assert.strictEqual(outcome85k.shouldExecute, false);
-    assert.match(outcome85k.reason, /Registry headroom is healthy: 15000 slots remaining/);
+    assert.match(
+      outcome85k.reason,
+      /Registry headroom is healthy: 15000 slots remaining/
+    );
 
     // Large scale: Capacity 100,000, userCount 99,700 (remaining: 300 <= 320) -> should trigger
     const snapshot99700 = {
@@ -590,7 +599,11 @@ describe("Strategy Workers Unit Tests", () => {
     let mockTime = 1_000_000;
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
-    const sentinel = new CapacitySentinelWorker(undefined, undefined, () => mockTime);
+    const sentinel = new CapacitySentinelWorker(
+      undefined,
+      undefined,
+      () => mockTime
+    );
 
     const snapshot = {
       poolId: toPoolId(1),
@@ -617,8 +630,15 @@ describe("Strategy Workers Unit Tests", () => {
     // Second eval immediately with stale capacity 4096 -> awaiting RPC propagation
     const outcome2 = await sentinel.evaluate(snapshot, ctx);
     assert.strictEqual(outcome2.shouldExecute, false);
-    assert.strictEqual(outcome2.retryAfterMs, undefined, "Must NOT set retryAfterMs to avoid scheduler starvation");
-    assert.match(outcome2.reason, /Awaiting RPC propagation for recent expansion/);
+    assert.strictEqual(
+      outcome2.retryAfterMs,
+      undefined,
+      "Must NOT set retryAfterMs to avoid scheduler starvation"
+    );
+    assert.match(
+      outcome2.reason,
+      /Awaiting RPC propagation for recent expansion/
+    );
 
     // Advance clock by 16s -> can trigger again
     mockTime += 16_000;
@@ -697,7 +717,11 @@ describe("Strategy Workers Unit Tests", () => {
     const mockTime = 1_000_000;
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
-    const sentinel = new CapacitySentinelWorker(undefined, undefined, () => mockTime);
+    const sentinel = new CapacitySentinelWorker(
+      undefined,
+      undefined,
+      () => mockTime
+    );
 
     const snapshot = {
       poolId: toPoolId(1),
@@ -722,26 +746,44 @@ describe("Strategy Workers Unit Tests", () => {
     sentinel.onError(1, new Error("Tx simulation failure"));
 
     // Stale capacity 4096 is NOT awaiting RPC propagation because onError purged pending target before recording
-    assert.strictEqual(sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096), false);
+    assert.strictEqual(
+      sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096),
+      false
+    );
 
     // 3. Evaluate triggers again -> records pending target capacity
     const outcome2 = await sentinel.evaluate(snapshot, ctx);
     assert.strictEqual(outcome2.shouldExecute, true);
 
     // 4. Transaction is deferred with onDeferred -> purges pending state without recording expansion
-    sentinel.onDeferred(1, { status: "CONCURRENCY_RACE_LOST", reason: "Blockhash expired" });
-    assert.strictEqual(sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096), false);
+    sentinel.onDeferred(1, {
+      status: "CONCURRENCY_RACE_LOST",
+      reason: "Blockhash expired",
+    });
+    assert.strictEqual(
+      sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096),
+      false
+    );
 
     // 5. Reset clears both pending map and throttler state
     sentinel.reset(1);
-    assert.strictEqual(sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096), false);
+    assert.strictEqual(
+      sentinel.getThrottler().isAwaitingRpcPropagation(1, 4096),
+      false
+    );
   });
 
   it("CapacitySentinelWorker should skip and alert when signer balance is below 0.15 SOL", async () => {
     const signer = await generateKeyPairSigner();
-    const alerts: { eventType: string; message: string; severity?: string }[] = [];
+    const alerts: { eventType: string; message: string; severity?: string }[] =
+      [];
     const mockNotifier = {
-      notifyAlert: async (eventType: string, message: string, _poolId?: number, severity?: string) => {
+      notifyAlert: async (
+        eventType: string,
+        message: string,
+        _poolId?: number,
+        severity?: string
+      ) => {
         alerts.push({ eventType, message, severity });
       },
       notifyLowBalance: async () => {},
@@ -774,9 +816,15 @@ describe("Strategy Workers Unit Tests", () => {
     const outcome = await sentinel.evaluate(snapshot, ctx);
     assert.strictEqual(outcome.shouldExecute, false);
     assert.strictEqual(outcome.retryAfterMs, undefined);
-    assert.match(outcome.reason, /Signer SOL balance insufficient for expansion rent/);
+    assert.match(
+      outcome.reason,
+      /Signer SOL balance insufficient for expansion rent/
+    );
     assert.strictEqual(alerts.length, 1);
-    assert.strictEqual(alerts[0].eventType, "CRANK_INSUFFICIENT_SOL_FOR_EXPANSION");
+    assert.strictEqual(
+      alerts[0].eventType,
+      "CRANK_INSUFFICIENT_SOL_FOR_EXPANSION"
+    );
     assert.strictEqual(alerts[0].severity, "warning");
   });
 
@@ -809,7 +857,10 @@ describe("Strategy Workers Unit Tests", () => {
 
     const outcome = await sentinel.evaluate(snapshot, ctx);
     assert.strictEqual(outcome.shouldExecute, false);
-    assert.match(outcome.reason, /Failed to verify signer SOL balance; deferring expansion/);
+    assert.match(
+      outcome.reason,
+      /Failed to verify signer SOL balance; deferring expansion/
+    );
   });
 
   it("CapacitySentinelWorker should allow expansion at N=997 capacity (163,616 users) but halt and alert at N=998 max ceiling (163,776 users)", async () => {

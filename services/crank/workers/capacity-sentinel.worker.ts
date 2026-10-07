@@ -139,7 +139,9 @@ export class CapacitySentinelWorker implements ICrankTask {
     }
 
     // Hourly spend ceiling check (Omit retryAfterMs)
-    if (this.throttler.isHourlyRateLimited(snapshot.poolId, headroomThreshold)) {
+    if (
+      this.throttler.isHourlyRateLimited(snapshot.poolId, headroomThreshold)
+    ) {
       await this.notifyAlertIfEligible(
         snapshot.poolId,
         "EXPANSION_RATE_LIMIT",
@@ -228,10 +230,7 @@ export class CapacitySentinelWorker implements ICrankTask {
     this.pendingTargetCapacities.delete(poolId);
   }
 
-  onDeferred(
-    poolId: number,
-    _outcome?: WorkerDeferredOutcome
-  ): void {
+  onDeferred(poolId: number, _outcome?: WorkerDeferredOutcome): void {
     this.pendingTargetCapacities.delete(poolId);
   }
 

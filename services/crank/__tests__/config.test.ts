@@ -13,7 +13,10 @@ import {
 
 describe("Crank Configuration & Registry Expansion Config Unit Tests", () => {
   it("clampHeadroomSlots should clamp values strictly within bounds [160, 1600]", () => {
-    assert.strictEqual(clampHeadroomSlots(NaN), DEFAULT_REGISTRY_HEADROOM_SLOTS);
+    assert.strictEqual(
+      clampHeadroomSlots(NaN),
+      DEFAULT_REGISTRY_HEADROOM_SLOTS
+    );
     assert.strictEqual(clampHeadroomSlots(0), MIN_REGISTRY_HEADROOM_SLOTS);
     assert.strictEqual(clampHeadroomSlots(50), MIN_REGISTRY_HEADROOM_SLOTS);
     assert.strictEqual(clampHeadroomSlots(160), 160);
@@ -21,12 +24,18 @@ describe("Crank Configuration & Registry Expansion Config Unit Tests", () => {
     assert.strictEqual(clampHeadroomSlots(800), 800);
     assert.strictEqual(clampHeadroomSlots(1600), 1600);
     assert.strictEqual(clampHeadroomSlots(2000), MAX_REGISTRY_HEADROOM_SLOTS);
-    assert.strictEqual(clampHeadroomSlots(100_000), MAX_REGISTRY_HEADROOM_SLOTS);
+    assert.strictEqual(
+      clampHeadroomSlots(100_000),
+      MAX_REGISTRY_HEADROOM_SLOTS
+    );
   });
 
   it("parseHeadroomSlots should parse valid numbers, handle invalid strings, and clamp bounds", () => {
     // Undefined raw string -> returns default
-    assert.strictEqual(parseHeadroomSlots(undefined), DEFAULT_REGISTRY_HEADROOM_SLOTS);
+    assert.strictEqual(
+      parseHeadroomSlots(undefined),
+      DEFAULT_REGISTRY_HEADROOM_SLOTS
+    );
     assert.strictEqual(parseHeadroomSlots(undefined, 480), 480);
 
     // Valid string within bounds
@@ -39,7 +48,10 @@ describe("Crank Configuration & Registry Expansion Config Unit Tests", () => {
     assert.strictEqual(parseHeadroomSlots("5000"), MAX_REGISTRY_HEADROOM_SLOTS);
 
     // Malformed string -> fallback to default
-    assert.strictEqual(parseHeadroomSlots("invalid_number"), DEFAULT_REGISTRY_HEADROOM_SLOTS);
+    assert.strictEqual(
+      parseHeadroomSlots("invalid_number"),
+      DEFAULT_REGISTRY_HEADROOM_SLOTS
+    );
   });
 
   it("loadConfig should populate registryExpansion with defaults or provided overrides", () => {
@@ -114,7 +126,10 @@ describe("Crank Configuration & Registry Expansion Config Unit Tests", () => {
       });
 
       assert.strictEqual(fullConfig.registryExpansion?.headroomSlots, 640);
-      assert.strictEqual(fullConfig.registryExpansion?.maxExpansionsPerHour, 12);
+      assert.strictEqual(
+        fullConfig.registryExpansion?.maxExpansionsPerHour,
+        12
+      );
       assert.strictEqual(fullConfig.registryExpansion?.rpcCooldownMs, 20_000);
 
       // Partial override: only headroomSlots provided, others fall back to process.env
@@ -128,7 +143,10 @@ describe("Crank Configuration & Registry Expansion Config Unit Tests", () => {
       });
 
       assert.strictEqual(partialConfig.registryExpansion?.headroomSlots, 800);
-      assert.strictEqual(partialConfig.registryExpansion?.maxExpansionsPerHour, 99);
+      assert.strictEqual(
+        partialConfig.registryExpansion?.maxExpansionsPerHour,
+        99
+      );
       assert.strictEqual(partialConfig.registryExpansion?.rpcCooldownMs, 99999);
     } finally {
       if (origSlots !== undefined) {

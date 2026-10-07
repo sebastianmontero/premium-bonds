@@ -16,7 +16,10 @@ describe("PoolStatsAggregator Unit Tests", () => {
       },
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, false);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: false,
+    });
     const result = await aggregator.getPoolDrawStats(1);
 
     assert.strictEqual(result, undefined);
@@ -29,7 +32,10 @@ describe("PoolStatsAggregator Unit Tests", () => {
 
   it("should return undefined for invalid poolId inputs", async () => {
     const mockDb = createMockAggregationDb({ rows: [] });
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
     assert.strictEqual(await aggregator.getPoolDrawStats(0), undefined);
     assert.strictEqual(await aggregator.getPoolDrawStats(-1), undefined);
     assert.strictEqual(await aggregator.getPoolDrawStats(1.5), undefined);
@@ -58,7 +64,10 @@ describe("PoolStatsAggregator Unit Tests", () => {
       ],
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
 
     // Initial query
     const res1 = await aggregator.getPoolDrawStats(1);
@@ -109,7 +118,10 @@ describe("PoolStatsAggregator Unit Tests", () => {
       ],
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
 
     // First call populates cache with 10_000_000
     const res1 = await aggregator.getPoolDrawStats(1);
@@ -145,7 +157,10 @@ describe("PoolStatsAggregator Unit Tests", () => {
       ],
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
     const res = await aggregator.getPoolDrawStats(1);
     assert.deepStrictEqual(res, {
       totalYieldDistributed: 0,
@@ -159,7 +174,10 @@ describe("PoolStatsAggregator Unit Tests", () => {
 
     // Completely empty rows test
     const emptyDb = createMockAggregationDb({ rows: [] });
-    const emptyAggregator = new PoolStatsAggregator(emptyDb, true);
+    const emptyAggregator = new PoolStatsAggregator({
+      db: emptyDb,
+      isConfigured: true,
+    });
     const emptyRes = await emptyAggregator.getPoolDrawStats(1);
     assert.deepStrictEqual(emptyRes, {
       totalYieldDistributed: 0,
@@ -198,7 +216,10 @@ describe("PoolStatsAggregator Unit Tests", () => {
       execute: () => queryPromise,
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
 
     const call1 = aggregator.getPoolDrawStats(1);
     const call2 = aggregator.getPoolDrawStats(1);
@@ -252,13 +273,12 @@ describe("PoolStatsAggregator Unit Tests", () => {
       });
 
       // Use short TTL (10ms) and short retry backoff (100ms) for testing
-      const aggregator = new PoolStatsAggregator(
-        mockDb,
-        true,
-        undefined,
-        10, // ttlMs
-        100 // errorRetryMs
-      );
+      const aggregator = new PoolStatsAggregator({
+        db: mockDb,
+        isConfigured: true,
+        ttlMs: 10,
+        errorRetryMs: 100,
+      });
 
       // 1. Initial success
       const res1 = await aggregator.getPoolDrawStats(1);
@@ -300,48 +320,69 @@ describe("PoolStatsAggregator Unit Tests", () => {
       error: new Error("DB timeout"),
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
     const res = await aggregator.getPoolDrawStats(1);
     assert.strictEqual(res, undefined);
   });
 
-  it("should properly invalidate cache for specific pool and all pools", async () => {
+  it("should properly perform soft invalidation and re-query while keeping stale fallback", async () => {
     let queryCount = 0;
+    let shouldFail = false;
+
     const mockDb = createMockAggregationDb({
       onQuery: () => {
         queryCount++;
       },
-      rows: [
-        {
-          status: "Complete",
-          count: 1,
-          totalDistributed: "5000000",
-          totalWinningBonds: 2,
-        },
-      ],
+      execute: () => {
+        if (shouldFail) {
+          throw new Error("DB down during re-query");
+        }
+        return [
+          {
+            status: "Complete",
+            count: queryCount,
+            totalDistributed: (queryCount * 5_000_000).toString(),
+            totalWinningBonds: queryCount * 2,
+          },
+        ];
+      },
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
 
-    await aggregator.getPoolDrawStats(1);
-    await aggregator.getPoolDrawStats(2);
+    const p1 = await aggregator.getPoolDrawStats(1);
+    const p2 = await aggregator.getPoolDrawStats(2);
+    assert.strictEqual(p1?.totalYieldDistributed, 5_000_000);
+    assert.strictEqual(p2?.totalYieldDistributed, 10_000_000);
     assert.strictEqual(queryCount, 2);
 
-    // Invalidate pool 1 only
+    // Invalidate pool 1 only (soft invalidation)
     aggregator.invalidatePoolStats(1);
-    await aggregator.getPoolDrawStats(1);
+    const p1Refreshed = await aggregator.getPoolDrawStats(1);
     assert.strictEqual(queryCount, 3, "Pool 1 should be re-queried");
+    assert.strictEqual(p1Refreshed?.totalYieldDistributed, 15_000_000);
 
-    await aggregator.getPoolDrawStats(2);
+    const p2Cached = await aggregator.getPoolDrawStats(2);
     assert.strictEqual(queryCount, 3, "Pool 2 should still be cached");
+    assert.strictEqual(p2Cached?.totalYieldDistributed, 10_000_000);
 
-    // Invalidate all
+    // Invalidate all pools (soft invalidation)
     aggregator.invalidatePoolStats();
-    await aggregator.getPoolDrawStats(2);
+
+    // Make next query fail to test soft invalidation stale fallback
+    shouldFail = true;
+    const p2Stale = await aggregator.getPoolDrawStats(2);
+    assert.strictEqual(queryCount, 4, "Pool 2 attempted DB query");
     assert.strictEqual(
-      queryCount,
-      4,
-      "Pool 2 should be re-queried after full cache clear"
+      p2Stale?.totalYieldDistributed,
+      10_000_000,
+      "Pool 2 should fall back to stale stats on failure after soft invalidation"
     );
   });
 
@@ -362,7 +403,11 @@ describe("PoolStatsAggregator Unit Tests", () => {
       return poolId === 1 ? { ...basePool } : null;
     };
 
-    const aggregator = new PoolStatsAggregator(mockDb, true, mockGetPoolInfo);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+      getPoolInfo: mockGetPoolInfo,
+    });
 
     const enriched = await aggregator.getEnrichedPoolInfo(1);
     assert.ok(enriched);
@@ -406,7 +451,11 @@ describe("PoolStatsAggregator Unit Tests", () => {
       return poolId === 1 ? buildMockPoolInfo({ poolId: 1 }) : null;
     };
 
-    const aggregator = new PoolStatsAggregator(mockDb, true, mockGetPoolInfo);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+      getPoolInfo: mockGetPoolInfo,
+    });
 
     // Initial enriched call with bypassCache: true
     const res = await aggregator.getEnrichedPoolInfo(1, { bypassCache: true });
@@ -429,11 +478,33 @@ describe("PoolStatsAggregator Unit Tests", () => {
       ],
     });
 
-    const aggregator = new PoolStatsAggregator(mockDb, true);
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+    });
     const res = await aggregator.getPoolDrawStats(1);
     assert.ok(res);
     assert.strictEqual(res.totalDrawsCompleted, 3);
     assert.strictEqual(res.totalYieldDistributed, 10_000_000);
     assert.strictEqual(res.averagePrizePot, 3_333_333);
+  });
+
+  it("should timeout queries exceeding queryTimeoutMs and return undefined or stale cache", async () => {
+    const mockDb = createMockAggregationDb({
+      execute: () => new Promise((resolve) => setTimeout(resolve, 100)),
+    });
+
+    const aggregator = new PoolStatsAggregator({
+      db: mockDb,
+      isConfigured: true,
+      queryTimeoutMs: 20, // 20ms timeout
+    });
+
+    const res = await aggregator.getPoolDrawStats(1);
+    assert.strictEqual(
+      res,
+      undefined,
+      "Slow query should timeout and return undefined"
+    );
   });
 });

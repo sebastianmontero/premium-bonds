@@ -28,7 +28,7 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
   const formattedDistributed =
     activePool && activePool.totalPrizesDistributed !== undefined
       ? formatCurrency(activePool.totalPrizesDistributed, activePool)
-      : "--";
+      : "—";
 
   const formattedTargetDate =
     activePool && activePool.currentCycleEndAt > 0
