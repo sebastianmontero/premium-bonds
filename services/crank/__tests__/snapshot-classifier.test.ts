@@ -822,6 +822,129 @@ describe("Snapshot Classifier", () => {
 
     assertSnapshotState(snapshot, "IDLE");
   });
+
+  it("should classify as NEEDS_ADMIN with REBIND_LIMIT_EXCEEDED when rebindCount >= MAX_CRANK_REBINDS", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 1,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry({
+      userCount: 50,
+      drawPreparedUpTo: 50,
+    });
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.AwaitingRandomness,
+      vrfSeedSlot: 100n,
+      rebindCount: 2,
+      randomnessAccount: mockPoolAddress,
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 1200n, // elapsed: 1100 slots > 1000
+      currentTimestamp: 1000n,
+    });
+
+    assertSnapshotState(snapshot, "NEEDS_ADMIN");
+    assert.strictEqual(snapshot.reason, "REBIND_LIMIT_EXCEEDED");
+    assert.ok(snapshot.details?.includes("Admin force unlock required"));
+  });
+
+  it("should classify as READY_TO_DRAW with drawMode consume_only when randomness is revealed even after 1000 slots", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 1,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry({
+      userCount: 50,
+      drawPreparedUpTo: 50,
+    });
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.AwaitingRandomness,
+      vrfSeedSlot: 100n,
+      randomnessAccount: mockPoolAddress,
+    });
+    const randomnessValue = new Uint8Array(32).fill(42);
+    const randomnessHeader = {
+      discriminator: new Uint8Array(8),
+      seedSlot: 100n,
+      revealSlot: 105n,
+      value: randomnessValue,
+    };
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 1500n, // elapsed 1400 slots > 1000, but revealed!
+      currentTimestamp: 1000n,
+      randomnessHeader,
+    });
+
+    assertSnapshotState(snapshot, "READY_TO_DRAW");
+    assert.strictEqual(snapshot.drawMode, "consume_only");
+  });
+
+  it("should prioritize PREPARE_BATCHING and READY_TO_DRAW when pool is frozen for draw even if pool status is Paused", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Paused,
+      isFrozenForDraw: 1,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registryBatching = buildMockTicketRegistry({
+      userCount: 50,
+      drawPreparedUpTo: 20,
+    });
+
+    const snapshotBatching = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registryBatching,
+      currentSlot: 500n,
+      currentTimestamp: 1000n,
+    });
+    assertSnapshotState(
+      snapshotBatching,
+      "PREPARE_BATCHING",
+      "Frozen pool with incomplete batches must prioritize PREPARE_BATCHING over POOL_PAUSED"
+    );
+
+    const registryReady = buildMockTicketRegistry({
+      userCount: 50,
+      drawPreparedUpTo: 50,
+    });
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.AwaitingRandomness,
+      vrfSeedSlot: 100n,
+      randomnessAccount: mockPoolAddress,
+    });
+
+    const snapshotReady = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registryReady,
+      drawCycle,
+      currentSlot: 600n,
+      currentTimestamp: 1000n,
+    });
+    assertSnapshotState(
+      snapshotReady,
+      "READY_TO_DRAW",
+      "Frozen pool with complete batches must prioritize READY_TO_DRAW over POOL_PAUSED"
+    );
+  });
 });
 
 describe("toDrawCycleId Validation", () => {

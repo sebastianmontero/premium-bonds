@@ -209,6 +209,7 @@ export interface SwitchboardRandomnessHeader {
   readonly authority: Address;
   readonly seedSlot: Slot;
   readonly revealSlot: Slot;
+  readonly value: Uint8Array;
 }
 
 export class SwitchboardAuthorityMismatchError extends Error {
@@ -246,12 +247,31 @@ export function parseSwitchboardRandomnessHeader(
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const seedSlot = view.getBigUint64(SB_REQUEST_SLOT_OFFSET, true);
   const revealSlot = view.getBigUint64(SB_REVEAL_SLOT_OFFSET, true);
+  const value = data.subarray(SB_SEED_OFFSET, SB_SEED_OFFSET + 32);
 
   return {
     authority,
     seedSlot: toSlot(seedSlot),
     revealSlot: toSlot(revealSlot),
+    value: new Uint8Array(value),
   };
+}
+
+export function isRandomnessRevealed(
+  header:
+    | SwitchboardRandomnessHeader
+    | { revealSlot: Slot | bigint; value?: Uint8Array }
+    | null
+    | undefined
+): boolean {
+  if (!header) return false;
+  const revealSlot = BigInt(header.revealSlot);
+  if (revealSlot === 0n) return false;
+  if (!header.value) return true;
+  for (let i = 0; i < header.value.length; i++) {
+    if (header.value[i] !== 0) return true;
+  }
+  return false;
 }
 
 export function isRandomnessCommittable(
@@ -315,7 +335,11 @@ export interface PrepareRevealParams {
 }
 
 export type VrfRevealResult =
-  | { readonly status: "ready"; readonly revealInstruction?: Instruction }
+  | {
+      readonly status: "ready";
+      readonly executionMode?: "atomic" | "consume_only";
+      readonly revealInstruction?: Instruction;
+    }
   | {
       readonly status: "pending_oracle";
       readonly reason: string;
@@ -474,6 +498,7 @@ export class MockVrfProvider implements IVrfProvider {
 
     return {
       status: "ready",
+      executionMode: "atomic",
       revealInstruction,
     };
   }
@@ -755,6 +780,14 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
       };
     }
 
+    // If the randomness account has already been revealed, execute reveal_and_pick_winners directly (consume_only)
+    if (isRandomnessRevealed(header)) {
+      return {
+        status: "ready",
+        executionMode: "consume_only",
+      };
+    }
+
     const elapsedSlots = BigInt(params.currentSlot) - seedSlot;
     if (elapsedSlots > VRF_FRESHNESS_WINDOW_SLOTS) {
       return {
@@ -788,6 +821,7 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
 
       return {
         status: "ready",
+        executionMode: "atomic",
         revealInstruction: web3InstructionToKit(revealIx),
       };
     } catch (err: unknown) {

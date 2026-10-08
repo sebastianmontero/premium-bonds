@@ -156,7 +156,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should decode DrawCycle account and handle status variants correctly", () => {
-    const buffer = new Uint8Array(190);
+    const buffer = new Uint8Array(191);
     const view = new DataView(buffer.buffer);
 
     view.setBigUint64(8, 500_000_000n, true);
@@ -168,6 +168,8 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     view.setUint32(84, 3, true);
     view.setUint32(88, 1000, true);
     buffer[92] = 2; // Complete
+    buffer[93] = 1; // version
+    buffer[94] = 0; // rebindCount
 
     const parsed = decodeDrawCycle(mockAccount(buffer)).data;
     assert.strictEqual(parsed.prizePot, 500_000_000n);
@@ -179,6 +181,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     assert.strictEqual(parsed.cycleId, 3);
     assert.strictEqual(parsed.lockedTicketCount, 1000);
     assert.strictEqual(parsed.status, 2); // Complete enum variant index
+    assert.strictEqual(parsed.rebindCount, 0);
 
     buffer[92] = 4; // Skipped
     const parsedSkipped = parseDrawCycle(buffer);

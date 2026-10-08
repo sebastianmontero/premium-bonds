@@ -100,6 +100,22 @@ export interface PayoutRegistrySnapshot {
   readonly account: ParsedPayoutRegistry;
 }
 
+export type DrawExecutionMode = "atomic" | "consume_only";
+
+export type NeedsAdminReason =
+  | "HALTED_INSOLVENT"
+  | "HALTED_YIELD_SPIKE"
+  | "REBIND_LIMIT_EXCEEDED"
+  | "RANDOMNESS_UNAVAILABLE"
+  | "PREPARATION_STALLED";
+
+export interface RandomnessHeader {
+  readonly discriminator: Uint8Array;
+  readonly seedSlot: bigint;
+  readonly revealSlot: bigint;
+  readonly value: Uint8Array;
+}
+
 export interface BaseSnapshot {
   readonly poolId: PoolId;
   readonly poolAddress: Address;
@@ -109,6 +125,7 @@ export interface BaseSnapshot {
   readonly currentSlot: bigint;
   readonly currentTimestamp: UnixTimestamp;
   readonly latestPayoutRegistry?: PayoutRegistrySnapshot;
+  readonly randomnessHeader?: RandomnessHeader;
 }
 
 export type PoolStateSnapshot =
@@ -143,6 +160,7 @@ export type PoolStateSnapshot =
       readonly cycleId: DrawCycleId;
       readonly randomnessAccount: Address;
       readonly vrfSeedSlot: bigint;
+      readonly drawMode?: DrawExecutionMode;
     })
   | (BaseSnapshot & {
       readonly state: "TIMELOCK_WAITING";
@@ -159,6 +177,11 @@ export type PoolStateSnapshot =
   | (BaseSnapshot & {
       readonly state: "CIRCUIT_BREAKER_HALTED";
       readonly reason: CircuitBreakerHaltReason;
+    })
+  | (BaseSnapshot & {
+      readonly state: "NEEDS_ADMIN";
+      readonly reason: NeedsAdminReason;
+      readonly details?: string;
     });
 
 export type CircuitBreakerHaltReason = "HaltedInsolvent" | "HaltedYieldSpike";

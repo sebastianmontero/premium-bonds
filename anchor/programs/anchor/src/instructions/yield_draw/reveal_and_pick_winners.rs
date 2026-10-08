@@ -101,8 +101,8 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     pool.ensure_current_version()?;
 
     require!(
-        pool.status == (PoolStatus::Active as u8),
-        PremiumBondsError::PoolNotActive
+        pool.status != (PoolStatus::Closed as u8),
+        PremiumBondsError::PoolClosed
     );
 
     require!(
@@ -128,28 +128,26 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         registry.user_count
     };
 
-    // ─── SWITCHBOARD ON-DEMAND RANDOMNESS EXTRACTION ────────────────────────
     let clock = Clock::get()?;
 
-    // Parse the Switchboard account data
-    let randomness_data =
-        RandomnessAccountData::parse(ctx.accounts.randomness_account.data.borrow())
-            .map_err(|_| PremiumBondsError::InvalidRandomnessAccount)?;
+    // Step 1: Upfront L-1 Snapshot validation before mutating state
+    let registry_ai = ctx.accounts.ticket_registry.to_account_info();
+    let data = registry_ai.try_borrow_data()?;
+    let entries = get_user_entries(&data, 0, user_count as usize)?;
+    let snapshot_total = entries.last().map_or(0, |e| e.cumulative_active);
+    require!(
+        snapshot_total == draw_cycle.locked_ticket_count,
+        PremiumBondsError::DrawSnapshotMismatch
+    );
 
-    // Enforce commitment validity, exact matching, and freshness window via DrawCycle domain method
-    draw_cycle.verify_randomness_freshness(randomness_data.seed_slot, clock.slot)?;
-
-    // Retrieve the verified 32-byte VRF output
-    let random_seed = randomness_data
-        .get_value(clock.slot)
-        .map_err(|_| PremiumBondsError::RandomnessNotResolved)?;
+    // Step 2: Switchboard On-Demand Randomness extraction & seed resolution
+    let randomness_data = crate::utils::parse_committed_randomness(
+        &ctx.accounts.randomness_account,
+    )?;
+    let random_seed = draw_cycle.resolve_seed(&randomness_data, clock.slot)?;
 
     draw_cycle.complete(random_seed, clock.unix_timestamp)?;
     pool.is_frozen_for_draw = 0;
-
-    // Step 2: access ticket bytes directly — no RefMut held, no borrow conflict.
-    let registry_ai = ctx.accounts.ticket_registry.to_account_info();
-    let data = registry_ai.try_borrow_data()?;
 
     require!(
         draw_cycle.locked_ticket_count > 0 && draw_cycle.prize_pot > 0,
@@ -172,8 +170,6 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         total_winners <= payout_view.winners.len(),
         PremiumBondsError::TooManyWinners
     );
-
-    let entries = get_user_entries(&data, 0, user_count as usize)?;
 
     let mut total_distributed: u64 = 0;
     let mut winner_count: usize = 0;

@@ -80,6 +80,8 @@ pub struct DrawCycle {
     pub status: DrawStatus,
     /// Schema version of the struct.
     pub version: u8,
+    /// Number of times expired randomness has been rebound by the crank for this cycle.
+    pub rebind_count: u8,
     /// The resolved 32-byte randomness seed provided by Switchboard.
     pub randomness_seed: [u8; 32],
     /// Reserved space for future upgrades.
@@ -114,6 +116,57 @@ impl DrawCycle {
     #[inline]
     pub fn is_valid_seed_slot(&self, seed_slot: u64) -> bool {
         seed_slot > 0 && seed_slot == self.vrf_seed_slot
+    }
+
+    /// Returns true if the randomness account has been resolved and revealed on-chain.
+    #[inline]
+    pub fn is_randomness_revealed(&self, rd: &switchboard_on_demand::accounts::RandomnessAccountData) -> bool {
+        rd.reveal_slot > 0 && rd.value != [0u8; 32]
+    }
+
+    /// Returns true if the randomness account matches this cycle's commitment and is revealed.
+    #[inline]
+    pub fn is_committed_randomness_revealed(&self, rd: &switchboard_on_demand::accounts::RandomnessAccountData) -> bool {
+        self.is_valid_seed_slot(rd.seed_slot) && self.is_randomness_revealed(rd)
+    }
+
+    /// Returns true if the randomness account is still pristine and unrevealed.
+    #[inline]
+    pub fn is_randomness_unrevealed(&self, rd: &switchboard_on_demand::accounts::RandomnessAccountData) -> bool {
+        rd.reveal_slot == 0 && rd.value == [0u8; 32]
+    }
+
+    /// Resolves the final seed for this cycle.
+    /// Consuming revealed randomness in a later slot leaks nothing because draw inputs
+    /// are frozen since harvest.
+    pub fn resolve_seed(&self, rd: &switchboard_on_demand::accounts::RandomnessAccountData, current_slot: u64) -> Result<[u8; 32]> {
+        require!(self.status == DrawStatus::AwaitingRandomness, PremiumBondsError::InvalidDrawStatus);
+        require!(self.is_valid_seed_slot(rd.seed_slot), PremiumBondsError::RandomnessCommitmentTampered);
+        require!(
+            self.is_randomness_revealed(rd) && rd.reveal_slot >= rd.seed_slot,
+            PremiumBondsError::RandomnessNotResolved
+        );
+        require!(rd.reveal_slot <= current_slot, PremiumBondsError::RandomnessNotResolved);
+        Ok(rd.value)
+    }
+
+    /// Layer 1: Validates that this draw cycle is in an eligible phase and under the rebind cap.
+    /// Zero account borrow dependencies (saves CU).
+    pub fn assert_rebind_eligible(&self, current_slot: u64) -> Result<()> {
+        require!(self.status == DrawStatus::AwaitingRandomness, PremiumBondsError::InvalidDrawStatus);
+        require!(self.rebind_count < crate::constants::MAX_CRANK_REBINDS, PremiumBondsError::RebindLimitReached);
+        require!(
+            current_slot.saturating_sub(self.vrf_seed_slot) > crate::constants::VRF_FRESHNESS_WINDOW_SLOTS,
+            PremiumBondsError::RandomnessNotExpired
+        );
+        Ok(())
+    }
+
+    /// Layer 2: Validates that the committed account has not been tampered and was never revealed.
+    pub fn assert_unrevealed_commitment(&self, old: &switchboard_on_demand::accounts::RandomnessAccountData) -> Result<()> {
+        require!(old.seed_slot == self.vrf_seed_slot, PremiumBondsError::RandomnessCommitmentTampered);
+        require!(self.is_randomness_unrevealed(old), PremiumBondsError::RandomnessAlreadyRevealed);
+        Ok(())
     }
 
     /// Verifies that the randomness was committed for this cycle and has not expired.
@@ -166,6 +219,7 @@ impl DrawCycle {
         self.locked_ticket_count = locked_ticket_count;
         self.prize_pot = prize_pot;
         self.cycle_fee_collected = fee;
+        self.rebind_count = 0;
     }
 
     pub fn rebind_randomness(
@@ -179,6 +233,10 @@ impl DrawCycle {
             PremiumBondsError::InvalidDrawStatus
         );
         require!(
+            self.rebind_count < crate::constants::MAX_CRANK_REBINDS,
+            PremiumBondsError::RebindLimitReached
+        );
+        require!(
             new_randomness_account != self.randomness_account,
             PremiumBondsError::SameRandomnessAccount
         );
@@ -186,6 +244,10 @@ impl DrawCycle {
             new_seed_slot > 0,
             PremiumBondsError::RandomnessNotCommitted
         );
+        self.rebind_count = self
+            .rebind_count
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
         self.randomness_account = new_randomness_account;
         self.vrf_seed_slot = new_seed_slot;
         Ok(())

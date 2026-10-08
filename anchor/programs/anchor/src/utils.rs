@@ -417,6 +417,24 @@ pub fn is_valid_switchboard_randomness_account(account: &AccountInfo) -> bool {
 /// current transaction window, is unrevealed, and possesses a non-zero seed slot.
 /// Enforces Switchboard On-Demand program ownership to prevent account spoofing.
 /// Returns the validated seed slot.
+/// Parses and validates that an account is an authentic Switchboard On-Demand randomness account
+/// pinned to the program. Returns RandomnessCommitmentTampered if the account is missing, closed,
+/// corrupted, or not owned by Switchboard.
+pub fn parse_committed_randomness(
+    account: &AccountInfo,
+) -> Result<switchboard_on_demand::RandomnessAccountData> {
+    require!(
+        account.owner == &crate::constants::SWITCHBOARD_ON_DEMAND_PID,
+        PremiumBondsError::RandomnessCommitmentTampered
+    );
+    let data = account
+        .try_borrow_data()
+        .map_err(|_| PremiumBondsError::RandomnessCommitmentTampered)?;
+    let parsed = switchboard_on_demand::RandomnessAccountData::parse(data)
+        .map_err(|_| PremiumBondsError::RandomnessCommitmentTampered)?;
+    Ok(*parsed)
+}
+
 pub fn parse_and_validate_fresh_randomness(
     account: &AccountInfo,
     current_slot: u64,
@@ -444,7 +462,7 @@ pub fn parse_and_validate_fresh_randomness(
     );
     require!(
         randomness_data.reveal_slot == 0 && randomness_data.value == [0u8; 32],
-        PremiumBondsError::RandomnessAlreadyResolved
+        PremiumBondsError::RandomnessAlreadyRevealed
     );
 
     Ok(randomness_data.seed_slot)
@@ -691,7 +709,7 @@ mod tests {
         );
         assert_eq!(
             crate::state::DrawCycle::INIT_SPACE,
-            8 + 8 + 8 + 8 + 8 + 32 + 4 + 4 + 4 + crate::state::DrawStatus::INIT_SPACE + 1 + 32 + 64
+            8 + 8 + 8 + 8 + 8 + 32 + 4 + 4 + 4 + crate::state::DrawStatus::INIT_SPACE + 1 + 1 + 32 + 64
         );
         assert_eq!(
             crate::state::PendingRedemption::INIT_SPACE,
@@ -1091,6 +1109,7 @@ mod tests {
             locked_ticket_count: 0,
             status: crate::state::DrawStatus::AwaitingYield,
             version: DrawCycle::CURRENT_VERSION,
+            rebind_count: 0,
             randomness_seed: [0; 32],
             _reserved: [0; 64],
         };

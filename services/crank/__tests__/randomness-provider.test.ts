@@ -7,6 +7,7 @@ import { generateKeyPairSigner, address, getBase58Encoder } from "@solana/kit";
 import {
   parseSwitchboardRandomnessHeader,
   isRandomnessCommittable,
+  isRandomnessRevealed,
   createVrfProvider,
   MockVrfProvider,
   SwitchboardOnDemandProvider,
@@ -130,6 +131,7 @@ describe("Switchboard VRF Provider Unit Tests", () => {
         authority: dummyAuth,
         seedSlot: toSlot(0n),
         revealSlot: toSlot(0n),
+        value: new Uint8Array(32),
       };
       assert.strictEqual(isRandomnessCommittable(header, toSlot(500n)), true);
     });
@@ -139,6 +141,7 @@ describe("Switchboard VRF Provider Unit Tests", () => {
         authority: dummyAuth,
         seedSlot: toSlot(500n),
         revealSlot: toSlot(505n),
+        value: new Uint8Array(32).fill(1),
       };
       assert.strictEqual(isRandomnessCommittable(header, toSlot(600n)), true);
     });
@@ -148,6 +151,7 @@ describe("Switchboard VRF Provider Unit Tests", () => {
         authority: dummyAuth,
         seedSlot: toSlot(100n),
         revealSlot: toSlot(0n),
+        value: new Uint8Array(32),
       };
       assert.strictEqual(
         isRandomnessCommittable(
@@ -163,6 +167,7 @@ describe("Switchboard VRF Provider Unit Tests", () => {
         authority: dummyAuth,
         seedSlot: toSlot(500n),
         revealSlot: toSlot(0n),
+        value: new Uint8Array(32),
       };
       // Within 1000 slots
       assert.strictEqual(isRandomnessCommittable(header, toSlot(550n)), false);
@@ -173,6 +178,46 @@ describe("Switchboard VRF Provider Unit Tests", () => {
         ),
         false
       );
+    });
+  });
+
+  describe("isRandomnessRevealed", () => {
+    const dummyAuth = address("11111111111111111111111111111111");
+
+    it("should return true when revealSlot > 0 and value has non-zero bytes", () => {
+      const header = {
+        authority: dummyAuth,
+        seedSlot: toSlot(100n),
+        revealSlot: toSlot(105n),
+        value: new Uint8Array(32).fill(42),
+      };
+      assert.strictEqual(isRandomnessRevealed(header), true);
+    });
+
+    it("should return false when revealSlot === 0n", () => {
+      const header = {
+        authority: dummyAuth,
+        seedSlot: toSlot(100n),
+        revealSlot: toSlot(0n),
+        value: new Uint8Array(32).fill(42),
+      };
+      assert.strictEqual(isRandomnessRevealed(header), false);
+    });
+
+    it("should return false when value is all zeros", () => {
+      const header = {
+        authority: dummyAuth,
+        seedSlot: toSlot(100n),
+        revealSlot: toSlot(105n),
+        value: new Uint8Array(32),
+      };
+      assert.strictEqual(isRandomnessRevealed(header), false);
+    });
+
+    it("should return false for null, undefined, or missing values", () => {
+      assert.strictEqual(isRandomnessRevealed(null), false);
+      assert.strictEqual(isRandomnessRevealed(undefined), false);
+      assert.strictEqual(isRandomnessRevealed({ revealSlot: 0n }), false);
     });
   });
 
@@ -478,6 +523,40 @@ describe("Switchboard VRF Provider Unit Tests", () => {
         });
         assert.strictEqual(res.status, "expired");
         assert.strictEqual(res.elapsedSlots, toSlot(1100n));
+      } finally {
+        web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
+      }
+    });
+
+    it("should return ready with executionMode consume_only on prepareReveal when account is already revealed", async () => {
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com"
+      );
+      const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      const raw = createMockRandomnessBuffer({
+        authority: "11111111111111111111111111111111",
+        seedSlot: 100n,
+        revealSlot: 105n,
+      });
+      raw.fill(42, SB_SEED_OFFSET, SB_SEED_OFFSET + 32);
+      web3.Connection.prototype.getAccountInfo = (async () => ({
+        data: Buffer.from(raw),
+        executable: false,
+        lamports: 1000000,
+        owner: new web3.PublicKey(
+          "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+        ),
+      })) as typeof originalGetAccountInfo;
+      try {
+        const res = await provider.prepareReveal({
+          randomnessAccount: address("11111111111111111111111111111111"),
+          committedSeedSlot: toSlot(100n),
+          currentSlot: toSlot(200n),
+        });
+        assert.strictEqual(res.status, "ready");
+        if (res.status === "ready") {
+          assert.strictEqual(res.executionMode, "consume_only");
+        }
       } finally {
         web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
       }

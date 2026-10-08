@@ -2344,6 +2344,7 @@ export async function buildAdminForceUnlockDrawInstruction(params: {
   admin: Address | TransactionSigner;
   poolId: number;
   cycleId: number;
+  currentRandomnessAccount?: Address;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
   const currentDrawCycle = await findDrawCyclePda(
@@ -2354,6 +2355,8 @@ export async function buildAdminForceUnlockDrawInstruction(params: {
     admin: params.admin as TransactionSigner,
     pool,
     currentDrawCycle,
+    currentRandomnessAccount:
+      params.currentRandomnessAccount ?? SYSTEM_PROGRAM_ID,
   });
 }
 

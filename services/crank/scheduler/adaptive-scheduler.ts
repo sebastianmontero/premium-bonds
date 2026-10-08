@@ -425,7 +425,26 @@ export class AdaptiveCrankScheduler {
       return false;
     }
 
-    // 3. Timelock waiting buffer (wakeup at readyAt + 2s clock skew safety buffer)
+    // 3. Quarantine permanent needs-admin states (rebind limit exceeded, etc.)
+    if (snapshot.state === "NEEDS_ADMIN") {
+      const lastAlerted = this.alertedHaltCycles.get(poolId);
+      if (lastAlerted !== snapshot.pool.currentDrawCycleId) {
+        this.alertNotifier.notifyAlert(
+          `NEEDS_ADMIN_${snapshot.reason}`,
+          `Pool #${poolId} requires admin intervention: ${snapshot.reason}${snapshot.details ? ` (${snapshot.details})` : ""}`,
+          poolId,
+          "error"
+        );
+        this.alertedHaltCycles.set(poolId, snapshot.pool.currentDrawCycleId);
+      }
+      this.nextEligibleTickMs.set(
+        poolId,
+        Date.now() + CIRCUIT_BREAKER_HALT_QUARANTINE_MS
+      );
+      return false;
+    }
+
+    // 4. Timelock waiting buffer (wakeup at readyAt + 2s clock skew safety buffer)
     if (snapshot.state === "TIMELOCK_WAITING") {
       const readyAtMs = Number(snapshot.readyAt) * 1000 + 2000;
       this.nextEligibleTickMs.set(poolId, readyAtMs);

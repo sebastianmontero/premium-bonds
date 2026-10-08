@@ -211,7 +211,16 @@ pub enum PremiumBondsError {
     /// The Switchboard randomness account has not been committed yet (seed_slot is 0).
     #[msg("Randomness account has not been committed yet.")]
     RandomnessNotCommitted,
-    /// The Switchboard randomness account has already been revealed prior to commitment.
-    #[msg("Randomness account has already been revealed prior to commitment.")]
-    RandomnessAlreadyResolved,
+    /// The Switchboard randomness account has already been revealed on-chain and cannot be bound or rebound.
+    #[msg("Randomness account has already been revealed on-chain.")]
+    RandomnessAlreadyRevealed,
+    /// The bound randomness account no longer matches the committed seed slot (re-committed or closed). Admin force-unlock required.
+    #[msg("Bound randomness commitment tampered or account invalid. Admin intervention required.")]
+    RandomnessCommitmentTampered,
+    /// The crank exhausted its rebind allowance for this cycle. Admin force-unlock required.
+    #[msg("Maximum crank rebind limit reached for this draw cycle.")]
+    RebindLimitReached,
+    /// The prepared registry cumulative ticket count does not match the harvest snapshot.
+    #[msg("Ticket registry snapshot does not match draw cycle locked tickets.")]
+    DrawSnapshotMismatch,
 }

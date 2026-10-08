@@ -405,10 +405,16 @@ impl DrawCycleTestBuilder {
                 locked_ticket_count: 0,
                 status: anchor::DrawStatus::AwaitingYield,
                 version: anchor::DrawCycle::CURRENT_VERSION,
+                rebind_count: 0,
                 randomness_seed: [0u8; 32],
                 _reserved: [0; 64],
             },
         }
+    }
+
+    pub fn with_rebind_count(mut self, count: u8) -> Self {
+        self.cycle.rebind_count = count;
+        self
     }
 
     pub fn with_status(mut self, status: anchor::DrawStatus) -> Self {

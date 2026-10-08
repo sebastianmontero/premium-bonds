@@ -92,56 +92,46 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
 
     let clock = Clock::get()?;
 
-    // Layer 1: Macro freshness cooldown (Unconditional)
-    require!(
-        clock.slot.saturating_sub(draw_cycle.vrf_seed_slot) > VRF_FRESHNESS_WINDOW_SLOTS,
-        PremiumBondsError::RandomnessNotExpired
-    );
+    // 1. Fail-fast cycle checks (status, rebind_count, slot expiry) before touching foreign accounts
+    draw_cycle.assert_rebind_eligible(clock.slot)?;
 
-    // Layer 2: Additive anti-re-roll check if valid randomness was committed
-    if ctx.accounts.current_randomness_account.key() != Pubkey::default() {
-        if let Ok(data) = ctx.accounts.current_randomness_account.try_borrow_data() {
-            if let Ok(randomness_data) = switchboard_on_demand::RandomnessAccountData::parse(data) {
-                if randomness_data.seed_slot >= draw_cycle.vrf_seed_slot {
-                    require!(
-                        clock.slot.saturating_sub(randomness_data.seed_slot)
-                            > VRF_FRESHNESS_WINDOW_SLOTS,
-                        PremiumBondsError::RandomnessNotExpired
-                    );
-                }
-            }
-        }
-    }
+    // 2. Parse committed randomness (returns RandomnessCommitmentTampered if closed/tampered)
+    let old_randomness = crate::utils::parse_committed_randomness(
+        &ctx.accounts.current_randomness_account,
+    )?;
+    draw_cycle.assert_unrevealed_commitment(&old_randomness)?;
 
-    let old_randomness = draw_cycle.randomness_account;
+    let old_randomness_account = draw_cycle.randomness_account;
 
-    // Validate new Switchboard randomness account and retrieve committed seed slot
+    // 3. Parse and validate fresh randomness
     let new_seed_slot = crate::utils::parse_and_validate_fresh_randomness(
-        &ctx.accounts.new_randomness_account.to_account_info(),
+        &ctx.accounts.new_randomness_account,
         clock.slot,
     )?;
 
-    // Rebind our contract state to the new randomness account and set vrf_seed_slot
+    // 4. State mutation and event emission
     draw_cycle.rebind_randomness(ctx.accounts.new_randomness_account.key(), new_seed_slot)?;
 
     let pool_id = ctx.accounts.pool.load()?.pool_id;
 
     #[cfg(feature = "debug-logs")]
     msg!(
-        "CrankRebindExpiredRandomness: re-bound pool_id={}, cycle_id={} to new randomness_account={}, vrf_seed_slot={}",
+        "CrankRebindExpiredRandomness: re-bound pool_id={}, cycle_id={} to new randomness_account={}, vrf_seed_slot={}, rebind_count={}",
         pool_id,
         draw_cycle.cycle_id,
         draw_cycle.randomness_account,
-        draw_cycle.vrf_seed_slot
+        draw_cycle.vrf_seed_slot,
+        draw_cycle.rebind_count
     );
 
     emit_cpi!(RandomnessRebound {
         pool_id,
         cycle_id: draw_cycle.cycle_id,
         crank: ctx.accounts.crank.key(),
-        old_randomness_account: old_randomness,
+        old_randomness_account,
         new_randomness_account: draw_cycle.randomness_account,
         vrf_seed_slot: draw_cycle.vrf_seed_slot,
+        rebind_count: draw_cycle.rebind_count,
         timestamp: clock.unix_timestamp,
     });
 

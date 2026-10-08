@@ -85,6 +85,8 @@ export type DrawCycle = {
   status: DrawStatus;
   /** Schema version of the struct. */
   version: number;
+  /** Number of times expired randomness has been rebound by the crank for this cycle. */
+  rebindCount: number;
   /** The resolved 32-byte randomness seed provided by Switchboard. */
   randomnessSeed: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
@@ -114,6 +116,8 @@ export type DrawCycleArgs = {
   status: DrawStatusArgs;
   /** Schema version of the struct. */
   version: number;
+  /** Number of times expired randomness has been rebound by the crank for this cycle. */
+  rebindCount: number;
   /** The resolved 32-byte randomness seed provided by Switchboard. */
   randomnessSeed: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
@@ -136,6 +140,7 @@ export function getDrawCycleEncoder(): FixedSizeEncoder<DrawCycleArgs> {
       ["lockedTicketCount", getU32Encoder()],
       ["status", getDrawStatusEncoder()],
       ["version", getU8Encoder()],
+      ["rebindCount", getU8Encoder()],
       ["randomnessSeed", fixEncoderSize(getBytesEncoder(), 32)],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
@@ -158,6 +163,7 @@ export function getDrawCycleDecoder(): FixedSizeDecoder<DrawCycle> {
     ["lockedTicketCount", getU32Decoder()],
     ["status", getDrawStatusDecoder()],
     ["version", getU8Decoder()],
+    ["rebindCount", getU8Decoder()],
     ["randomnessSeed", fixDecoderSize(getBytesDecoder(), 32)],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
@@ -222,5 +228,5 @@ export async function fetchAllMaybeDrawCycle(
 }
 
 export function getDrawCycleSize(): number {
-  return 190;
+  return 191;
 }

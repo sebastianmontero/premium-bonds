@@ -268,6 +268,7 @@ fn test_v2_batch_boundary_slice_version_migration() {
         locked_ticket_count: 15,
         status: anchor::state::DrawStatus::AwaitingRandomness,
         version: 0, // Test read-only draw_cycle with version 0
+        rebind_count: 0,
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     };
@@ -523,6 +524,7 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
         locked_ticket_count: 10,
         status: anchor::state::DrawStatus::AwaitingRandomness,
         version: 1,
+        rebind_count: 0,
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     };
@@ -759,6 +761,7 @@ fn test_unsupported_account_version_all_9_structs() {
         locked_ticket_count: 0,
         status: anchor::state::DrawStatus::AwaitingYield,
         version: DrawCycle::CURRENT_VERSION + 1,
+        rebind_count: 0,
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     };

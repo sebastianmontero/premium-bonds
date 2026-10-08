@@ -368,6 +368,7 @@ pub struct RandomnessRebound {
     pub old_randomness_account: Pubkey,
     pub new_randomness_account: Pubkey,
     pub vrf_seed_slot: u64,
+    pub rebind_count: u8,
     pub timestamp: i64,
 }
 

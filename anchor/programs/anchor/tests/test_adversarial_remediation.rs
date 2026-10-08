@@ -1335,13 +1335,13 @@ fn test_v6_rebind_two_layer_anti_reroll_guard() {
     dc.randomness_account = current_randomness;
     inject_draw_cycle(&mut ctx.svm, pool_id, cycle_id, &dc);
 
-    // Inject Switchboard randomness account with seed_slot = 1050 (requested after initial commitment)
-    inject_randomness_account_data(&mut ctx.svm, current_randomness, 1050, 0, [0u8; 32]);
+    // Inject Switchboard randomness account with matching seed_slot = 100
+    inject_randomness_account_data(&mut ctx.svm, current_randomness, 100, 0, [0u8; 32]);
 
     let new_randomness = Keypair::new().pubkey();
 
     // Scenario 1: Clock slot = 1000.
-    // clock.slot (1000) - vrf_seed_slot (100) = 900 <= 1000 -> Fails Layer 1 (Macro window)
+    // clock.slot (1000) - vrf_seed_slot (100) = 900 <= 1000 -> Fails Layer 1 (RandomnessNotExpired)
     ctx.svm.warp_to_slot(1000);
     inject_mock_randomness_account(&mut ctx.svm, new_randomness);
     let ix1 = build_crank_rebind_instruction(
@@ -1354,12 +1354,13 @@ fn test_v6_rebind_two_layer_anti_reroll_guard() {
     let res1 = send_user_tx(&mut ctx.svm, &ctx.admin, ix1);
     assert_custom_error(res1, PremiumBondsError::RandomnessNotExpired);
 
-    // Scenario 2: Clock slot = 1200.
-    // clock.slot (1200) - vrf_seed_slot (100) = 1100 > 1000 (Passes Layer 1), BUT
-    // clock.slot (1200) - seed_slot (1050) = 150 <= 1000 -> Fails Layer 2 (Micro anti-re-roll window!)
+    // Scenario 2: Clock slot = 1200, but committed account was recommitted (seed_slot = 1050 != vrf_seed_slot 100).
+    // Fails Layer 2 commitment integrity (RandomnessCommitmentTampered)
     ctx.svm.warp_to_slot(1200);
     ctx.svm.expire_blockhash();
-    inject_mock_randomness_account(&mut ctx.svm, new_randomness);
+    inject_randomness_account_data(&mut ctx.svm, current_randomness, 1050, 0, [0u8; 32]);
+    let fresh_seed_slot2 = 1200 - 1;
+    inject_randomness_account_data(&mut ctx.svm, new_randomness, fresh_seed_slot2, 0, [0u8; 32]);
     let ix2 = build_crank_rebind_instruction(
         &ctx.admin,
         pool_id,
@@ -1368,21 +1369,12 @@ fn test_v6_rebind_two_layer_anti_reroll_guard() {
         new_randomness,
     );
     let res2 = send_user_tx(&mut ctx.svm, &ctx.admin, ix2);
-    assert_custom_error(res2, PremiumBondsError::RandomnessNotExpired);
+    assert_custom_error(res2, PremiumBondsError::RandomnessCommitmentTampered);
 
-    // Scenario 3: Clock slot = 2051.
-    // clock.slot (2051) - vrf_seed_slot (100) = 1951 > 1000 (Passes Layer 1) AND
-    // clock.slot (2051) - seed_slot (1050) = 1001 > 1000 (Passes Layer 2) -> SUCCEEDS!
-    ctx.svm.warp_to_slot(2051);
+    // Scenario 3: Clock slot = 1200, matching seed_slot = 100, fresh new randomness -> SUCCEEDS!
+    ctx.svm.warp_to_slot(1200);
     ctx.svm.expire_blockhash();
-    let fresh_seed_slot = 2051 - 1;
-    inject_randomness_account_data(
-        &mut ctx.svm,
-        new_randomness,
-        fresh_seed_slot,
-        0,
-        [0u8; 32],
-    );
+    inject_randomness_account_data(&mut ctx.svm, current_randomness, 100, 0, [0u8; 32]);
     let ix3 = build_crank_rebind_instruction(
         &ctx.admin,
         pool_id,
@@ -1393,6 +1385,6 @@ fn test_v6_rebind_two_layer_anti_reroll_guard() {
     let res3 = send_user_tx(&mut ctx.svm, &ctx.admin, ix3);
     assert!(
         res3.is_ok(),
-        "Two-layer expired randomness rebind must succeed: {res3:?}"
+        "Expired randomness rebind with valid commitment must succeed: {res3:?}"
     );
 }

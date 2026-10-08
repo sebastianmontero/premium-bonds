@@ -9,6 +9,9 @@ export const VRF_FRESHNESS_WINDOW_SLOTS = 1000n;
 /// Maximum allowable slot lag between Switchboard commit and contract execution (64 slots ~ 25.6s).
 export const VRF_COMMIT_FRESHNESS_WINDOW_SLOTS = 64n;
 
+/// Maximum number of automated randomness rebind attempts before escalating to admin.
+export const MAX_CRANK_REBINDS = 2;
+
 /// Estimated Solana slot duration in milliseconds.
 export const ESTIMATED_SLOT_DURATION_MS = 400;
 

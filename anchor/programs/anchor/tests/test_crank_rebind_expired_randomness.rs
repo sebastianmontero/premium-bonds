@@ -11,6 +11,7 @@ struct RebindCtx {
     crank: Keypair,
     pool_key: Pubkey,
     current_draw_cycle: Pubkey,
+    current_randomness_account: Pubkey,
     new_randomness_account: Pubkey,
 }
 
@@ -25,10 +26,20 @@ fn setup(draw_status: anchor::DrawStatus, vrf_seed_slot: u64) -> RebindCtx {
         .with_current_draw_cycle_id(0)
         .inject(&mut svm);
 
+    let current_randomness_account = Keypair::new().pubkey();
+    inject_randomness_account_data(
+        &mut svm,
+        current_randomness_account,
+        vrf_seed_slot,
+        0,
+        [0u8; 32],
+    );
+
     let (current_draw_cycle, _) = DrawCycleTestBuilder::new(1, 0)
         .with_status(draw_status)
         .with_locked_tickets(10)
         .with_prize_pot(1_000_000)
+        .with_randomness_account(current_randomness_account)
         .with_vrf_seed_slot(vrf_seed_slot)
         .inject(&mut svm);
 
@@ -41,6 +52,7 @@ fn setup(draw_status: anchor::DrawStatus, vrf_seed_slot: u64) -> RebindCtx {
         crank,
         pool_key,
         current_draw_cycle,
+        current_randomness_account,
         new_randomness_account,
     }
 }
@@ -114,8 +126,7 @@ fn test_rebind_happy_path() {
     assert_eq!(event.pool_id, 1, "RandomnessRebound pool_id mismatch");
     assert_eq!(event.cycle_id, 0, "RandomnessRebound cycle_id mismatch");
     assert_eq!(
-        event.old_randomness_account,
-        Pubkey::default(),
+        event.old_randomness_account, ctx.current_randomness_account,
         "RandomnessRebound old_randomness_account mismatch"
     );
     assert_eq!(
@@ -125,6 +136,10 @@ fn test_rebind_happy_path() {
     assert_eq!(
         event.vrf_seed_slot, new_seed_slot,
         "RandomnessRebound vrf_seed_slot mismatch"
+    );
+    assert_eq!(
+        event.rebind_count, 1,
+        "RandomnessRebound rebind_count mismatch"
     );
 
     // Verify draw cycle randomness account is updated and vrf_seed_slot reset
@@ -137,6 +152,10 @@ fn test_rebind_happy_path() {
     assert_eq!(
         dc.vrf_seed_slot, new_seed_slot,
         "DrawCycle vrf_seed_slot must be updated to new seed slot"
+    );
+    assert_eq!(
+        dc.rebind_count, 1,
+        "DrawCycle rebind_count must be updated to 1"
     );
 }
 
@@ -350,8 +369,7 @@ fn test_crank_rebind_exact_slot_boundary() {
     assert_eq!(event.pool_id, 1, "RandomnessRebound pool_id mismatch");
     assert_eq!(event.cycle_id, 0, "RandomnessRebound cycle_id mismatch");
     assert_eq!(
-        event.old_randomness_account,
-        Pubkey::default(),
+        event.old_randomness_account, ctx.current_randomness_account,
         "RandomnessRebound old_randomness_account mismatch"
     );
     assert_eq!(
@@ -361,6 +379,10 @@ fn test_crank_rebind_exact_slot_boundary() {
     assert_eq!(
         event.vrf_seed_slot, new_seed_slot,
         "RandomnessRebound vrf_seed_slot mismatch"
+    );
+    assert_eq!(
+        event.rebind_count, 1,
+        "RandomnessRebound rebind_count mismatch"
     );
 }
 
@@ -441,6 +463,13 @@ fn test_crank_rebind_full_lifecycle() {
     mutate_draw_cycle(&mut fixture.svm, 1, 0, |dc| {
         dc.vrf_seed_slot = initial_vrf_seed_slot;
     });
+    inject_randomness_account_data(
+        &mut fixture.svm,
+        fixture.randomness_account,
+        initial_vrf_seed_slot,
+        0,
+        [0u8; 32],
+    );
 
     // 1. Warp to expired slot (> 1000 slots after harvest)
     let rebind_slot = initial_vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1; // 1101
@@ -481,12 +510,14 @@ fn test_crank_rebind_full_lifecycle() {
     assert_eq!(event.old_randomness_account, fixture.randomness_account);
     assert_eq!(event.new_randomness_account, new_randomness);
     assert_eq!(event.vrf_seed_slot, new_seed_slot);
+    assert_eq!(event.rebind_count, 1);
 
     // Assert DrawCycle state updated
     let dc_acct = fixture.svm.get_account(&dc_pda).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
     assert_eq!(dc.randomness_account, new_randomness);
     assert_eq!(dc.vrf_seed_slot, new_seed_slot);
+    assert_eq!(dc.rebind_count, 1);
     assert_eq!(dc.prize_pot, 1_000_000);
     assert_eq!(dc.locked_ticket_count, 5);
 
@@ -499,7 +530,14 @@ fn test_crank_rebind_full_lifecycle() {
     fixture.svm.warp_to_slot(rebind_slot + 1);
     fixture.svm.expire_blockhash();
     let another_randomness = Keypair::new().pubkey();
-    inject_mock_randomness_account(&mut fixture.svm, another_randomness);
+    let another_seed_slot = (rebind_slot + 1).saturating_sub(1);
+    inject_randomness_account_data(
+        &mut fixture.svm,
+        another_randomness,
+        another_seed_slot,
+        0,
+        [0u8; 32],
+    );
 
     let rebind_fail_res = CrankRebindExpiredRandomnessBuilder::new(
         crank.pubkey(),
@@ -545,5 +583,87 @@ fn test_crank_rebind_full_lifecycle() {
     let payout_acct = fixture.svm.get_account(&payout_reg_pda);
     assert!(payout_acct.is_some(), "PayoutRegistry account must be created");
 }
+
+#[test]
+fn test_crank_rebind_fails_when_max_rebind_limit_reached() {
+    let vrf_seed_slot = 100;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let crank = clone_keypair(&ctx.crank);
+
+    // --- Rebind 1 ---
+    let expired_slot_1 = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1; // 1101
+    ctx.svm.warp_to_slot(expired_slot_1);
+    ctx.svm.expire_blockhash();
+
+    let rand1 = Keypair::new().pubkey();
+    let seed_slot_1 = expired_slot_1.saturating_sub(1); // 1100
+    inject_randomness_account_data(&mut ctx.svm, rand1, seed_slot_1, 0, [0u8; 32]);
+
+    let res1 = CrankRebindExpiredRandomnessBuilder::new(
+        crank.pubkey(),
+        1,
+        0,
+        ctx.current_randomness_account,
+        rand1,
+    )
+    .with_pool(ctx.pool_key)
+    .with_current_draw_cycle(ctx.current_draw_cycle)
+    .send(&mut ctx.svm, &crank);
+    assert!(res1.is_ok(), "1st rebind should succeed: {:?}", res1.err());
+
+    // Verify rebind_count = 1
+    let dc_acct_1 = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
+    let dc_1 = anchor::DrawCycle::try_deserialize(&mut dc_acct_1.data.as_slice()).unwrap();
+    assert_eq!(dc_1.rebind_count, 1);
+
+    // --- Rebind 2 ---
+    let expired_slot_2 = seed_slot_1 + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1; // 2101
+    ctx.svm.warp_to_slot(expired_slot_2);
+    ctx.svm.expire_blockhash();
+
+    let rand2 = Keypair::new().pubkey();
+    let seed_slot_2 = expired_slot_2.saturating_sub(1); // 2100
+    inject_randomness_account_data(&mut ctx.svm, rand2, seed_slot_2, 0, [0u8; 32]);
+
+    let res2 = CrankRebindExpiredRandomnessBuilder::new(
+        crank.pubkey(),
+        1,
+        0,
+        rand1,
+        rand2,
+    )
+    .with_pool(ctx.pool_key)
+    .with_current_draw_cycle(ctx.current_draw_cycle)
+    .send(&mut ctx.svm, &crank);
+    assert!(res2.is_ok(), "2nd rebind should succeed: {:?}", res2.err());
+
+    // Verify rebind_count = 2
+    let dc_acct_2 = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
+    let dc_2 = anchor::DrawCycle::try_deserialize(&mut dc_acct_2.data.as_slice()).unwrap();
+    assert_eq!(dc_2.rebind_count, 2);
+
+    // --- Rebind 3 (Attempt: should fail with RebindLimitReached) ---
+    let expired_slot_3 = seed_slot_2 + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1; // 3101
+    ctx.svm.warp_to_slot(expired_slot_3);
+    ctx.svm.expire_blockhash();
+
+    let rand3 = Keypair::new().pubkey();
+    let seed_slot_3 = expired_slot_3.saturating_sub(1); // 3100
+    inject_randomness_account_data(&mut ctx.svm, rand3, seed_slot_3, 0, [0u8; 32]);
+
+    let res3 = CrankRebindExpiredRandomnessBuilder::new(
+        crank.pubkey(),
+        1,
+        0,
+        rand2,
+        rand3,
+    )
+    .with_pool(ctx.pool_key)
+    .with_current_draw_cycle(ctx.current_draw_cycle)
+    .send(&mut ctx.svm, &crank);
+
+    assert_custom_error(res3, anchor::error::PremiumBondsError::RebindLimitReached);
+}
+
 
 

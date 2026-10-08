@@ -3912,6 +3912,7 @@ To execute this on-chain, re-run with --confirm.`);
         admin: auth,
         poolId,
         cycleId: targetCycleId,
+        currentRandomnessAccount: drawCycleState.randomnessAccount,
       });
     },
   });

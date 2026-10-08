@@ -237,7 +237,7 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
+fn test_lifecycle_prepare_draw_succeeds_when_paused_fails_when_closed() {
     let (mut svm, _admin) = setup_global_config();
     let crank = Keypair::new();
     svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
@@ -258,7 +258,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         .with_locked_tickets(10)
         .inject(&mut svm);
 
-    // 1. Paused
+    // 1. Paused -> PrepareDraw should SUCCEED to allow in-flight draw completion
     inject_pool(
         &mut svm,
         pool_id,
@@ -271,9 +271,9 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         .with_ticket_registry(ticket_registry)
         .with_batch_size(10)
         .send(&mut svm, &crank);
-    assert_custom_error(res, PremiumBondsError::PoolNotActive);
+    assert!(res.is_ok(), "PrepareDraw must succeed when pool is Paused: {res:?}");
 
-    // 2. Closed
+    // 2. Closed -> PrepareDraw must FAIL with PoolClosed
     inject_pool(
         &mut svm,
         pool_id,
@@ -289,7 +289,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         .with_ticket_registry(ticket_registry)
         .with_batch_size(10)
         .send(&mut svm, &crank2);
-    assert_custom_error(res2, PremiumBondsError::PoolNotActive);
+    assert_custom_error(res2, PremiumBondsError::PoolClosed);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -272,3 +272,44 @@ fn test_admin_force_unlock_fails_on_all_invalid_draw_statuses() {
         );
     }
 }
+
+#[test]
+fn test_admin_force_unlock_with_mismatched_randomness_account_fails() {
+    let admin = Keypair::new();
+    let mut ctx = setup(&admin, anchor::DrawStatus::AwaitingRandomness);
+
+    let mismatched_randomness = Keypair::new().pubkey();
+    let res = AdminForceUnlockDrawBuilder::new(admin.pubkey(), 1, 0)
+        .with_pool(ctx.pool_key)
+        .with_current_draw_cycle(ctx.current_draw_cycle)
+        .with_current_randomness_account(mismatched_randomness)
+        .send(&mut ctx.svm, &admin);
+
+    assert_custom_error(res, PremiumBondsError::InvalidRandomnessAccount);
+}
+
+#[test]
+fn test_admin_force_unlock_succeeds_when_account_closed_or_recommitted() {
+    let admin = Keypair::new();
+    let mut ctx = setup(&admin, anchor::DrawStatus::AwaitingRandomness);
+
+    // Get current randomness account key stored in draw cycle
+    let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
+    // Explicitly simulate randomness account being closed / drained to 0 lamports by Switchboard
+    ctx.svm
+        .set_account(dc.randomness_account, solana_sdk::account::Account::default())
+        .unwrap();
+
+    let res = AdminForceUnlockDrawBuilder::new(admin.pubkey(), 1, 0)
+        .with_pool(ctx.pool_key)
+        .with_current_draw_cycle(ctx.current_draw_cycle)
+        .with_current_randomness_account(dc.randomness_account)
+        .send(&mut ctx.svm, &admin);
+
+    assert!(
+        res.is_ok(),
+        "Admin force unlock must succeed even if randomness account is closed/uninitialized: {:?}",
+        res.err()
+    );
+}
+

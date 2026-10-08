@@ -10,12 +10,14 @@ import {
   findPayoutRegistryPda,
   parseTicketRegistry,
   parsePayoutRegistry,
+  DrawStatus,
 } from "../../../app/lib/bonds-sdk";
 import {
   getPrizePoolDecoder,
   getDrawCycleDecoder,
 } from "../../../app/lib/generated/yield-bonds/src/generated";
 import { PoolStateSnapshot } from "../types";
+import { parseSwitchboardRandomnessHeader } from "../vrf/randomness-provider";
 import { classifyPoolState } from "./snapshot-classifier";
 
 const base64Encoder = getBase64Encoder();
@@ -105,6 +107,37 @@ export async function fetchPoolStateSnapshot(
     } catch {}
   }
 
+  // Parse Randomness Account header if draw cycle is AwaitingRandomness
+  let randomnessHeader = undefined;
+  if (
+    drawCycle &&
+    drawCycle.status === DrawStatus.AwaitingRandomness &&
+    drawCycle.randomnessAccount
+  ) {
+    try {
+      const randAccRes = await rpc
+        .getAccountInfo(address(drawCycle.randomnessAccount), {
+          encoding: "base64",
+          commitment: "confirmed",
+        })
+        .send();
+      if (randAccRes?.value?.data?.[0]) {
+        const randBytes = new Uint8Array(
+          base64Encoder.encode(randAccRes.value.data[0])
+        );
+        const parsed = parseSwitchboardRandomnessHeader(randBytes);
+        if (parsed) {
+          randomnessHeader = {
+            discriminator: randBytes.slice(0, 8),
+            seedSlot: BigInt(parsed.seedSlot),
+            revealSlot: BigInt(parsed.revealSlot),
+            value: parsed.value,
+          };
+        }
+      }
+    } catch {}
+  }
+
   // Parse Payout Registry (prefer current, then previous)
   let payoutRegistryAddress = null;
   let payoutRegistry = null;
@@ -144,5 +177,6 @@ export async function fetchPoolStateSnapshot(
     payoutRegistry,
     currentSlot,
     currentTimestamp,
+    randomnessHeader,
   });
 }

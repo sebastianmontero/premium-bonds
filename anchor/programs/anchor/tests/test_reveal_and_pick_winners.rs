@@ -65,8 +65,9 @@ fn test_permissionless_reveal_succeeds() {
 }
 
 #[test]
-fn test_reveal_fails_pool_not_active() {
-    let mut ctx = setup_reveal(
+fn test_reveal_succeeds_when_paused_fails_when_closed() {
+    // 1. Paused pool should SUCCEED to complete in-flight draw
+    let mut ctx_paused = setup_reveal(
         anchor::PoolStatus::Paused,
         true,
         vec![anchor::PrizeTier::default_single_winner()],
@@ -74,8 +75,20 @@ fn test_reveal_fails_pool_not_active() {
         1_000_000,
         5,
     );
-    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
-    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
+    let res_paused = send_reveal(&mut ctx_paused, 1, 0, [1u8; 32]);
+    assert!(res_paused.is_ok(), "Reveal must succeed when pool is Paused: {res_paused:?}");
+
+    // 2. Closed pool must FAIL with PoolClosed
+    let mut ctx_closed = setup_reveal(
+        anchor::PoolStatus::Closed,
+        true,
+        vec![anchor::PrizeTier::default_single_winner()],
+        5,
+        1_000_000,
+        5,
+    );
+    let res_closed = send_reveal(&mut ctx_closed, 1, 0, [1u8; 32]);
+    assert_custom_error(res_closed, anchor::error::PremiumBondsError::PoolClosed);
 }
 
 #[test]
@@ -136,7 +149,7 @@ fn test_reveal_fails_zero_locked_tickets() {
         vec![anchor::PrizeTier::default_single_winner()],
         0,
         1_000_000,
-        5, // locked=0
+        0, // num_tickets=0, locked=0 (matching snapshot, zero locked tickets)
     );
     let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawState);
@@ -589,7 +602,7 @@ fn test_reveal_fails_stale_randomness_request_seed_slot() {
         .send(&mut ctx.svm, &crank);
     assert_custom_error(
         res,
-        anchor::error::PremiumBondsError::StaleRandomnessRequest,
+        anchor::error::PremiumBondsError::RandomnessCommitmentTampered,
     );
 }
 
@@ -611,20 +624,22 @@ fn test_reveal_fails_future_mismatched_seed_slot() {
         .send(&mut ctx.svm, &crank);
     assert_custom_error(
         res,
-        anchor::error::PremiumBondsError::StaleRandomnessRequest,
+        anchor::error::PremiumBondsError::RandomnessCommitmentTampered,
     );
 }
 
 #[test]
-fn test_reveal_fails_stale_randomness_request_expired() {
+fn test_reveal_succeeds_even_when_clock_exceeds_window() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
 
     mutate_draw_cycle(&mut ctx.svm, 1, 0, |dc| {
         dc.vrf_seed_slot = 5;
     });
 
+    // Randomness committed at 5, resolved at 5
     inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 5, 5, [1u8; 32]);
 
+    // Advance clock past freshness window
     ctx.svm.warp_to_slot(1006);
 
     let crank = clone_keypair(&ctx.crank);
@@ -632,9 +647,10 @@ fn test_reveal_fails_stale_randomness_request_expired() {
         .with_ticket_registry(ctx.ticket_registry)
         .with_randomness_account(ctx.randomness_account)
         .send(&mut ctx.svm, &crank);
-    assert_custom_error(
-        res,
-        anchor::error::PremiumBondsError::StaleRandomnessRequest,
+    assert!(
+        res.is_ok(),
+        "Revealed randomness must remain consumable even past expiration window: {:?}",
+        res.err()
     );
 }
 
@@ -759,43 +775,17 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
 
     // Helper closure to run reveal with deterministic seed targeting specific winner index
     let run_reveal_with_seed = |target_index: usize| -> Pubkey {
-        let (mut svm, _admin, crank) = setup_global_with_crank();
-        let registry = Keypair::new().pubkey();
-        inject_registry_with_state(&mut svm, registry, 1, 100, 0, 3, &entries);
-
-        PrizePoolTestBuilder::new(1)
-            .with_ticket_registry(registry)
+        let mut ctx = RevealFixture::builder()
             .with_status(anchor::PoolStatus::Active)
             .with_frozen(true)
-            .with_prize_tiers(tiers.clone())
-            .with_current_draw_cycle_id(0)
-            .inject(&mut svm);
-
-        let randomness_account = Keypair::new().pubkey();
-        inject_randomness_account_data(&mut svm, randomness_account, 1, 0, [0u8; 32]);
-
-        DrawCycleTestBuilder::new(1, 0)
-            .with_status(anchor::DrawStatus::AwaitingRandomness)
+            .with_tiers(tiers.clone())
             .with_locked_tickets(30)
-            .with_prize_pot(1_000_000)
-            .with_vrf_seed_slot(1)
-            .inject(&mut svm);
+            .with_prize_pot(10_000_000)
+            .with_num_tickets(3)
+            .with_allocated_prizes(10_000_000_000)
+            .build();
 
-        mutate_draw_cycle(&mut svm, 1, 0, |dc| {
-            dc.randomness_account = randomness_account;
-        });
-
-        let mut ctx = RevealFixture {
-            svm,
-            admin: Keypair::new(),
-            crank,
-            jobs_account: Keypair::new(),
-            ticket_registry: registry,
-            tickets: vec![user1, user2, user3],
-            randomness_account,
-            pool_id: 1,
-            cycle_id: 0,
-        };
+        inject_registry_with_state(&mut ctx.svm, ctx.ticket_registry, 1, 100, 0, 3, &entries);
 
         let seed = deterministic_seed_for_index(target_index);
         send_reveal(&mut ctx, 1, 0, seed).expect("reveal should succeed");
@@ -1091,7 +1081,7 @@ fn test_reveal_winner_selection_with_zero_ticket_users() {
 }
 
 #[test]
-fn test_reveal_fails_invalid_winner_index() {
+fn test_reveal_fails_draw_snapshot_mismatch() {
     let (mut svm, _admin, crank) = setup_global_with_crank();
 
     // Registry entries where cumulative_active is 0 for all users
@@ -1140,7 +1130,7 @@ fn test_reveal_fails_invalid_winner_index() {
     };
 
     let res = send_reveal(&mut ctx, 1, 0, [42u8; 32]);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidWinnerIndex);
+    assert_custom_error(res, anchor::error::PremiumBondsError::DrawSnapshotMismatch);
 }
 
 #[test]

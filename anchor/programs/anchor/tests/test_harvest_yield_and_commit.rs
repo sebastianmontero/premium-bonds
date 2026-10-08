@@ -235,8 +235,8 @@ fn test_harvest_happy_path_yield_and_eligible() {
         "YieldHarvested locked_ticket_count must be 2"
     );
     assert_eq!(
-        event.vrf_seed_slot, 2599,
-        "YieldHarvested vrf_seed_slot must match committed Switchboard seed slot (slot 2600 - 1)"
+        event.vrf_seed_slot, 2600,
+        "YieldHarvested vrf_seed_slot must match committed Switchboard seed slot"
     );
 
     let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
@@ -916,14 +916,14 @@ fn test_harvest_fails_with_already_resolved_randomness_account() {
     // Case 1: reveal_slot > 0
     inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, seed_slot, clock.slot, [0u8; 32]);
     let res1 = ctx.send_harvest(1, 0);
-    assert_custom_error(res1, anchor::error::PremiumBondsError::RandomnessAlreadyResolved);
+    assert_custom_error(res1, anchor::error::PremiumBondsError::RandomnessAlreadyRevealed);
 
     ctx.svm.expire_blockhash();
 
     // Case 2: value is non-zero
     inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, seed_slot, 0, [1u8; 32]);
     let res2 = ctx.send_harvest(1, 0);
-    assert_custom_error(res2, anchor::error::PremiumBondsError::RandomnessAlreadyResolved);
+    assert_custom_error(res2, anchor::error::PremiumBondsError::RandomnessAlreadyRevealed);
 }
 
 #[test]

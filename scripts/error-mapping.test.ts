@@ -17,14 +17,17 @@ import {
   ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
   ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
   ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED,
-  ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
+  ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED,
+  ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED,
+  ANCHOR_ERROR__REBIND_LIMIT_REACHED,
+  ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH,
   getAnchorErrorMessage,
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 70 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 70 errors defined from 6000 to 6069 inclusive
-    for (let code = 6000; code <= 6069; code++) {
+  it("should have complete 73 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 73 errors defined from 6000 to 6072 inclusive
+    for (let code = 6000; code <= 6072; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
@@ -63,9 +66,24 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
       "ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED must equal 6068"
     );
     assert.strictEqual(
-      ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
+      ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED,
       6069,
-      "ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED must equal 6069"
+      "ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED must equal 6069"
+    );
+    assert.strictEqual(
+      ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED,
+      6070,
+      "ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED must equal 6070"
+    );
+    assert.strictEqual(
+      ANCHOR_ERROR__REBIND_LIMIT_REACHED,
+      6071,
+      "ANCHOR_ERROR__REBIND_LIMIT_REACHED must equal 6071"
+    );
+    assert.strictEqual(
+      ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH,
+      6072,
+      "ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH must equal 6072"
     );
 
     const poolNotActiveMsg = getAnchorErrorMessage(
@@ -304,20 +322,20 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
     );
     assert.ok(parsed6068.actionableStep?.includes("Switchboard commit"));
 
-    // 6069: RandomnessAlreadyResolved
+    // 6069: RandomnessAlreadyRevealed
     assert.strictEqual(
-      ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
+      ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED,
       6069,
-      "ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED must equal 6069"
+      "ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED must equal 6069"
     );
     const parsed6069 = parseTransactionError({
       message:
-        "Transaction simulation failed: AnchorError occurred. Error Code: RandomnessAlreadyResolved. Error Number: 6069.",
+        "Transaction simulation failed: AnchorError occurred. Error Code: RandomnessAlreadyRevealed. Error Number: 6069.",
     });
     assert.strictEqual(parsed6069.code, 6069);
     assert.strictEqual(
       parsed6069.title,
-      "Program Error: RandomnessAlreadyResolved"
+      "Program Error: RandomnessAlreadyRevealed"
     );
     assert.ok(
       parsed6069.message.includes(
@@ -325,8 +343,64 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
       )
     );
     assert.ok(
-      parsed6069.actionableStep?.includes("fresh Switchboard randomness")
+      parsed6069.actionableStep?.includes(
+        "fresh unrevealed Switchboard randomness"
+      )
     );
+
+    // 6070: RandomnessCommitmentTampered
+    assert.strictEqual(
+      ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED,
+      6070,
+      "ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED must equal 6070"
+    );
+    const parsed6070 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: RandomnessCommitmentTampered. Error Number: 6070.",
+    });
+    assert.strictEqual(parsed6070.code, 6070);
+    assert.strictEqual(
+      parsed6070.title,
+      "Program Error: RandomnessCommitmentTampered"
+    );
+    assert.ok(
+      parsed6070.message.includes("Bound randomness commitment tampered")
+    );
+    assert.ok(parsed6070.actionableStep?.includes("force unlock"));
+
+    // 6071: RebindLimitReached
+    assert.strictEqual(
+      ANCHOR_ERROR__REBIND_LIMIT_REACHED,
+      6071,
+      "ANCHOR_ERROR__REBIND_LIMIT_REACHED must equal 6071"
+    );
+    const parsed6071 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: RebindLimitReached. Error Number: 6071.",
+    });
+    assert.strictEqual(parsed6071.code, 6071);
+    assert.strictEqual(parsed6071.title, "Program Error: RebindLimitReached");
+    assert.ok(
+      parsed6071.message.includes("Maximum crank rebind limit reached")
+    );
+    assert.ok(parsed6071.actionableStep?.includes("force unlock"));
+
+    // 6072: DrawSnapshotMismatch
+    assert.strictEqual(
+      ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH,
+      6072,
+      "ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH must equal 6072"
+    );
+    const parsed6072 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: DrawSnapshotMismatch. Error Number: 6072.",
+    });
+    assert.strictEqual(parsed6072.code, 6072);
+    assert.strictEqual(parsed6072.title, "Program Error: DrawSnapshotMismatch");
+    assert.ok(
+      parsed6072.message.includes("Ticket registry snapshot does not match")
+    );
+    assert.ok(parsed6072.actionableStep?.includes("ticket registry"));
   });
 
   describe("toNumericCode & safeJsonStringify Helper Tests", () => {

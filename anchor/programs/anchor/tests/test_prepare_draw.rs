@@ -770,3 +770,22 @@ fn test_prepare_draw_batch_clamping() {
     let reg = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
     assert_eq!(reg.draw_prepared_up_to, 5);
 }
+
+#[test]
+fn test_prepare_draw_succeeds_while_pool_paused() {
+    let entries = vec![UserEntryTestBuilder::active(Keypair::new().pubkey(), 10)];
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Pause pool
+    mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.status = anchor::PoolStatus::Paused as u8;
+    });
+
+    let meta = send_prepare(&mut ctx, 1);
+    assert!(
+        meta.is_ok(),
+        "prepare_draw must succeed when pool is paused: {:?}",
+        meta.err()
+    );
+}
+

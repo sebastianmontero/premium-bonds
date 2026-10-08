@@ -53,6 +53,13 @@ pub struct AdminForceUnlockDraw<'info> {
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
+    /// CHECK: Validated to match current_draw_cycle.randomness_account.
+    /// UncheckedAccount is required because the account may have been closed by Switchboard.
+    #[account(
+        constraint = current_randomness_account.key() == current_draw_cycle.randomness_account @ PremiumBondsError::InvalidRandomnessAccount
+    )]
+    pub current_randomness_account: UncheckedAccount<'info>,
+
     /// CHECK: The event authority PDA for CPI event emission.
     #[account(seeds = [b"__event_authority"], bump)]
     pub event_authority: UncheckedAccount<'info>,
@@ -70,9 +77,17 @@ pub struct AdminForceUnlockDraw<'info> {
 pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
-    pool.set_frozen(false);
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
+    if let Ok(rd) = crate::utils::parse_committed_randomness(&ctx.accounts.current_randomness_account) {
+        require!(
+            !draw_cycle.is_committed_randomness_revealed(&rd),
+            PremiumBondsError::RandomnessAlreadyRevealed
+        );
+    }
+
+    pool.set_frozen(false);
+
     let current_time = Clock::get()?.unix_timestamp;
     draw_cycle.force_unlock(current_time)?;
     pool.rollback_draw_liabilities(draw_cycle.prize_pot, draw_cycle.cycle_fee_collected)?;

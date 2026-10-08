@@ -38,7 +38,6 @@ import {
   ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST,
   ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED,
   ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED,
-  ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
   ANCHOR_ERROR__INVALID_USER_ENTRY_HINT,
   ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS,
   ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS,
@@ -75,6 +74,10 @@ import {
   ANCHOR_ERROR__INVALID_BATCH_SIZE,
   ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
   ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
+  ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED,
+  ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED,
+  ANCHOR_ERROR__REBIND_LIMIT_REACHED,
+  ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH,
 } from "./generated/yield-bonds/src/generated";
 
 export {
@@ -111,7 +114,6 @@ export {
   ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST,
   ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED,
   ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED,
-  ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
   ANCHOR_ERROR__INVALID_USER_ENTRY_HINT,
   ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS,
   ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS,
@@ -148,6 +150,10 @@ export {
   ANCHOR_ERROR__INVALID_BATCH_SIZE,
   ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
   ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
+  ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED,
+  ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED,
+  ANCHOR_ERROR__REBIND_LIMIT_REACHED,
+  ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH,
 };
 import { matchSolanaCoreError } from "./solana-core-errors";
 
@@ -469,13 +475,6 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     actionable:
       "Ensure Switchboard commit instruction executes prior to the protocol instruction.",
   },
-  [ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED]: {
-    name: "RandomnessAlreadyResolved",
-    message:
-      "Randomness account has already been revealed prior to commitment.",
-    actionable:
-      "Generate and commit a fresh Switchboard randomness account before submitting.",
-  },
   [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: {
     name: "InvalidUserEntryHint",
     message: "Invalid registry user entry hint provided.",
@@ -680,6 +679,29 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     message: "Token mint decimals must equal 6.",
     actionable:
       "Please ensure both the underlying token mint (e.g. USDC) and Huma PST mint have exactly 6 decimals.",
+  },
+  [ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED]: {
+    name: "RandomnessAlreadyRevealed",
+    message: "Randomness account has already been revealed on-chain.",
+    actionable: "Use a fresh unrevealed Switchboard randomness account.",
+  },
+  [ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED]: {
+    name: "RandomnessCommitmentTampered",
+    message:
+      "Bound randomness commitment tampered or account invalid. Admin intervention required.",
+    actionable:
+      "Admin must execute force unlock or void the draw to recover the pool.",
+  },
+  [ANCHOR_ERROR__REBIND_LIMIT_REACHED]: {
+    name: "RebindLimitReached",
+    message: "Maximum crank rebind limit reached for this draw cycle.",
+    actionable: "Admin must force unlock the draw to recover the pool.",
+  },
+  [ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH]: {
+    name: "DrawSnapshotMismatch",
+    message:
+      "Ticket registry snapshot does not match draw cycle locked tickets.",
+    actionable: "Verify ticket registry state matches draw cycle parameters.",
   },
 };
 

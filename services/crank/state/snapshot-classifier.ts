@@ -12,15 +12,17 @@ import {
   isPayoutRegistryActive,
   isDrawVoided,
 } from "../../../app/lib/bonds-sdk";
-import { isRandomnessExpired } from "../constants";
+import { isRandomnessExpired, MAX_CRANK_REBINDS } from "../constants";
 import {
   PoolStateSnapshot,
   PayoutRegistrySnapshot,
+  RandomnessHeader,
   toPoolId,
   toDrawCycleId,
   toUnixTimestamp,
   CircuitBreakerHaltReason,
 } from "../types";
+import { isRandomnessRevealed } from "../vrf/randomness-provider";
 
 /**
  * Safely checks if an actual status matches a target PoolStatus variant (numeric, string, or Codama __kind object).
@@ -69,6 +71,7 @@ export interface ClassifierInput {
     | null;
   currentSlot: bigint;
   currentTimestamp: bigint;
+  randomnessHeader?: RandomnessHeader | null;
 }
 
 export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
@@ -83,6 +86,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     payoutRegistry,
     currentSlot,
     currentTimestamp,
+    randomnessHeader,
   } = input;
 
   const latestPayoutRegistry: PayoutRegistrySnapshot | undefined =
@@ -102,11 +106,12 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     currentSlot,
     currentTimestamp: toUnixTimestamp(currentTimestamp),
     latestPayoutRegistry,
+    randomnessHeader: randomnessHeader ?? undefined,
   };
 
   const currentCycleId = toDrawCycleId(pool.currentDrawCycleId);
 
-  // 1. Check for Closed or Paused pool
+  // 1. Check for Closed pool
   if (isPoolStatus(pool.status, PoolStatus.Closed)) {
     return {
       ...base,
@@ -114,22 +119,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     };
   }
 
-  if (isPoolStatus(pool.status, PoolStatus.Paused)) {
-    const haltReason = getCircuitBreakerHaltReason(drawCycle?.status);
-    if (haltReason) {
-      return {
-        ...base,
-        state: "CIRCUIT_BREAKER_HALTED",
-        reason: haltReason,
-      };
-    }
-    return {
-      ...base,
-      state: "POOL_PAUSED",
-    };
-  }
-
-  // 2. Frozen for Draw (Drawing in progress)
+  // 2. Frozen for Draw (Drawing in progress - prioritized over Paused pool state)
   if (pool.isFrozenForDraw === 1) {
     const activeFrozenCycleId = toDrawCycleId(
       drawCycle?.cycleId ?? Math.max(0, pool.currentDrawCycleId - 1)
@@ -148,7 +138,31 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     // All batches prepared: Check randomness state
     if (drawCycle && drawCycle.status === DrawStatus.AwaitingRandomness) {
       const vrfSeedSlot = drawCycle.vrfSeedSlot;
+      const isRevealed = isRandomnessRevealed(randomnessHeader);
+
+      // If randomness is already revealed on-chain, prioritize consumption over re-reveal / expiration
+      if (isRevealed) {
+        return {
+          ...base,
+          state: "READY_TO_DRAW",
+          cycleId: activeFrozenCycleId,
+          randomnessAccount: drawCycle.randomnessAccount as Address,
+          vrfSeedSlot,
+          drawMode: "consume_only",
+        };
+      }
+
       if (isRandomnessExpired(vrfSeedSlot, currentSlot)) {
+        const rebindCount = Number(drawCycle.rebindCount ?? 0);
+        if (rebindCount >= MAX_CRANK_REBINDS) {
+          return {
+            ...base,
+            state: "NEEDS_ADMIN",
+            reason: "REBIND_LIMIT_EXCEEDED",
+            details: `Randomness expired after ${rebindCount} automated rebinds (max: ${MAX_CRANK_REBINDS}). Admin force unlock required.`,
+          };
+        }
+
         const elapsedSlots = currentSlot - vrfSeedSlot;
         return {
           ...base,
@@ -165,6 +179,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
         cycleId: activeFrozenCycleId,
         randomnessAccount: drawCycle.randomnessAccount as Address,
         vrfSeedSlot,
+        drawMode: "atomic",
       };
     }
 
@@ -174,6 +189,22 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
       ...base,
       state: "IDLE",
       nextDrawAt: toUnixTimestamp(pool.currentCycleEndAt),
+    };
+  }
+
+  // 3. Check for Paused pool
+  if (isPoolStatus(pool.status, PoolStatus.Paused)) {
+    const haltReason = getCircuitBreakerHaltReason(drawCycle?.status);
+    if (haltReason) {
+      return {
+        ...base,
+        state: "CIRCUIT_BREAKER_HALTED",
+        reason: haltReason,
+      };
+    }
+    return {
+      ...base,
+      state: "POOL_PAUSED",
     };
   }
 

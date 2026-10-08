@@ -553,6 +553,67 @@ describe("AdaptiveCrankScheduler Circuit Breaker & Unpause Deadlock Recovery", (
     );
   });
 
+  it("should quarantine pool for 60 seconds and trigger alertNotifier when snapshot state is NEEDS_ADMIN", async () => {
+    const signer = await generateKeyPairSigner();
+    const metrics = new MetricsServer(0);
+    const config = createTestConfig({ poolIds: [1] });
+    const breaker = new CircuitBreaker(5, 60_000);
+    const alertNotifier = new AlertNotifier(config);
+    let alerted = false;
+    let alertType = "";
+    let alertMsg = "";
+    alertNotifier.notifyAlert = async (type, msg) => {
+      alerted = true;
+      alertType = type;
+      alertMsg = msg;
+    };
+
+    const needsAdminSnapshot: PoolStateSnapshot = {
+      poolId: 1 as any,
+      poolAddress: TEST_ADDRESSES.USER,
+      pool: buildMockPrizePool({
+        status: PoolStatus.Active,
+        currentDrawCycleId: 3,
+        isFrozenForDraw: 1,
+      }),
+      ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 2000n,
+      currentTimestamp: 1000n as any,
+      state: "NEEDS_ADMIN",
+      reason: "REBIND_LIMIT_EXCEEDED",
+      details:
+        "Randomness expired after 2 automated rebinds (max: 2). Admin force unlock required.",
+    };
+
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      undefined,
+      breaker,
+      alertNotifier,
+      async () => needsAdminSnapshot
+    );
+
+    const now = Date.now();
+    const result = await (scheduler as any).processPool(1);
+    assert.strictEqual(result, false);
+
+    assert.strictEqual(breaker.canExecute(1), true);
+    assert.strictEqual(breaker.getState(1), "CLOSED");
+    assert.strictEqual(alerted, true, "Should trigger alert notification");
+    assert.strictEqual(alertType, "NEEDS_ADMIN_REBIND_LIMIT_EXCEEDED");
+    assert.ok(alertMsg.includes("REBIND_LIMIT_EXCEEDED"));
+
+    const nextTick = (scheduler as any).nextEligibleTickMs.get(1);
+    assert.ok(
+      nextTick >= now + 59_000 && nextTick <= now + 61_000,
+      "Should set 60s quarantine"
+    );
+  });
+
   it("should proactively reset CircuitBreaker to CLOSED when pool is Active and IDLE", async () => {
     const signer = await generateKeyPairSigner();
     const metrics = new MetricsServer(0);

@@ -152,8 +152,14 @@ export const ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE = 0x17b2; // 6066
 export const ANCHOR_ERROR__INVALID_TOKEN_DECIMALS = 0x17b3; // 6067
 /** RandomnessNotCommitted: Randomness account has not been committed yet. */
 export const ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED = 0x17b4; // 6068
-/** RandomnessAlreadyResolved: Randomness account has already been revealed prior to commitment. */
-export const ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED = 0x17b5; // 6069
+/** RandomnessAlreadyRevealed: Randomness account has already been revealed on-chain. */
+export const ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED = 0x17b5; // 6069
+/** RandomnessCommitmentTampered: Bound randomness commitment tampered or account invalid. Admin intervention required. */
+export const ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED = 0x17b6; // 6070
+/** RebindLimitReached: Maximum crank rebind limit reached for this draw cycle. */
+export const ANCHOR_ERROR__REBIND_LIMIT_REACHED = 0x17b7; // 6071
+/** DrawSnapshotMismatch: Ticket registry snapshot does not match draw cycle locked tickets. */
+export const ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH = 0x17b8; // 6072
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -163,6 +169,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__CANNOT_NOMINATE_SELF
   | typeof ANCHOR_ERROR__CYCLE_NOT_ENDED
   | typeof ANCHOR_ERROR__DRAW_ALREADY_VOIDED
+  | typeof ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH
   | typeof ANCHOR_ERROR__DRAW_VOIDED
   | typeof ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN
   | typeof ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED
@@ -207,10 +214,12 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__POOL_NOT_FROZEN
   | typeof ANCHOR_ERROR__POOL_PAUSED
   | typeof ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED
-  | typeof ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED
+  | typeof ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED
+  | typeof ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED
+  | typeof ANCHOR_ERROR__REBIND_LIMIT_REACHED
   | typeof ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE
   | typeof ANCHOR_ERROR__REGISTRY_FULL
   | typeof ANCHOR_ERROR__REGISTRY_TOO_SMALL
@@ -237,6 +246,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__CANNOT_NOMINATE_SELF]: `Cannot nominate current admin as pending admin.`,
     [ANCHOR_ERROR__CYCLE_NOT_ENDED]: `The current stake cycle has not yet ended.`,
     [ANCHOR_ERROR__DRAW_ALREADY_VOIDED]: `This draw has already been voided.`,
+    [ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH]: `Ticket registry snapshot does not match draw cycle locked tickets.`,
     [ANCHOR_ERROR__DRAW_VOIDED]: `This draw has been voided.`,
     [ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN]: `Protocol fees from this cycle were already withdrawn.`,
     [ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED]: `Huma redemption has not been settled yet.`,
@@ -281,10 +291,12 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__POOL_NOT_FROZEN]: `The prize pool must be frozen for draw preparation`,
     [ANCHOR_ERROR__POOL_PAUSED]: `The prize pool is paused.`,
     [ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED]: `Prize tiers have not been configured for this pool.`,
-    [ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED]: `Randomness account has already been revealed prior to commitment.`,
+    [ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED]: `Randomness account has already been revealed on-chain.`,
+    [ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED]: `Bound randomness commitment tampered or account invalid. Admin intervention required.`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED]: `Randomness account has not been committed yet.`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED]: `RandomnessNotExpired`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED]: `The randomness request has not yet been resolved by the oracle network.`,
+    [ANCHOR_ERROR__REBIND_LIMIT_REACHED]: `Maximum crank rebind limit reached for this draw cycle.`,
     [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: `The registry account has reached Solana's 10 MB maximum size.`,
     [ANCHOR_ERROR__REGISTRY_FULL]: `The prize pool registration capability has hit absolute capacity constraints.`,
     [ANCHOR_ERROR__REGISTRY_TOO_SMALL]: `The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.`,

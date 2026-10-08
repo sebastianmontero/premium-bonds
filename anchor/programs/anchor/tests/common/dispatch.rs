@@ -531,7 +531,12 @@ pub fn send_admin_void_payout_registry(
     send_user_tx(svm, admin, ix)
 }
 
-pub fn build_admin_force_unlock_ix(admin: &Pubkey, pool_id: u32, cycle_id: u32) -> Instruction {
+pub fn build_admin_force_unlock_ix(
+    admin: &Pubkey,
+    pool_id: u32,
+    cycle_id: u32,
+    current_randomness_account: Pubkey,
+) -> Instruction {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
     let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
@@ -541,6 +546,7 @@ pub fn build_admin_force_unlock_ix(admin: &Pubkey, pool_id: u32, cycle_id: u32) 
         global_config,
         pool,
         current_draw_cycle,
+        current_randomness_account,
         event_authority: event_authority_pda(),
         program: anchor::id(),
     }
@@ -559,7 +565,13 @@ pub fn send_admin_force_unlock(
     pool_id: u32,
     cycle_id: u32,
 ) -> TxResult {
-    let ix = build_admin_force_unlock_ix(&admin.pubkey(), pool_id, cycle_id);
+    let dc = crate::common::readers::read_draw_cycle_state(svm, pool_id, cycle_id);
+    let ix = build_admin_force_unlock_ix(
+        &admin.pubkey(),
+        pool_id,
+        cycle_id,
+        dc.randomness_account,
+    );
     send_user_tx(svm, admin, ix)
 }
 

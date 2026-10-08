@@ -241,6 +241,7 @@ pub fn default_draw_cycle(
         locked_ticket_count: 100,
         status,
         version: anchor::DrawCycle::CURRENT_VERSION,
+        rebind_count: 0,
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     }
@@ -321,7 +322,7 @@ fn inject_raw_account(svm: &mut LiteSVM, address: Pubkey, owner: Pubkey, data: V
 
 pub fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
     let clock: solana_sdk::clock::Clock = svm.get_sysvar();
-    let seed_slot = if clock.slot > 0 { clock.slot.saturating_sub(1) } else { 1 };
+    let seed_slot = clock.slot.max(1);
     inject_randomness_account_data(svm, address, seed_slot, 0, [0u8; 32]);
 }
 

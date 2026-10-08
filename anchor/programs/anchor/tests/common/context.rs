@@ -752,11 +752,14 @@ impl RevealFixture {
     ) -> TxResult {
         let dc = read_draw_cycle_state(&self.svm, pool_id, cycle_id);
         let clock: solana_sdk::clock::Clock = self.svm.get_sysvar();
+        let target_slot = clock.slot.max(dc.vrf_seed_slot + 1);
+        self.svm.warp_to_slot(target_slot);
+        self.svm.expire_blockhash();
         inject_randomness_account_data(
             &mut self.svm,
             self.randomness_account,
             dc.vrf_seed_slot,
-            clock.slot,
+            target_slot,
             seed,
         );
         let crank = clone_keypair(&self.crank);
@@ -913,7 +916,7 @@ impl RevealFixtureBuilder {
         let randomness_account = Keypair::new().pubkey();
         inject_mock_randomness_account(&mut svm, randomness_account);
         let clock: solana_sdk::clock::Clock = svm.get_sysvar();
-        let seed_slot = if clock.slot > 0 { clock.slot.saturating_sub(1) } else { 1 };
+        let seed_slot = clock.slot.max(1);
 
         let locked = self.locked_tickets.unwrap_or(self.num_tickets as u32);
         crate::common::state_builders::DrawCycleTestBuilder::new(self.pool_id, self.cycle_id)

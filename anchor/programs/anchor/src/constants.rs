@@ -48,6 +48,9 @@ pub const EXPECTED_TOKEN_DECIMALS: u8 = 6;
 /// Maximum allowable slot freshness window before a Switchboard VRF randomness request is considered expired.
 pub const VRF_FRESHNESS_WINDOW_SLOTS: u64 = 1_000;
 
+/// Maximum crank-initiated randomness rebinds per draw cycle before admin intervention is required.
+pub const MAX_CRANK_REBINDS: u8 = 2;
+
 /// Maximum allowable slot gap between transaction execution and Switchboard seed slot at commitment time.
 /// Set to 64 slots (~25.6s) to be completely resilient to Solana 4-slot leader skip bursts while
 /// strictly preventing stale pre-committed accounts from being injected.

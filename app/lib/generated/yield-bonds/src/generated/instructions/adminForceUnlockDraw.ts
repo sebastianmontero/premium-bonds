@@ -61,6 +61,8 @@ export type AdminForceUnlockDrawInstruction<
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountCurrentDrawCycle extends string | AccountMeta<string> = string,
+  TAccountCurrentRandomnessAccount extends string | AccountMeta<string> =
+    string,
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
     "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG",
@@ -82,6 +84,9 @@ export type AdminForceUnlockDrawInstruction<
       TAccountCurrentDrawCycle extends string
         ? WritableAccount<TAccountCurrentDrawCycle>
         : TAccountCurrentDrawCycle,
+      TAccountCurrentRandomnessAccount extends string
+        ? ReadonlyAccount<TAccountCurrentRandomnessAccount>
+        : TAccountCurrentRandomnessAccount,
       TAccountEventAuthority extends string
         ? ReadonlyAccount<TAccountEventAuthority>
         : TAccountEventAuthority,
@@ -129,6 +134,7 @@ export type AdminForceUnlockDrawAsyncInput<
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
+  TAccountCurrentRandomnessAccount extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -140,6 +146,8 @@ export type AdminForceUnlockDrawAsyncInput<
   pool: Address<TAccountPool>;
   /** The current draw cycle account, validated to be awaiting randomness. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
+  /** UncheckedAccount is required because the account may have been closed by Switchboard. */
+  currentRandomnessAccount: Address<TAccountCurrentRandomnessAccount>;
   eventAuthority?: Address<TAccountEventAuthority>;
   /** The YieldBonds program itself. */
   program?: Address<TAccountProgram>;
@@ -150,6 +158,7 @@ export async function getAdminForceUnlockDrawInstructionAsync<
   TAccountAdmin extends string,
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
+  TAccountCurrentRandomnessAccount extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
@@ -159,6 +168,7 @@ export async function getAdminForceUnlockDrawInstructionAsync<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -170,6 +180,7 @@ export async function getAdminForceUnlockDrawInstructionAsync<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
   >
@@ -185,6 +196,10 @@ export async function getAdminForceUnlockDrawInstructionAsync<
     currentDrawCycle: {
       value: input.currentDrawCycle ?? null,
       isWritable: true,
+    },
+    currentRandomnessAccount: {
+      value: input.currentRandomnessAccount ?? null,
+      isWritable: false,
     },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
@@ -213,6 +228,10 @@ export async function getAdminForceUnlockDrawInstructionAsync<
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
+      getAccountMeta(
+        "currentRandomnessAccount",
+        accounts.currentRandomnessAccount
+      ),
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
     ],
@@ -224,6 +243,7 @@ export async function getAdminForceUnlockDrawInstructionAsync<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -234,6 +254,7 @@ export type AdminForceUnlockDrawInput<
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
+  TAccountCurrentRandomnessAccount extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -245,6 +266,8 @@ export type AdminForceUnlockDrawInput<
   pool: Address<TAccountPool>;
   /** The current draw cycle account, validated to be awaiting randomness. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
+  /** UncheckedAccount is required because the account may have been closed by Switchboard. */
+  currentRandomnessAccount: Address<TAccountCurrentRandomnessAccount>;
   eventAuthority: Address<TAccountEventAuthority>;
   /** The YieldBonds program itself. */
   program?: Address<TAccountProgram>;
@@ -255,6 +278,7 @@ export function getAdminForceUnlockDrawInstruction<
   TAccountAdmin extends string,
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
+  TAccountCurrentRandomnessAccount extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
@@ -264,6 +288,7 @@ export function getAdminForceUnlockDrawInstruction<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -274,6 +299,7 @@ export function getAdminForceUnlockDrawInstruction<
   TAccountAdmin,
   TAccountPool,
   TAccountCurrentDrawCycle,
+  TAccountCurrentRandomnessAccount,
   TAccountEventAuthority,
   TAccountProgram
 > {
@@ -288,6 +314,10 @@ export function getAdminForceUnlockDrawInstruction<
     currentDrawCycle: {
       value: input.currentDrawCycle ?? null,
       isWritable: true,
+    },
+    currentRandomnessAccount: {
+      value: input.currentRandomnessAccount ?? null,
+      isWritable: false,
     },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
@@ -310,6 +340,10 @@ export function getAdminForceUnlockDrawInstruction<
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
+      getAccountMeta(
+        "currentRandomnessAccount",
+        accounts.currentRandomnessAccount
+      ),
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
     ],
@@ -321,6 +355,7 @@ export function getAdminForceUnlockDrawInstruction<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -340,9 +375,11 @@ export type ParsedAdminForceUnlockDrawInstruction<
     pool: TAccountMetas[2];
     /** The current draw cycle account, validated to be awaiting randomness. */
     currentDrawCycle: TAccountMetas[3];
-    eventAuthority: TAccountMetas[4];
+    /** UncheckedAccount is required because the account may have been closed by Switchboard. */
+    currentRandomnessAccount: TAccountMetas[4];
+    eventAuthority: TAccountMetas[5];
     /** The YieldBonds program itself. */
-    program: TAccountMetas[5];
+    program: TAccountMetas[6];
   };
   data: AdminForceUnlockDrawInstructionData;
 };
@@ -355,12 +392,12 @@ export function parseAdminForceUnlockDrawInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedAdminForceUnlockDrawInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 6) {
+  if (instruction.accounts.length < 7) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 6,
+        expectedAccountMetas: 7,
       }
     );
   }
@@ -377,6 +414,7 @@ export function parseAdminForceUnlockDrawInstruction<
       admin: getNextAccount(),
       pool: getNextAccount(),
       currentDrawCycle: getNextAccount(),
+      currentRandomnessAccount: getNextAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },

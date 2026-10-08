@@ -1,8 +1,8 @@
 //! Comprehensive Error Code Coverage Test Suite
 //!
 //! Explicitly asserts and verifies every canonical Anchor error code
-//! defined in `anchor::error::PremiumBondsError` (6000–6067) using strongly typed
-//! `assert_custom_error` matching across 5 domain-partitioned submodules.
+//! defined in `anchor::error::PremiumBondsError` (6000–6072) using strongly typed
+//! `assert_custom_error` matching across 6 domain-partitioned submodules.
 
 use {
     anchor::error::PremiumBondsError,
@@ -939,4 +939,99 @@ fn test_err_invalid_token_decimals() {
     let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidTokenDecimals);
 }
+
+#[test]
+fn test_err_randomness_not_committed() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
+
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 0, 0, [0u8; 32]);
+
+    let res = ctx.send_harvest(1, 0);
+    assert_custom_error(res, PremiumBondsError::RandomnessNotCommitted);
+}
+
+#[test]
+fn test_err_randomness_already_revealed() {
+    let mut dc = default_draw_cycle(1, 0, anchor::DrawStatus::AwaitingRandomness);
+    dc.vrf_seed_slot = 100;
+    let mut revealed: switchboard_on_demand::accounts::RandomnessAccountData =
+        bytemuck::Zeroable::zeroed();
+    revealed.seed_slot = 100;
+    revealed.reveal_slot = 105;
+    revealed.value = [42u8; 32];
+    assert_eq!(
+        dc.assert_unrevealed_commitment(&revealed).unwrap_err(),
+        PremiumBondsError::RandomnessAlreadyRevealed.into()
+    );
+}
+
+#[test]
+fn test_err_randomness_commitment_tampered() {
+    let mut dc = default_draw_cycle(1, 0, anchor::DrawStatus::AwaitingRandomness);
+    dc.vrf_seed_slot = 100;
+    let mut tampered: switchboard_on_demand::accounts::RandomnessAccountData =
+        bytemuck::Zeroable::zeroed();
+    tampered.seed_slot = 105; // Mismatched seed_slot
+    tampered.reveal_slot = 0;
+    tampered.value = [0u8; 32];
+    assert_eq!(
+        dc.assert_unrevealed_commitment(&tampered).unwrap_err(),
+        PremiumBondsError::RandomnessCommitmentTampered.into()
+    );
+}
+
+#[test]
+fn test_err_rebind_limit_reached() {
+    let mut dc = default_draw_cycle(1, 0, anchor::DrawStatus::AwaitingRandomness);
+    dc.rebind_count = anchor::constants::MAX_CRANK_REBINDS;
+    assert_eq!(
+        dc.assert_rebind_eligible(2000).unwrap_err(),
+        PremiumBondsError::RebindLimitReached.into()
+    );
+}
+
+#[test]
+fn test_err_draw_snapshot_mismatch() {
+    let (mut svm, _admin, crank) = setup_global_with_crank();
+    let registry = Keypair::new().pubkey();
+    let entries = [anchor::state::UserEntry {
+        owner: Keypair::new().pubkey(),
+        active: 5,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 5,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    }];
+    inject_registry_with_state(&mut svm, registry, 1, 100, 0, 1, &entries);
+    PrizePoolTestBuilder::new(1)
+        .with_ticket_registry(registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .with_prize_tiers(vec![anchor::PrizeTier::default_single_winner()])
+        .inject(&mut svm);
+
+    let randomness_account = Keypair::new().pubkey();
+    inject_randomness_account_data(&mut svm, randomness_account, 100, 105, [1u8; 32]);
+    DrawCycleTestBuilder::new(1, 0)
+        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_locked_tickets(10) // Mismatch: registry cumulative is 5, locked tickets is 10
+        .with_prize_pot(1_000_000)
+        .with_vrf_seed_slot(100)
+        .with_randomness_account(randomness_account)
+        .inject(&mut svm);
+
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(registry)
+        .with_randomness_account(randomness_account)
+        .send(&mut svm, &crank);
+    assert_custom_error(res, PremiumBondsError::DrawSnapshotMismatch);
+}
+
 

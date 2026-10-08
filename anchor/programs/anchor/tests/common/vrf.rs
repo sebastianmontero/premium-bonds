@@ -7,7 +7,7 @@ use {
 /// with tier_idx=0, winner_slot=0, cycle_id=0, and ticket_count=30.
 pub const DETERMINISTIC_WINNER_NONCES: [u32; 30] = [
     21, 29, 24, 62, 13, 97, 19, 2, 33, 11, // Indices 0..9 -> User 1
-    55, 37, 15, 48, 22, 46, 9, 104, 39, 0, // Indices 10..19 -> User 3 (User 2 skipped!)
+    55, 37, 15, 48, 22, 46, 9, 104, 39, 14, // Indices 10..19 -> User 3 (User 2 skipped!)
     6, 20, 1, 3, 56, 23, 31, 35, 12, 4, // Indices 20..29 -> User 3
 ];
 

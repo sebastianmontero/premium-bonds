@@ -2102,6 +2102,7 @@ impl AdminForceUnlockDrawBuilder {
                 global_config,
                 pool,
                 current_draw_cycle,
+                current_randomness_account: Pubkey::default(),
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
             },
@@ -2127,6 +2128,11 @@ impl AdminForceUnlockDrawBuilder {
 
     pub fn with_current_draw_cycle(mut self, current_draw_cycle: Pubkey) -> Self {
         self.accounts.current_draw_cycle = current_draw_cycle;
+        self
+    }
+
+    pub fn with_current_randomness_account(mut self, current_randomness_account: Pubkey) -> Self {
+        self.accounts.current_randomness_account = current_randomness_account;
         self
     }
 
@@ -2156,7 +2162,21 @@ impl AdminForceUnlockDrawBuilder {
     }
 
     pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
-        send_user_tx(svm, payer, self.build_ix())
+        let mut current_randomness_account = self.accounts.current_randomness_account;
+        if current_randomness_account == Pubkey::default() {
+            if svm.get_account(&self.accounts.current_draw_cycle).is_some() {
+                let dc = read_draw_cycle_state(svm, self.pool_id, self.cycle_id);
+                current_randomness_account = dc.randomness_account;
+            }
+        }
+        let mut accounts = self.build_metas();
+        accounts[4] = solana_program::instruction::AccountMeta::new_readonly(current_randomness_account, false);
+        let ix = Instruction {
+            program_id: anchor::id(),
+            accounts,
+            data: anchor::instruction::AdminForceUnlockDraw {}.data(),
+        };
+        send_user_tx(svm, payer, ix)
     }
 
     pub fn send_with_signers(
@@ -2165,7 +2185,21 @@ impl AdminForceUnlockDrawBuilder {
         payer: &Keypair,
         additional_signers: &[&Keypair],
     ) -> TxResult {
-        send_tx(svm, payer, additional_signers, self.build_ix())
+        let mut current_randomness_account = self.accounts.current_randomness_account;
+        if current_randomness_account == Pubkey::default() {
+            if svm.get_account(&self.accounts.current_draw_cycle).is_some() {
+                let dc = read_draw_cycle_state(svm, self.pool_id, self.cycle_id);
+                current_randomness_account = dc.randomness_account;
+            }
+        }
+        let mut accounts = self.build_metas();
+        accounts[4] = solana_program::instruction::AccountMeta::new_readonly(current_randomness_account, false);
+        let ix = Instruction {
+            program_id: anchor::id(),
+            accounts,
+            data: anchor::instruction::AdminForceUnlockDraw {}.data(),
+        };
+        send_tx(svm, payer, additional_signers, ix)
     }
 }
 
