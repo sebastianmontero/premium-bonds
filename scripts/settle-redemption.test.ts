@@ -27,8 +27,8 @@ describe("Settlement & PendingRedemption Invariants", () => {
       );
       assert.strictEqual(
         PENDING_REDEMPTION_ACCOUNT_SIZE,
-        160n,
-        "PendingRedemption account size must be exactly 160 bytes (8 disc + 152 space)"
+        144n,
+        "PendingRedemption account size must be exactly 144 bytes (8 disc + 136 space)"
       );
 
       assert.strictEqual(
@@ -45,38 +45,37 @@ describe("Settlement & PendingRedemption Invariants", () => {
 
     it("verifies all field offsets match Rust repr(C) struct layout", () => {
       assert.strictEqual(PENDING_REDEMPTION_OFFSETS.DISCRIMINATOR, 0);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.HUMA_REQUEST_ID, 8);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.REDEMPTION_ID, 24);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.AMOUNT, 32);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.PST_SHARES_LOCKED, 40);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.REQUESTED_AT, 48);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.USER, 56);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.POOL_ID, 88);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.BUMP, 92);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.VERSION, 93);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.REDEMPTION_TYPE, 94);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.PADDING, 95);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.RESERVED, 96);
-      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.ACCOUNT_SIZE, 160);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.USER, 8);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.BATCH_ID, 40);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.REDEMPTION_ID, 48);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.AMOUNT, 56);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.REQUESTED_AT, 64);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.POOL_ID, 72);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.BUMP, 76);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.VERSION, 77);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.REDEMPTION_TYPE, 78);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.PADDING, 79);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.RESERVED, 80);
+      assert.strictEqual(PENDING_REDEMPTION_OFFSETS.ACCOUNT_SIZE, 144);
     });
 
-    it("verifies decoder is fixed-size 160 bytes", () => {
+    it("verifies decoder is fixed-size 144 bytes", () => {
       const decoder = getPendingRedemptionDecoder();
-      assert.strictEqual(decoder.fixedSize, 160);
+      assert.strictEqual(decoder.fixedSize, 144);
     });
   });
 
   describe("RPC Filter Builder", () => {
     it("builds basic dataSize filter with no options", () => {
       const filters = getPendingRedemptionFilters();
-      assert.deepStrictEqual(filters, [{ dataSize: 160n }]);
+      assert.deepStrictEqual(filters, [{ dataSize: 144n }]);
     });
 
     it("builds poolId memcmp filter", () => {
       const filters = getPendingRedemptionFilters({ poolId: 1 });
       assert.strictEqual(filters.length, 2);
-      assert.deepStrictEqual(filters[0], { dataSize: 160n });
-      assert.strictEqual(filters[1].memcmp.offset, 88n);
+      assert.deepStrictEqual(filters[0], { dataSize: 144n });
+      assert.strictEqual(filters[1].memcmp.offset, 72n);
       assert.strictEqual(filters[1].memcmp.encoding, "base58");
     });
 
@@ -84,8 +83,8 @@ describe("Settlement & PendingRedemption Invariants", () => {
       const userAddr = address("11111111111111111111111111111111");
       const filters = getPendingRedemptionFilters({ user: userAddr });
       assert.strictEqual(filters.length, 2);
-      assert.deepStrictEqual(filters[0], { dataSize: 160n });
-      assert.strictEqual(filters[1].memcmp.offset, 56n);
+      assert.deepStrictEqual(filters[0], { dataSize: 144n });
+      assert.strictEqual(filters[1].memcmp.offset, 8n);
       assert.strictEqual(filters[1].memcmp.bytes, userAddr);
     });
 
@@ -96,9 +95,9 @@ describe("Settlement & PendingRedemption Invariants", () => {
         user: userAddr,
       });
       assert.strictEqual(filters.length, 3);
-      assert.deepStrictEqual(filters[0], { dataSize: 160n });
-      assert.strictEqual(filters[1].memcmp.offset, 88n);
-      assert.strictEqual(filters[2].memcmp.offset, 56n);
+      assert.deepStrictEqual(filters[0], { dataSize: 144n });
+      assert.strictEqual(filters[1].memcmp.offset, 72n);
+      assert.strictEqual(filters[2].memcmp.offset, 8n);
       assert.strictEqual(filters[2].memcmp.bytes, userAddr);
     });
   });

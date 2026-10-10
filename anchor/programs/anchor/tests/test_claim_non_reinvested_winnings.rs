@@ -29,9 +29,6 @@ impl ClaimCtx {
         redemption_id: u64,
     ) -> ClaimNonReinvestedWinningsBuilder {
         ClaimNonReinvestedWinningsBuilder::for_pool(pool_id, self.user.pubkey())
-            .with_huma_pool_state(self.huma_pool_state)
-            .with_huma_mode_mint(self.pst_mint)
-            .with_huma_pool_mode_token(self.huma_pool_mode_token)
             .with_redemption_id(pool_id, redemption_id)
     }
 
@@ -144,18 +141,6 @@ fn test_claim_fails_next_redemption_id_overflow() {
     assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
-#[test]
-fn test_claim_fails_invalid_mode_mint() {
-    let mut ctx = setup_claim_guard(100, anchor::PoolStatus::Active);
-    let fake_mint = Keypair::new().pubkey();
-    inject_mint(&mut ctx.svm, fake_mint, 6);
-
-    ctx.pst_mint = fake_mint;
-
-    let res = send_claim(&mut ctx, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
-}
-
 fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
     PrizePoolTestBuilder::from_state(svm, pool_id)
         .with_prizes_allocated(amount)
@@ -201,8 +186,7 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
         "event amount must match claimed winnings"
     );
     assert_eq!(event.redemption_id, 0, "event redemption_id must be 0");
-    assert!(event.pst_shares > 0, "event pst_shares must be non-zero");
-    assert_eq!(event.huma_request_id, 0, "event huma_request_id must be 0");
+    assert_eq!(event.batch_id, 0, "event batch_id must be 0");
 
     // Assert UserWinnings state updates
     let uw = read_user_winnings(&ctx.svm, 1, &ctx.user.pubkey());
@@ -234,10 +218,9 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     let pr = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(pr.pool_id, 1, "pr pool_id matches");
     assert_eq!(pr.redemption_id, 0, "pr redemption_id matches");
+    assert_eq!(pr.batch_id, 0, "pr batch_id matches");
     assert_eq!(pr.user, ctx.user.pubkey(), "pr user matches");
     assert_eq!(pr.amount, 500_000, "pr amount matches");
-    assert!(pr.pst_shares_locked > 0, "pr pst_shares_locked non-zero");
-    assert_eq!(pr.huma_request_id, 0, "pr huma_request_id matches");
     assert_eq!(
         pr.version,
         anchor::PendingRedemption::CURRENT_VERSION,
@@ -310,8 +293,7 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     assert_eq!(event.pool_id, 1, "event pool_id matches");
     assert_eq!(event.amount, 500_000, "event amount matches");
     assert_eq!(event.redemption_id, 0, "event redemption_id is 0");
-    assert!(event.pst_shares > 0, "event pst_shares is positive");
-    assert_eq!(event.huma_request_id, 0, "event huma_request_id is 0");
+    assert_eq!(event.batch_id, 0, "event batch_id is 0");
 
     let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
     let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();
@@ -320,18 +302,4 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
         "unclaimed winnings cleared"
     );
     assert_eq!(uw.total_claimed, 500_000, "total claimed matches");
-}
-
-#[test]
-fn test_claim_non_reinvested_winnings_fails_yield_venue_insolvent() {
-    let mut ctx = setup_claim_guard(100_000, anchor::PoolStatus::Active);
-
-    // Inject pst_mint with supply > 0 (e.g. 1_000_000)
-    inject_mint_with_supply(&mut ctx.svm, ctx.pst_mint, 6, 1_000_000);
-
-    // Inject insolvent Huma pool state: total_assets = 0 (with vec_len = 1)
-    inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 0);
-
-    let res = send_claim(&mut ctx, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::YieldVenueInsolvent);
 }

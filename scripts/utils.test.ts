@@ -1238,10 +1238,8 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           beneficiary: adminBeneficiary,
           poolId: 1,
           redemptionId: 4n,
+          batchId: 0n,
           tokenMint,
-          humaAddresses: createMockHumaAddresses({
-            poolState: TEST_ADDRESSES.HUMA_POOL,
-          }),
           redemptionType: RedemptionType.FeeWithdrawal,
           feeWallet,
         });
@@ -1252,7 +1250,7 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           "FeeWithdrawal claim should not prepend ATA creation"
         );
         assert.strictEqual(
-          ixs[0].accounts?.[6].address,
+          ixs[0].accounts?.[7].address,
           feeWallet,
           "beneficiaryTokenAccount must be feeWallet"
         );
@@ -1268,10 +1266,8 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           beneficiary: user,
           poolId: 1,
           redemptionId: 1n,
+          batchId: 0n,
           tokenMint,
-          humaAddresses: createMockHumaAddresses({
-            poolState: TEST_ADDRESSES.HUMA_POOL,
-          }),
           redemptionType: RedemptionType.BondSale,
         });
 
@@ -1283,7 +1279,7 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
         assert.strictEqual(ixs[0].programAddress, ATA_PROGRAM_ID);
         assert.deepStrictEqual(Array.from(ixs[0].data || []), [1]);
         assert.strictEqual(
-          ixs[1].accounts?.[6].address,
+          ixs[1].accounts?.[7].address,
           ixs[0].accounts?.[1].address,
           "beneficiaryTokenAccount in claim must match created ATA"
         );

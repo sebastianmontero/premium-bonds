@@ -191,9 +191,20 @@ export function useBondsContract(poolId: number = 1) {
   );
 
   const claimRedemption = useCallback(
-    async (redemptionId: number, options?: ActionLifecycleOptions) => {
+    async (
+      redemptionId: number,
+      batchIdOrOptions?: number | bigint | ActionLifecycleOptions,
+      options?: ActionLifecycleOptions
+    ) => {
       if (!userAddress) throw new Error("Wallet not connected");
-      const currentPool = pool;
+
+      const batchId =
+        typeof batchIdOrOptions === "number" ||
+        typeof batchIdOrOptions === "bigint"
+          ? batchIdOrOptions
+          : 0n;
+      const opts =
+        typeof batchIdOrOptions === "object" ? batchIdOrOptions : options;
 
       return executeAction(
         () =>
@@ -201,14 +212,12 @@ export function useBondsContract(poolId: number = 1) {
             poolId,
             userAddress: address(userAddress),
             redemptionId,
-            humaAddresses: currentPool?.humaPoolState
-              ? { poolState: address(currentPool.humaPoolState) }
-              : undefined,
+            batchId,
           }),
-        options
+        opts
       );
     },
-    [userAddress, pool, poolId, executeAction]
+    [userAddress, poolId, executeAction]
   );
 
   const claimNonReinvestedWinnings = useCallback(
@@ -224,9 +233,8 @@ export function useBondsContract(poolId: number = 1) {
             userAddress: address(userAddress),
             amount,
             nextRedemptionId: currentPool.nextRedemptionId || 0,
-            humaAddresses: currentPool.humaPoolState
-              ? { poolState: address(currentPool.humaPoolState) }
-              : undefined,
+            accumulatingRedemptionBatchId:
+              currentPool.accumulatingRedemptionBatchId || 0n,
           }),
         options
       );

@@ -40,10 +40,27 @@ pub const MAX_BASIS_POINTS: u16 = 10_000;
 pub const DEFAULT_PAYOUT_TIMELOCK_SECONDS: u32 = 300;
 /// Maximum allowable timelock delay before winner payouts can be cranked (24 hours = 86,400 seconds).
 pub const MAX_PAYOUT_TIMELOCK_SECONDS: u32 = 86_400;
-/// Maximum allowable deficit (in token base units / lamports) tolerated as rounding dust during solvency checks.
-pub const SOLVENCY_DUST_TOLERANCE: u64 = 1_000;
 /// Required token mint decimal precision for underlying and yield tokens (USDC = 6 decimals).
 pub const EXPECTED_TOKEN_DECIMALS: u8 = 6;
+
+// ── Batch Redemption Seeds & Constants ─────────────────────────────────────
+/// PDA seed prefix for RedemptionBatch accounts.
+pub const REDEMPTION_BATCH_SEED: &[u8] = b"redemption_batch";
+/// Sentinel value representing no batch currently in-flight in Huma queue.
+pub const NO_SUBMITTED_BATCH: u64 = u64::MAX;
+/// Period after batch settlement when crank may close batch and sweep abandoned remainder to fee_wallet (180 days).
+pub const BATCH_CLAIM_EXPIRY_SECONDS: i64 = 180 * 86_400;
+
+// ── Solvency & Impairment Governance Constants ─────────────────────────────
+/// Minimum allowable deficit tolerated as rounding dust during solvency checks ($0.01 USDC).
+pub const MIN_SOLVENCY_TOLERANCE: u64 = 10_000;
+/// Maximum allowable deficit tolerated as rounding dust during solvency checks ($20.00 USDC cap).
+/// Absorbs up to 20 million floor-division rounding events while capping unmonitored loss exposure.
+pub const MAX_SOLVENCY_TOLERANCE: u64 = 20_000_000;
+/// Proportional solvency tolerance in basis points (1 bps = 0.01%).
+pub const SOLVENCY_TOLERANCE_BPS: u64 = 1;
+/// Timelock buffer (90 days in seconds) before an insolvent paused pool can be permissionlessly transitioned to Impaired.
+pub const IMPAIRMENT_TIMELOCK_SECONDS: i64 = 90 * 86_400;
 
 /// Maximum allowable slot freshness window before a Switchboard VRF randomness request is considered expired.
 pub const VRF_FRESHNESS_WINDOW_SLOTS: u64 = 1_000;

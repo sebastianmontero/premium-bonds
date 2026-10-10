@@ -258,4 +258,35 @@ pub mod anchor {
     pub fn withdraw_fees(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         instructions::admin::withdraw_fees::handle(ctx, amount)
     }
+
+    /// Submits an accumulating redemption batch to Huma Finance queue via a single aggregated CPI.
+    pub fn crank_submit_redemption_batch(ctx: Context<CrankSubmitRedemptionBatch>) -> Result<()> {
+        instructions::yield_draw::crank_submit_redemption_batch::handle(ctx)
+    }
+
+    /// Settles a submitted redemption batch from Huma, unlocking the pro-rata payout rate and pipeline.
+    pub fn settle_redemption_batch(ctx: Context<SettleRedemptionBatch>) -> Result<()> {
+        instructions::yield_draw::settle_redemption_batch::handle(ctx)
+    }
+
+    /// Closes a fully-claimed or 180-day expired redemption batch, refunding rent to crank and sweeping remainder to fee_wallet.
+    pub fn crank_close_redemption_batch(ctx: Context<CrankCloseRedemptionBatch>) -> Result<()> {
+        instructions::yield_draw::crank_close_redemption_batch::handle(ctx)
+    }
+
+    /// Closes an expired PendingRedemption receipt after batch closure, refunding 100% SOL rent to the user.
+    pub fn close_expired_redemption(ctx: Context<CloseExpiredRedemption>) -> Result<()> {
+        instructions::user::close_expired_redemption::handle(ctx)
+    }
+
+    /// Transitions an insolvent paused pool into Impaired workout mode.
+    pub fn enable_impaired_mode(ctx: Context<EnableImpairedMode>) -> Result<()> {
+        instructions::admin::enable_impaired_mode::handle(ctx)
+    }
+
+    /// Injects capital into a paused pool's PST position to cure deficit and unpause.
+    pub fn recapitalize_pool(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
+        instructions::admin::recapitalize_pool::handle(ctx, amount)
+    }
 }
+

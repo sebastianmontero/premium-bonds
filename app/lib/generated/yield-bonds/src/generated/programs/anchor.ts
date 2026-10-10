@@ -49,6 +49,7 @@ import {
   getPayoutRegistryCodec,
   getPendingRedemptionCodec,
   getPrizePoolCodec,
+  getRedemptionBatchCodec,
   getTicketRegistryCodec,
   getUserWinningsCodec,
   type DrawCycle,
@@ -61,6 +62,8 @@ import {
   type PendingRedemptionArgs,
   type PrizePool,
   type PrizePoolArgs,
+  type RedemptionBatch,
+  type RedemptionBatchArgs,
   type TicketRegistry,
   type TicketRegistryArgs,
   type UserWinnings,
@@ -74,21 +77,27 @@ import {
   getCancelAdminNominationInstructionAsync,
   getClaimNonReinvestedWinningsInstructionAsync,
   getClaimRedemptionInstructionAsync,
+  getCloseExpiredRedemptionInstruction,
   getClosePoolInstructionAsync,
   getCrankClosePayoutRegistryInstructionAsync,
+  getCrankCloseRedemptionBatchInstructionAsync,
   getCrankRebindExpiredRandomnessInstructionAsync,
+  getCrankSubmitRedemptionBatchInstructionAsync,
   getCreatePoolInstructionAsync,
+  getEnableImpairedModeInstructionAsync,
   getHarvestYieldAndCommitInstructionAsync,
   getInitializeGlobalInstructionAsync,
   getInitializeHumaLenderInstructionAsync,
   getNominateAdminInstructionAsync,
   getPausePoolInstructionAsync,
   getPrepareDrawInstruction,
+  getRecapitalizePoolInstructionAsync,
   getReinvestWinningsInstructionAsync,
   getResizeRegistryInstruction,
   getRevealAndPickWinnersInstructionAsync,
   getSellBondsInstructionAsync,
   getSetPrizeTiersInstructionAsync,
+  getSettleRedemptionBatchInstructionAsync,
   getUnpausePoolInstructionAsync,
   getUpdateGlobalConfigInstructionAsync,
   getUpdatePoolConfigInstructionAsync,
@@ -100,21 +109,27 @@ import {
   parseCancelAdminNominationInstruction,
   parseClaimNonReinvestedWinningsInstruction,
   parseClaimRedemptionInstruction,
+  parseCloseExpiredRedemptionInstruction,
   parseClosePoolInstruction,
   parseCrankClosePayoutRegistryInstruction,
+  parseCrankCloseRedemptionBatchInstruction,
   parseCrankRebindExpiredRandomnessInstruction,
+  parseCrankSubmitRedemptionBatchInstruction,
   parseCreatePoolInstruction,
+  parseEnableImpairedModeInstruction,
   parseHarvestYieldAndCommitInstruction,
   parseInitializeGlobalInstruction,
   parseInitializeHumaLenderInstruction,
   parseNominateAdminInstruction,
   parsePausePoolInstruction,
   parsePrepareDrawInstruction,
+  parseRecapitalizePoolInstruction,
   parseReinvestWinningsInstruction,
   parseResizeRegistryInstruction,
   parseRevealAndPickWinnersInstruction,
   parseSellBondsInstruction,
   parseSetPrizeTiersInstruction,
+  parseSettleRedemptionBatchInstruction,
   parseUnpausePoolInstruction,
   parseUpdateGlobalConfigInstruction,
   parseUpdatePoolConfigInstruction,
@@ -126,10 +141,14 @@ import {
   type CancelAdminNominationAsyncInput,
   type ClaimNonReinvestedWinningsAsyncInput,
   type ClaimRedemptionAsyncInput,
+  type CloseExpiredRedemptionInput,
   type ClosePoolAsyncInput,
   type CrankClosePayoutRegistryAsyncInput,
+  type CrankCloseRedemptionBatchAsyncInput,
   type CrankRebindExpiredRandomnessAsyncInput,
+  type CrankSubmitRedemptionBatchAsyncInput,
   type CreatePoolAsyncInput,
+  type EnableImpairedModeAsyncInput,
   type HarvestYieldAndCommitAsyncInput,
   type InitializeGlobalAsyncInput,
   type InitializeHumaLenderAsyncInput,
@@ -141,32 +160,40 @@ import {
   type ParsedCancelAdminNominationInstruction,
   type ParsedClaimNonReinvestedWinningsInstruction,
   type ParsedClaimRedemptionInstruction,
+  type ParsedCloseExpiredRedemptionInstruction,
   type ParsedClosePoolInstruction,
   type ParsedCrankClosePayoutRegistryInstruction,
+  type ParsedCrankCloseRedemptionBatchInstruction,
   type ParsedCrankRebindExpiredRandomnessInstruction,
+  type ParsedCrankSubmitRedemptionBatchInstruction,
   type ParsedCreatePoolInstruction,
+  type ParsedEnableImpairedModeInstruction,
   type ParsedHarvestYieldAndCommitInstruction,
   type ParsedInitializeGlobalInstruction,
   type ParsedInitializeHumaLenderInstruction,
   type ParsedNominateAdminInstruction,
   type ParsedPausePoolInstruction,
   type ParsedPrepareDrawInstruction,
+  type ParsedRecapitalizePoolInstruction,
   type ParsedReinvestWinningsInstruction,
   type ParsedResizeRegistryInstruction,
   type ParsedRevealAndPickWinnersInstruction,
   type ParsedSellBondsInstruction,
   type ParsedSetPrizeTiersInstruction,
+  type ParsedSettleRedemptionBatchInstruction,
   type ParsedUnpausePoolInstruction,
   type ParsedUpdateGlobalConfigInstruction,
   type ParsedUpdatePoolConfigInstruction,
   type ParsedWithdrawFeesInstruction,
   type PausePoolAsyncInput,
   type PrepareDrawInput,
+  type RecapitalizePoolAsyncInput,
   type ReinvestWinningsAsyncInput,
   type ResizeRegistryInput,
   type RevealAndPickWinnersAsyncInput,
   type SellBondsAsyncInput,
   type SetPrizeTiersAsyncInput,
+  type SettleRedemptionBatchAsyncInput,
   type UnpausePoolAsyncInput,
   type UpdateGlobalConfigAsyncInput,
   type UpdatePoolConfigAsyncInput,
@@ -175,6 +202,7 @@ import {
 import {
   findEventAuthorityPda,
   findGlobalConfigPda,
+  findInitialRedemptionBatchPda,
   findPayoutRegistryPda,
   findPoolPda,
   findPoolPstVaultPda,
@@ -190,6 +218,7 @@ export enum AnchorAccount {
   PayoutRegistry,
   PendingRedemption,
   PrizePool,
+  RedemptionBatch,
   TicketRegistry,
   UserWinnings,
 }
@@ -257,6 +286,17 @@ export function identifyAnchorAccount(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([32, 28, 11, 162, 133, 98, 24, 205])
+      ),
+      0
+    )
+  ) {
+    return AnchorAccount.RedemptionBatch;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([58, 169, 167, 230, 107, 202, 126, 54])
       ),
       0
@@ -289,21 +329,27 @@ export enum AnchorInstruction {
   CancelAdminNomination,
   ClaimNonReinvestedWinnings,
   ClaimRedemption,
+  CloseExpiredRedemption,
   ClosePool,
   CrankClosePayoutRegistry,
+  CrankCloseRedemptionBatch,
   CrankRebindExpiredRandomness,
+  CrankSubmitRedemptionBatch,
   CreatePool,
+  EnableImpairedMode,
   HarvestYieldAndCommit,
   InitializeGlobal,
   InitializeHumaLender,
   NominateAdmin,
   PausePool,
   PrepareDraw,
+  RecapitalizePool,
   ReinvestWinnings,
   ResizeRegistry,
   RevealAndPickWinners,
   SellBonds,
   SetPrizeTiers,
+  SettleRedemptionBatch,
   UnpausePool,
   UpdateGlobalConfig,
   UpdatePoolConfig,
@@ -395,6 +441,17 @@ export function identifyAnchorInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([32, 58, 152, 58, 178, 84, 83, 229])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.CloseExpiredRedemption;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([140, 189, 209, 23, 239, 62, 239, 11])
       ),
       0
@@ -417,6 +474,17 @@ export function identifyAnchorInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([124, 66, 49, 175, 88, 98, 135, 42])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.CrankCloseRedemptionBatch;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([253, 128, 70, 132, 251, 177, 184, 24])
       ),
       0
@@ -428,12 +496,34 @@ export function identifyAnchorInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([163, 46, 253, 11, 39, 93, 33, 61])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.CrankSubmitRedemptionBatch;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([233, 146, 209, 142, 207, 104, 64, 188])
       ),
       0
     )
   ) {
     return AnchorInstruction.CreatePool;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([74, 94, 199, 120, 253, 202, 89, 186])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.EnableImpairedMode;
   }
   if (
     containsBytes(
@@ -505,6 +595,17 @@ export function identifyAnchorInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([179, 180, 113, 177, 180, 145, 232, 143])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.RecapitalizePool;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([29, 223, 229, 116, 101, 111, 58, 26])
       ),
       0
@@ -555,6 +656,17 @@ export function identifyAnchorInstruction(
     )
   ) {
     return AnchorInstruction.SetPrizeTiers;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([203, 209, 206, 6, 30, 19, 246, 221])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.SettleRedemptionBatch;
   }
   if (
     containsBytes(
@@ -631,17 +743,29 @@ export type ParsedAnchorInstruction<
       instructionType: AnchorInstruction.ClaimRedemption;
     } & ParsedClaimRedemptionInstruction<TProgram>)
   | ({
+      instructionType: AnchorInstruction.CloseExpiredRedemption;
+    } & ParsedCloseExpiredRedemptionInstruction<TProgram>)
+  | ({
       instructionType: AnchorInstruction.ClosePool;
     } & ParsedClosePoolInstruction<TProgram>)
   | ({
       instructionType: AnchorInstruction.CrankClosePayoutRegistry;
     } & ParsedCrankClosePayoutRegistryInstruction<TProgram>)
   | ({
+      instructionType: AnchorInstruction.CrankCloseRedemptionBatch;
+    } & ParsedCrankCloseRedemptionBatchInstruction<TProgram>)
+  | ({
       instructionType: AnchorInstruction.CrankRebindExpiredRandomness;
     } & ParsedCrankRebindExpiredRandomnessInstruction<TProgram>)
   | ({
+      instructionType: AnchorInstruction.CrankSubmitRedemptionBatch;
+    } & ParsedCrankSubmitRedemptionBatchInstruction<TProgram>)
+  | ({
       instructionType: AnchorInstruction.CreatePool;
     } & ParsedCreatePoolInstruction<TProgram>)
+  | ({
+      instructionType: AnchorInstruction.EnableImpairedMode;
+    } & ParsedEnableImpairedModeInstruction<TProgram>)
   | ({
       instructionType: AnchorInstruction.HarvestYieldAndCommit;
     } & ParsedHarvestYieldAndCommitInstruction<TProgram>)
@@ -661,6 +785,9 @@ export type ParsedAnchorInstruction<
       instructionType: AnchorInstruction.PrepareDraw;
     } & ParsedPrepareDrawInstruction<TProgram>)
   | ({
+      instructionType: AnchorInstruction.RecapitalizePool;
+    } & ParsedRecapitalizePoolInstruction<TProgram>)
+  | ({
       instructionType: AnchorInstruction.ReinvestWinnings;
     } & ParsedReinvestWinningsInstruction<TProgram>)
   | ({
@@ -675,6 +802,9 @@ export type ParsedAnchorInstruction<
   | ({
       instructionType: AnchorInstruction.SetPrizeTiers;
     } & ParsedSetPrizeTiersInstruction<TProgram>)
+  | ({
+      instructionType: AnchorInstruction.SettleRedemptionBatch;
+    } & ParsedSettleRedemptionBatchInstruction<TProgram>)
   | ({
       instructionType: AnchorInstruction.UnpausePool;
     } & ParsedUnpausePoolInstruction<TProgram>)
@@ -742,6 +872,13 @@ export function parseAnchorInstruction<TProgram extends string>(
         ...parseClaimRedemptionInstruction(instruction),
       };
     }
+    case AnchorInstruction.CloseExpiredRedemption: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.CloseExpiredRedemption,
+        ...parseCloseExpiredRedemptionInstruction(instruction),
+      };
+    }
     case AnchorInstruction.ClosePool: {
       assertIsInstructionWithAccounts(instruction);
       return {
@@ -756,6 +893,13 @@ export function parseAnchorInstruction<TProgram extends string>(
         ...parseCrankClosePayoutRegistryInstruction(instruction),
       };
     }
+    case AnchorInstruction.CrankCloseRedemptionBatch: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.CrankCloseRedemptionBatch,
+        ...parseCrankCloseRedemptionBatchInstruction(instruction),
+      };
+    }
     case AnchorInstruction.CrankRebindExpiredRandomness: {
       assertIsInstructionWithAccounts(instruction);
       return {
@@ -763,11 +907,25 @@ export function parseAnchorInstruction<TProgram extends string>(
         ...parseCrankRebindExpiredRandomnessInstruction(instruction),
       };
     }
+    case AnchorInstruction.CrankSubmitRedemptionBatch: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.CrankSubmitRedemptionBatch,
+        ...parseCrankSubmitRedemptionBatchInstruction(instruction),
+      };
+    }
     case AnchorInstruction.CreatePool: {
       assertIsInstructionWithAccounts(instruction);
       return {
         instructionType: AnchorInstruction.CreatePool,
         ...parseCreatePoolInstruction(instruction),
+      };
+    }
+    case AnchorInstruction.EnableImpairedMode: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.EnableImpairedMode,
+        ...parseEnableImpairedModeInstruction(instruction),
       };
     }
     case AnchorInstruction.HarvestYieldAndCommit: {
@@ -812,6 +970,13 @@ export function parseAnchorInstruction<TProgram extends string>(
         ...parsePrepareDrawInstruction(instruction),
       };
     }
+    case AnchorInstruction.RecapitalizePool: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.RecapitalizePool,
+        ...parseRecapitalizePoolInstruction(instruction),
+      };
+    }
     case AnchorInstruction.ReinvestWinnings: {
       assertIsInstructionWithAccounts(instruction);
       return {
@@ -845,6 +1010,13 @@ export function parseAnchorInstruction<TProgram extends string>(
       return {
         instructionType: AnchorInstruction.SetPrizeTiers,
         ...parseSetPrizeTiersInstruction(instruction),
+      };
+    }
+    case AnchorInstruction.SettleRedemptionBatch: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.SettleRedemptionBatch,
+        ...parseSettleRedemptionBatchInstruction(instruction),
       };
     }
     case AnchorInstruction.UnpausePool: {
@@ -903,6 +1075,8 @@ export type AnchorPluginAccounts = {
     SelfFetchFunctions<PendingRedemptionArgs, PendingRedemption>;
   prizePool: ReturnType<typeof getPrizePoolCodec> &
     SelfFetchFunctions<PrizePoolArgs, PrizePool>;
+  redemptionBatch: ReturnType<typeof getRedemptionBatchCodec> &
+    SelfFetchFunctions<RedemptionBatchArgs, RedemptionBatch>;
   ticketRegistry: ReturnType<typeof getTicketRegistryCodec> &
     SelfFetchFunctions<TicketRegistryArgs, TicketRegistry>;
   userWinnings: ReturnType<typeof getUserWinningsCodec> &
@@ -938,6 +1112,10 @@ export type AnchorPluginInstructions = {
     input: ClaimRedemptionAsyncInput
   ) => ReturnType<typeof getClaimRedemptionInstructionAsync> &
     SelfPlanAndSendFunctions;
+  closeExpiredRedemption: (
+    input: CloseExpiredRedemptionInput
+  ) => ReturnType<typeof getCloseExpiredRedemptionInstruction> &
+    SelfPlanAndSendFunctions;
   closePool: (
     input: ClosePoolAsyncInput
   ) => ReturnType<typeof getClosePoolInstructionAsync> &
@@ -946,13 +1124,25 @@ export type AnchorPluginInstructions = {
     input: CrankClosePayoutRegistryAsyncInput
   ) => ReturnType<typeof getCrankClosePayoutRegistryInstructionAsync> &
     SelfPlanAndSendFunctions;
+  crankCloseRedemptionBatch: (
+    input: CrankCloseRedemptionBatchAsyncInput
+  ) => ReturnType<typeof getCrankCloseRedemptionBatchInstructionAsync> &
+    SelfPlanAndSendFunctions;
   crankRebindExpiredRandomness: (
     input: CrankRebindExpiredRandomnessAsyncInput
   ) => ReturnType<typeof getCrankRebindExpiredRandomnessInstructionAsync> &
     SelfPlanAndSendFunctions;
+  crankSubmitRedemptionBatch: (
+    input: CrankSubmitRedemptionBatchAsyncInput
+  ) => ReturnType<typeof getCrankSubmitRedemptionBatchInstructionAsync> &
+    SelfPlanAndSendFunctions;
   createPool: (
     input: CreatePoolAsyncInput
   ) => ReturnType<typeof getCreatePoolInstructionAsync> &
+    SelfPlanAndSendFunctions;
+  enableImpairedMode: (
+    input: EnableImpairedModeAsyncInput
+  ) => ReturnType<typeof getEnableImpairedModeInstructionAsync> &
     SelfPlanAndSendFunctions;
   harvestYieldAndCommit: (
     input: HarvestYieldAndCommitAsyncInput
@@ -977,6 +1167,10 @@ export type AnchorPluginInstructions = {
   prepareDraw: (
     input: PrepareDrawInput
   ) => ReturnType<typeof getPrepareDrawInstruction> & SelfPlanAndSendFunctions;
+  recapitalizePool: (
+    input: RecapitalizePoolAsyncInput
+  ) => ReturnType<typeof getRecapitalizePoolInstructionAsync> &
+    SelfPlanAndSendFunctions;
   reinvestWinnings: (
     input: ReinvestWinningsAsyncInput
   ) => ReturnType<typeof getReinvestWinningsInstructionAsync> &
@@ -996,6 +1190,10 @@ export type AnchorPluginInstructions = {
   setPrizeTiers: (
     input: SetPrizeTiersAsyncInput
   ) => ReturnType<typeof getSetPrizeTiersInstructionAsync> &
+    SelfPlanAndSendFunctions;
+  settleRedemptionBatch: (
+    input: SettleRedemptionBatchAsyncInput
+  ) => ReturnType<typeof getSettleRedemptionBatchInstructionAsync> &
     SelfPlanAndSendFunctions;
   unpausePool: (
     input: UnpausePoolAsyncInput
@@ -1020,6 +1218,7 @@ export type AnchorPluginPdas = {
   eventAuthority: typeof findEventAuthorityPda;
   payoutRegistry: typeof findPayoutRegistryPda;
   pool: typeof findPoolPda;
+  initialRedemptionBatch: typeof findInitialRedemptionBatchPda;
   poolVaultAccount: typeof findPoolVaultAccountPda;
   poolPstVault: typeof findPoolPstVaultPda;
 };
@@ -1049,6 +1248,10 @@ export function anchorProgram() {
             getPendingRedemptionCodec()
           ),
           prizePool: addSelfFetchFunctions(client, getPrizePoolCodec()),
+          redemptionBatch: addSelfFetchFunctions(
+            client,
+            getRedemptionBatchCodec()
+          ),
           ticketRegistry: addSelfFetchFunctions(
             client,
             getTicketRegistryCodec()
@@ -1091,6 +1294,11 @@ export function anchorProgram() {
               client,
               getClaimRedemptionInstructionAsync(input)
             ),
+          closeExpiredRedemption: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getCloseExpiredRedemptionInstruction(input)
+            ),
           closePool: (input) =>
             addSelfPlanAndSendFunctions(
               client,
@@ -1101,15 +1309,30 @@ export function anchorProgram() {
               client,
               getCrankClosePayoutRegistryInstructionAsync(input)
             ),
+          crankCloseRedemptionBatch: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getCrankCloseRedemptionBatchInstructionAsync(input)
+            ),
           crankRebindExpiredRandomness: (input) =>
             addSelfPlanAndSendFunctions(
               client,
               getCrankRebindExpiredRandomnessInstructionAsync(input)
             ),
+          crankSubmitRedemptionBatch: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getCrankSubmitRedemptionBatchInstructionAsync(input)
+            ),
           createPool: (input) =>
             addSelfPlanAndSendFunctions(
               client,
               getCreatePoolInstructionAsync(input)
+            ),
+          enableImpairedMode: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getEnableImpairedModeInstructionAsync(input)
             ),
           harvestYieldAndCommit: (input) =>
             addSelfPlanAndSendFunctions(
@@ -1141,6 +1364,11 @@ export function anchorProgram() {
               client,
               getPrepareDrawInstruction(input)
             ),
+          recapitalizePool: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getRecapitalizePoolInstructionAsync(input)
+            ),
           reinvestWinnings: (input) =>
             addSelfPlanAndSendFunctions(
               client,
@@ -1169,6 +1397,11 @@ export function anchorProgram() {
               client,
               getSetPrizeTiersInstructionAsync(input)
             ),
+          settleRedemptionBatch: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getSettleRedemptionBatchInstructionAsync(input)
+            ),
           unpausePool: (input) =>
             addSelfPlanAndSendFunctions(
               client,
@@ -1195,6 +1428,7 @@ export function anchorProgram() {
           eventAuthority: findEventAuthorityPda,
           payoutRegistry: findPayoutRegistryPda,
           pool: findPoolPda,
+          initialRedemptionBatch: findInitialRedemptionBatchPda,
           poolVaultAccount: findPoolVaultAccountPda,
           poolPstVault: findPoolPstVaultPda,
         },

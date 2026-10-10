@@ -190,30 +190,31 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
 
 #[test]
 fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
-    // Case 1: Deficit == SOLVENCY_DUST_TOLERANCE (1,000 lamports deficit -> total_assets = 9_999_000)
-    // Within dust tolerance -> does NOT halt, stays Active
+    // Total deposited principal: 10_000_000 ($10). Dynamic tolerance clamps to MIN_SOLVENCY_TOLERANCE (10_000).
+    // Case 1: Deficit == MIN_SOLVENCY_TOLERANCE (10_000 lamports deficit -> total_assets = 9_990_000)
+    // Within tolerance -> does NOT halt, stays Active
     let mut ctx_pass = HarvestFixtureBuilder::new()
         .with_tickets(10, 0)
-        .with_insolvency_deficit(10_000_000, 1_000)
+        .with_insolvency_deficit(10_000_000, 10_000)
         .build();
     let _meta_pass = ctx_pass
         .send_harvest(1, 0)
-        .expect("Deficit <= dust tolerance should proceed normally");
+        .expect("Deficit <= dynamic tolerance should proceed normally");
     let pool_pass = read_pool_state(&ctx_pass.svm, 1);
     assert_eq!(pool_pass.status, anchor::PoolStatus::Active as u8);
 
-    // Case 2: Deficit == SOLVENCY_DUST_TOLERANCE + 1 (1,001 lamports deficit -> total_assets = 9_998_999)
-    // Exceeds dust tolerance -> halts and pauses pool
+    // Case 2: Deficit == MIN_SOLVENCY_TOLERANCE + 1 (10_001 lamports deficit -> total_assets = 9_989_999)
+    // Exceeds tolerance -> halts and pauses pool
     let mut ctx_halt = HarvestFixtureBuilder::new()
         .with_tickets(10, 0)
-        .with_insolvency_deficit(10_000_000, 1_001)
+        .with_insolvency_deficit(10_000_000, 10_001)
         .build();
     let meta_halt = ctx_halt
         .send_harvest(1, 0)
-        .expect("Deficit > dust tolerance should halt");
+        .expect("Deficit > dynamic tolerance should halt");
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta_halt);
     assert_eq!(event.crank, ctx_halt.crank.pubkey());
-    assert_eq!(event.deficit, 1001);
+    assert_eq!(event.deficit, 10_001);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.locked_ticket_count, 10);
     let pool_halt = read_pool_state(&ctx_halt.svm, 1);

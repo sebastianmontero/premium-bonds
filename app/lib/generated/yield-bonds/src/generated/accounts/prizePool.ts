@@ -67,116 +67,72 @@ export function getPrizePoolDiscriminatorBytes(): ReadonlyUint8Array {
 
 export type PrizePool = {
   discriminator: ReadonlyUint8Array;
-  /** Price of a single bond/ticket in underlying token base units. */
   bondPrice: bigint;
-  /** Duration of each stake/yield cycle in hours. */
   stakeCycleDurationHrs: bigint;
-  /** Minimum yield required (in USDC lamports) to trigger a draw. If not met, the draw is skipped and yield rolls over. */
   minYieldThreshold: bigint;
-  /** Total principal deposited by all users in this pool. */
-  totalDepositedPrincipal: bigint;
-  /** Unix timestamp when the current yield cycle is scheduled to end. */
   currentCycleEndAt: bigint;
-  /** Auto-incrementing counter for PendingRedemption PDA derivation. */
-  nextRedemptionId: bigint;
-  /** Lifetime fees accrued from yield harvests (accounting-only, not yet withdrawn). */
+  pausedAt: bigint;
+  totalDepositedPrincipal: bigint;
   totalFeesAccrued: bigint;
-  /** Fees already withdrawn by admin via withdraw_fees instruction. */
   totalFeesWithdrawn: bigint;
-  /** Total prizes currently allocated/committed. */
   totalPrizesAllocated: bigint;
-  /** Total outstanding pending redemptions. */
   totalPendingRedemptions: bigint;
-  /** Unique identifier for this prize pool. */
+  nextRedemptionId: bigint;
+  accumulatingRedemptionBatchId: bigint;
+  nextRedemptionBatchId: bigint;
+  submittedBatchId: bigint;
+  totalAccumulatingRedemptions: bigint;
   poolId: number;
-  /** The ID of the draw cycle currently being processed or the last completed cycle. */
   currentDrawCycleId: number;
-  /** Protocol fee rate in basis points (e.g. 250 = 2.5%). */
-  feeBasisPoints: number;
-  /** Maximum allowable yield basis points per single cycle (e.g. 500 = 5.0%, 0 = uncapped). */
-  maxYieldBasisPoints: number;
-  /** Timelock buffer in seconds before winner payouts can be cranked (default: 300s). */
   payoutTimelockSeconds: number;
-  /** Bump seed for the vault authority. */
+  feeBasisPoints: number;
+  maxYieldBasisPoints: number;
   vaultAuthorityBump: number;
-  /** Administrative lifecycle status of the pool (u8 representation of PoolStatus). */
   status: number;
-  /** Flag indicating whether deposit/withdraw/sale actions are frozen for draw calculation (0 for false, 1 for true). */
   isFrozenForDraw: number;
-  /** Schema version of the struct. */
   version: number;
-  /** Active prize tiers count in prize_tiers array. */
   prizeTiersCount: number;
-  /** Explicit padding to maintain 8-byte boundary alignment. */
   padding: ReadonlyUint8Array;
-  /** The mint of the underlying USDC token used for purchasing bonds. */
   tokenMint: Address;
-  /** Pointer to the massive zero-copy TicketRegistry account. */
   ticketRegistry: Address;
-  /** Public key of the token account that collects protocol fees. */
   feeWallet: Address;
-  /** Pinned Huma pool state account to prevent arbitrary venue injection. */
   humaPoolState: Address;
-  /** Configured prize tiers for this pool. */
   prizeTiers: Array<PrizeTier>;
-  /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
 };
 
 export type PrizePoolArgs = {
-  /** Price of a single bond/ticket in underlying token base units. */
   bondPrice: number | bigint;
-  /** Duration of each stake/yield cycle in hours. */
   stakeCycleDurationHrs: number | bigint;
-  /** Minimum yield required (in USDC lamports) to trigger a draw. If not met, the draw is skipped and yield rolls over. */
   minYieldThreshold: number | bigint;
-  /** Total principal deposited by all users in this pool. */
-  totalDepositedPrincipal: number | bigint;
-  /** Unix timestamp when the current yield cycle is scheduled to end. */
   currentCycleEndAt: number | bigint;
-  /** Auto-incrementing counter for PendingRedemption PDA derivation. */
-  nextRedemptionId: number | bigint;
-  /** Lifetime fees accrued from yield harvests (accounting-only, not yet withdrawn). */
+  pausedAt: number | bigint;
+  totalDepositedPrincipal: number | bigint;
   totalFeesAccrued: number | bigint;
-  /** Fees already withdrawn by admin via withdraw_fees instruction. */
   totalFeesWithdrawn: number | bigint;
-  /** Total prizes currently allocated/committed. */
   totalPrizesAllocated: number | bigint;
-  /** Total outstanding pending redemptions. */
   totalPendingRedemptions: number | bigint;
-  /** Unique identifier for this prize pool. */
+  nextRedemptionId: number | bigint;
+  accumulatingRedemptionBatchId: number | bigint;
+  nextRedemptionBatchId: number | bigint;
+  submittedBatchId: number | bigint;
+  totalAccumulatingRedemptions: number | bigint;
   poolId: number;
-  /** The ID of the draw cycle currently being processed or the last completed cycle. */
   currentDrawCycleId: number;
-  /** Protocol fee rate in basis points (e.g. 250 = 2.5%). */
-  feeBasisPoints: number;
-  /** Maximum allowable yield basis points per single cycle (e.g. 500 = 5.0%, 0 = uncapped). */
-  maxYieldBasisPoints: number;
-  /** Timelock buffer in seconds before winner payouts can be cranked (default: 300s). */
   payoutTimelockSeconds: number;
-  /** Bump seed for the vault authority. */
+  feeBasisPoints: number;
+  maxYieldBasisPoints: number;
   vaultAuthorityBump: number;
-  /** Administrative lifecycle status of the pool (u8 representation of PoolStatus). */
   status: number;
-  /** Flag indicating whether deposit/withdraw/sale actions are frozen for draw calculation (0 for false, 1 for true). */
   isFrozenForDraw: number;
-  /** Schema version of the struct. */
   version: number;
-  /** Active prize tiers count in prize_tiers array. */
   prizeTiersCount: number;
-  /** Explicit padding to maintain 8-byte boundary alignment. */
   padding: ReadonlyUint8Array;
-  /** The mint of the underlying USDC token used for purchasing bonds. */
   tokenMint: Address;
-  /** Pointer to the massive zero-copy TicketRegistry account. */
   ticketRegistry: Address;
-  /** Public key of the token account that collects protocol fees. */
   feeWallet: Address;
-  /** Pinned Huma pool state account to prevent arbitrary venue injection. */
   humaPoolState: Address;
-  /** Configured prize tiers for this pool. */
   prizeTiers: Array<PrizeTierArgs>;
-  /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
 };
 
@@ -188,18 +144,23 @@ export function getPrizePoolEncoder(): FixedSizeEncoder<PrizePoolArgs> {
       ["bondPrice", getU64Encoder()],
       ["stakeCycleDurationHrs", getI64Encoder()],
       ["minYieldThreshold", getU64Encoder()],
-      ["totalDepositedPrincipal", getU64Encoder()],
       ["currentCycleEndAt", getI64Encoder()],
-      ["nextRedemptionId", getU64Encoder()],
+      ["pausedAt", getI64Encoder()],
+      ["totalDepositedPrincipal", getU64Encoder()],
       ["totalFeesAccrued", getU64Encoder()],
       ["totalFeesWithdrawn", getU64Encoder()],
       ["totalPrizesAllocated", getU64Encoder()],
       ["totalPendingRedemptions", getU64Encoder()],
+      ["nextRedemptionId", getU64Encoder()],
+      ["accumulatingRedemptionBatchId", getU64Encoder()],
+      ["nextRedemptionBatchId", getU64Encoder()],
+      ["submittedBatchId", getU64Encoder()],
+      ["totalAccumulatingRedemptions", getU64Encoder()],
       ["poolId", getU32Encoder()],
       ["currentDrawCycleId", getU32Encoder()],
+      ["payoutTimelockSeconds", getU32Encoder()],
       ["feeBasisPoints", getU16Encoder()],
       ["maxYieldBasisPoints", getU16Encoder()],
-      ["payoutTimelockSeconds", getU32Encoder()],
       ["vaultAuthorityBump", getU8Encoder()],
       ["status", getU8Encoder()],
       ["isFrozenForDraw", getU8Encoder()],
@@ -224,18 +185,23 @@ export function getPrizePoolDecoder(): FixedSizeDecoder<PrizePool> {
     ["bondPrice", getU64Decoder()],
     ["stakeCycleDurationHrs", getI64Decoder()],
     ["minYieldThreshold", getU64Decoder()],
-    ["totalDepositedPrincipal", getU64Decoder()],
     ["currentCycleEndAt", getI64Decoder()],
-    ["nextRedemptionId", getU64Decoder()],
+    ["pausedAt", getI64Decoder()],
+    ["totalDepositedPrincipal", getU64Decoder()],
     ["totalFeesAccrued", getU64Decoder()],
     ["totalFeesWithdrawn", getU64Decoder()],
     ["totalPrizesAllocated", getU64Decoder()],
     ["totalPendingRedemptions", getU64Decoder()],
+    ["nextRedemptionId", getU64Decoder()],
+    ["accumulatingRedemptionBatchId", getU64Decoder()],
+    ["nextRedemptionBatchId", getU64Decoder()],
+    ["submittedBatchId", getU64Decoder()],
+    ["totalAccumulatingRedemptions", getU64Decoder()],
     ["poolId", getU32Decoder()],
     ["currentDrawCycleId", getU32Decoder()],
+    ["payoutTimelockSeconds", getU32Decoder()],
     ["feeBasisPoints", getU16Decoder()],
     ["maxYieldBasisPoints", getU16Decoder()],
-    ["payoutTimelockSeconds", getU32Decoder()],
     ["vaultAuthorityBump", getU8Decoder()],
     ["status", getU8Decoder()],
     ["isFrozenForDraw", getU8Decoder()],
@@ -310,5 +276,5 @@ export async function fetchAllMaybePrizePool(
 }
 
 export function getPrizePoolSize(): number {
-  return 448;
+  return 488;
 }

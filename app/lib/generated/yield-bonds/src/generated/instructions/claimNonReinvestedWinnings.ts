@@ -60,22 +60,8 @@ export type ClaimNonReinvestedWinningsInstruction<
   TAccountUser extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountUserWinnings extends string | AccountMeta<string> = string,
-  TAccountPoolPstVault extends string | AccountMeta<string> = string,
+  TAccountRedemptionBatch extends string | AccountMeta<string> = string,
   TAccountPendingRedemption extends string | AccountMeta<string> = string,
-  TAccountHumaProgram extends string | AccountMeta<string> =
-    "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz",
-  TAccountHumaConfig extends string | AccountMeta<string> = string,
-  TAccountHumaPoolConfig extends string | AccountMeta<string> = string,
-  TAccountHumaPoolState extends string | AccountMeta<string> = string,
-  TAccountHumaModeConfig extends string | AccountMeta<string> = string,
-  TAccountHumaModeMint extends string | AccountMeta<string> = string,
-  TAccountHumaRedemptionRequest extends string | AccountMeta<string> = string,
-  TAccountHumaLenderState extends string | AccountMeta<string> = string,
-  TAccountHumaPoolAuthority extends string | AccountMeta<string> = string,
-  TAccountHumaPoolModeToken extends string | AccountMeta<string> = string,
-  TAccountTokenProgram extends string | AccountMeta<string> =
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-  TAccountPstTokenProgram extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
   TAccountEventAuthority extends string | AccountMeta<string> = string,
@@ -95,48 +81,12 @@ export type ClaimNonReinvestedWinningsInstruction<
       TAccountUserWinnings extends string
         ? WritableAccount<TAccountUserWinnings>
         : TAccountUserWinnings,
-      TAccountPoolPstVault extends string
-        ? WritableAccount<TAccountPoolPstVault>
-        : TAccountPoolPstVault,
+      TAccountRedemptionBatch extends string
+        ? WritableAccount<TAccountRedemptionBatch>
+        : TAccountRedemptionBatch,
       TAccountPendingRedemption extends string
         ? WritableAccount<TAccountPendingRedemption>
         : TAccountPendingRedemption,
-      TAccountHumaProgram extends string
-        ? ReadonlyAccount<TAccountHumaProgram>
-        : TAccountHumaProgram,
-      TAccountHumaConfig extends string
-        ? ReadonlyAccount<TAccountHumaConfig>
-        : TAccountHumaConfig,
-      TAccountHumaPoolConfig extends string
-        ? ReadonlyAccount<TAccountHumaPoolConfig>
-        : TAccountHumaPoolConfig,
-      TAccountHumaPoolState extends string
-        ? WritableAccount<TAccountHumaPoolState>
-        : TAccountHumaPoolState,
-      TAccountHumaModeConfig extends string
-        ? ReadonlyAccount<TAccountHumaModeConfig>
-        : TAccountHumaModeConfig,
-      TAccountHumaModeMint extends string
-        ? ReadonlyAccount<TAccountHumaModeMint>
-        : TAccountHumaModeMint,
-      TAccountHumaRedemptionRequest extends string
-        ? WritableAccount<TAccountHumaRedemptionRequest>
-        : TAccountHumaRedemptionRequest,
-      TAccountHumaLenderState extends string
-        ? WritableAccount<TAccountHumaLenderState>
-        : TAccountHumaLenderState,
-      TAccountHumaPoolAuthority extends string
-        ? ReadonlyAccount<TAccountHumaPoolAuthority>
-        : TAccountHumaPoolAuthority,
-      TAccountHumaPoolModeToken extends string
-        ? WritableAccount<TAccountHumaPoolModeToken>
-        : TAccountHumaPoolModeToken,
-      TAccountTokenProgram extends string
-        ? ReadonlyAccount<TAccountTokenProgram>
-        : TAccountTokenProgram,
-      TAccountPstTokenProgram extends string
-        ? ReadonlyAccount<TAccountPstTokenProgram>
-        : TAccountPstTokenProgram,
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
@@ -186,49 +136,22 @@ export type ClaimNonReinvestedWinningsAsyncInput<
   TAccountUser extends string = string,
   TAccountPool extends string = string,
   TAccountUserWinnings extends string = string,
-  TAccountPoolPstVault extends string = string,
+  TAccountRedemptionBatch extends string = string,
   TAccountPendingRedemption extends string = string,
-  TAccountHumaProgram extends string = string,
-  TAccountHumaConfig extends string = string,
-  TAccountHumaPoolConfig extends string = string,
-  TAccountHumaPoolState extends string = string,
-  TAccountHumaModeConfig extends string = string,
-  TAccountHumaModeMint extends string = string,
-  TAccountHumaRedemptionRequest extends string = string,
-  TAccountHumaLenderState extends string = string,
-  TAccountHumaPoolAuthority extends string = string,
-  TAccountHumaPoolModeToken extends string = string,
-  TAccountTokenProgram extends string = string,
-  TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** The user claiming the non-reinvested winnings. Must be signer and payer. */
+  /** The user claiming their non-reinvested winnings. Must be signer and payer. */
   user: TransactionSigner<TAccountUser>;
   /** The prize pool state account, validated to match the vault authority bump. */
   pool: Address<TAccountPool>;
   /** The user's winnings metadata account. */
   userWinnings: Address<TAccountUserWinnings>;
-  /** Pool's $PST vault — shares are redeemed from here. */
-  poolPstVault: Address<TAccountPoolPstVault>;
-  /** PendingRedemption PDA created for this async withdrawal. */
+  /** Active accumulating redemption batch account. */
+  redemptionBatch: Address<TAccountRedemptionBatch>;
+  /** PendingRedemption PDA created for this async batch claim receipt. */
   pendingRedemption: Address<TAccountPendingRedemption>;
-  humaProgram?: Address<TAccountHumaProgram>;
-  humaConfig: Address<TAccountHumaConfig>;
-  humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  humaPoolState: Address<TAccountHumaPoolState>;
-  humaModeConfig: Address<TAccountHumaModeConfig>;
-  /** The Huma mode mint ($PST mint). */
-  humaModeMint: Address<TAccountHumaModeMint>;
-  humaRedemptionRequest: Address<TAccountHumaRedemptionRequest>;
-  humaLenderState: Address<TAccountHumaLenderState>;
-  humaPoolAuthority: Address<TAccountHumaPoolAuthority>;
-  humaPoolModeToken: Address<TAccountHumaPoolModeToken>;
-  /** The standard Token program interface. */
-  tokenProgram?: Address<TAccountTokenProgram>;
-  /** The SPL Token interface for the PST mint/vault. */
-  pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
   eventAuthority?: Address<TAccountEventAuthority>;
@@ -240,20 +163,8 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
   TAccountUser extends string,
   TAccountPool extends string,
   TAccountUserWinnings extends string,
-  TAccountPoolPstVault extends string,
+  TAccountRedemptionBatch extends string,
   TAccountPendingRedemption extends string,
-  TAccountHumaProgram extends string,
-  TAccountHumaConfig extends string,
-  TAccountHumaPoolConfig extends string,
-  TAccountHumaPoolState extends string,
-  TAccountHumaModeConfig extends string,
-  TAccountHumaModeMint extends string,
-  TAccountHumaRedemptionRequest extends string,
-  TAccountHumaLenderState extends string,
-  TAccountHumaPoolAuthority extends string,
-  TAccountHumaPoolModeToken extends string,
-  TAccountTokenProgram extends string,
-  TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
@@ -263,20 +174,8 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
     TAccountUser,
     TAccountPool,
     TAccountUserWinnings,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -288,20 +187,8 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
     TAccountUser,
     TAccountPool,
     TAccountUserWinnings,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -315,34 +202,10 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
     user: { value: input.user ?? null, isWritable: true },
     pool: { value: input.pool ?? null, isWritable: true },
     userWinnings: { value: input.userWinnings ?? null, isWritable: true },
-    poolPstVault: { value: input.poolPstVault ?? null, isWritable: true },
+    redemptionBatch: { value: input.redemptionBatch ?? null, isWritable: true },
     pendingRedemption: {
       value: input.pendingRedemption ?? null,
       isWritable: true,
-    },
-    humaProgram: { value: input.humaProgram ?? null, isWritable: false },
-    humaConfig: { value: input.humaConfig ?? null, isWritable: false },
-    humaPoolConfig: { value: input.humaPoolConfig ?? null, isWritable: false },
-    humaPoolState: { value: input.humaPoolState ?? null, isWritable: true },
-    humaModeConfig: { value: input.humaModeConfig ?? null, isWritable: false },
-    humaModeMint: { value: input.humaModeMint ?? null, isWritable: false },
-    humaRedemptionRequest: {
-      value: input.humaRedemptionRequest ?? null,
-      isWritable: true,
-    },
-    humaLenderState: { value: input.humaLenderState ?? null, isWritable: true },
-    humaPoolAuthority: {
-      value: input.humaPoolAuthority ?? null,
-      isWritable: false,
-    },
-    humaPoolModeToken: {
-      value: input.humaPoolModeToken ?? null,
-      isWritable: true,
-    },
-    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
-    pstTokenProgram: {
-      value: input.pstTokenProgram ?? null,
-      isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
@@ -354,14 +217,6 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
   >;
 
   // Resolve default values.
-  if (!accounts.humaProgram.value) {
-    accounts.humaProgram.value =
-      "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz" as Address<"ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz">;
-  }
-  if (!accounts.tokenProgram.value) {
-    accounts.tokenProgram.value =
-      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -380,20 +235,8 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
       getAccountMeta("user", accounts.user),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("userWinnings", accounts.userWinnings),
-      getAccountMeta("poolPstVault", accounts.poolPstVault),
+      getAccountMeta("redemptionBatch", accounts.redemptionBatch),
       getAccountMeta("pendingRedemption", accounts.pendingRedemption),
-      getAccountMeta("humaProgram", accounts.humaProgram),
-      getAccountMeta("humaConfig", accounts.humaConfig),
-      getAccountMeta("humaPoolConfig", accounts.humaPoolConfig),
-      getAccountMeta("humaPoolState", accounts.humaPoolState),
-      getAccountMeta("humaModeConfig", accounts.humaModeConfig),
-      getAccountMeta("humaModeMint", accounts.humaModeMint),
-      getAccountMeta("humaRedemptionRequest", accounts.humaRedemptionRequest),
-      getAccountMeta("humaLenderState", accounts.humaLenderState),
-      getAccountMeta("humaPoolAuthority", accounts.humaPoolAuthority),
-      getAccountMeta("humaPoolModeToken", accounts.humaPoolModeToken),
-      getAccountMeta("tokenProgram", accounts.tokenProgram),
-      getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
@@ -405,20 +248,8 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
     TAccountUser,
     TAccountPool,
     TAccountUserWinnings,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -429,49 +260,22 @@ export type ClaimNonReinvestedWinningsInput<
   TAccountUser extends string = string,
   TAccountPool extends string = string,
   TAccountUserWinnings extends string = string,
-  TAccountPoolPstVault extends string = string,
+  TAccountRedemptionBatch extends string = string,
   TAccountPendingRedemption extends string = string,
-  TAccountHumaProgram extends string = string,
-  TAccountHumaConfig extends string = string,
-  TAccountHumaPoolConfig extends string = string,
-  TAccountHumaPoolState extends string = string,
-  TAccountHumaModeConfig extends string = string,
-  TAccountHumaModeMint extends string = string,
-  TAccountHumaRedemptionRequest extends string = string,
-  TAccountHumaLenderState extends string = string,
-  TAccountHumaPoolAuthority extends string = string,
-  TAccountHumaPoolModeToken extends string = string,
-  TAccountTokenProgram extends string = string,
-  TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** The user claiming the non-reinvested winnings. Must be signer and payer. */
+  /** The user claiming their non-reinvested winnings. Must be signer and payer. */
   user: TransactionSigner<TAccountUser>;
   /** The prize pool state account, validated to match the vault authority bump. */
   pool: Address<TAccountPool>;
   /** The user's winnings metadata account. */
   userWinnings: Address<TAccountUserWinnings>;
-  /** Pool's $PST vault — shares are redeemed from here. */
-  poolPstVault: Address<TAccountPoolPstVault>;
-  /** PendingRedemption PDA created for this async withdrawal. */
+  /** Active accumulating redemption batch account. */
+  redemptionBatch: Address<TAccountRedemptionBatch>;
+  /** PendingRedemption PDA created for this async batch claim receipt. */
   pendingRedemption: Address<TAccountPendingRedemption>;
-  humaProgram?: Address<TAccountHumaProgram>;
-  humaConfig: Address<TAccountHumaConfig>;
-  humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  humaPoolState: Address<TAccountHumaPoolState>;
-  humaModeConfig: Address<TAccountHumaModeConfig>;
-  /** The Huma mode mint ($PST mint). */
-  humaModeMint: Address<TAccountHumaModeMint>;
-  humaRedemptionRequest: Address<TAccountHumaRedemptionRequest>;
-  humaLenderState: Address<TAccountHumaLenderState>;
-  humaPoolAuthority: Address<TAccountHumaPoolAuthority>;
-  humaPoolModeToken: Address<TAccountHumaPoolModeToken>;
-  /** The standard Token program interface. */
-  tokenProgram?: Address<TAccountTokenProgram>;
-  /** The SPL Token interface for the PST mint/vault. */
-  pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
   eventAuthority: Address<TAccountEventAuthority>;
@@ -483,20 +287,8 @@ export function getClaimNonReinvestedWinningsInstruction<
   TAccountUser extends string,
   TAccountPool extends string,
   TAccountUserWinnings extends string,
-  TAccountPoolPstVault extends string,
+  TAccountRedemptionBatch extends string,
   TAccountPendingRedemption extends string,
-  TAccountHumaProgram extends string,
-  TAccountHumaConfig extends string,
-  TAccountHumaPoolConfig extends string,
-  TAccountHumaPoolState extends string,
-  TAccountHumaModeConfig extends string,
-  TAccountHumaModeMint extends string,
-  TAccountHumaRedemptionRequest extends string,
-  TAccountHumaLenderState extends string,
-  TAccountHumaPoolAuthority extends string,
-  TAccountHumaPoolModeToken extends string,
-  TAccountTokenProgram extends string,
-  TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
@@ -506,20 +298,8 @@ export function getClaimNonReinvestedWinningsInstruction<
     TAccountUser,
     TAccountPool,
     TAccountUserWinnings,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -530,20 +310,8 @@ export function getClaimNonReinvestedWinningsInstruction<
   TAccountUser,
   TAccountPool,
   TAccountUserWinnings,
-  TAccountPoolPstVault,
+  TAccountRedemptionBatch,
   TAccountPendingRedemption,
-  TAccountHumaProgram,
-  TAccountHumaConfig,
-  TAccountHumaPoolConfig,
-  TAccountHumaPoolState,
-  TAccountHumaModeConfig,
-  TAccountHumaModeMint,
-  TAccountHumaRedemptionRequest,
-  TAccountHumaLenderState,
-  TAccountHumaPoolAuthority,
-  TAccountHumaPoolModeToken,
-  TAccountTokenProgram,
-  TAccountPstTokenProgram,
   TAccountSystemProgram,
   TAccountEventAuthority,
   TAccountProgram
@@ -556,34 +324,10 @@ export function getClaimNonReinvestedWinningsInstruction<
     user: { value: input.user ?? null, isWritable: true },
     pool: { value: input.pool ?? null, isWritable: true },
     userWinnings: { value: input.userWinnings ?? null, isWritable: true },
-    poolPstVault: { value: input.poolPstVault ?? null, isWritable: true },
+    redemptionBatch: { value: input.redemptionBatch ?? null, isWritable: true },
     pendingRedemption: {
       value: input.pendingRedemption ?? null,
       isWritable: true,
-    },
-    humaProgram: { value: input.humaProgram ?? null, isWritable: false },
-    humaConfig: { value: input.humaConfig ?? null, isWritable: false },
-    humaPoolConfig: { value: input.humaPoolConfig ?? null, isWritable: false },
-    humaPoolState: { value: input.humaPoolState ?? null, isWritable: true },
-    humaModeConfig: { value: input.humaModeConfig ?? null, isWritable: false },
-    humaModeMint: { value: input.humaModeMint ?? null, isWritable: false },
-    humaRedemptionRequest: {
-      value: input.humaRedemptionRequest ?? null,
-      isWritable: true,
-    },
-    humaLenderState: { value: input.humaLenderState ?? null, isWritable: true },
-    humaPoolAuthority: {
-      value: input.humaPoolAuthority ?? null,
-      isWritable: false,
-    },
-    humaPoolModeToken: {
-      value: input.humaPoolModeToken ?? null,
-      isWritable: true,
-    },
-    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
-    pstTokenProgram: {
-      value: input.pstTokenProgram ?? null,
-      isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
@@ -595,14 +339,6 @@ export function getClaimNonReinvestedWinningsInstruction<
   >;
 
   // Resolve default values.
-  if (!accounts.humaProgram.value) {
-    accounts.humaProgram.value =
-      "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz" as Address<"ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz">;
-  }
-  if (!accounts.tokenProgram.value) {
-    accounts.tokenProgram.value =
-      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -618,20 +354,8 @@ export function getClaimNonReinvestedWinningsInstruction<
       getAccountMeta("user", accounts.user),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("userWinnings", accounts.userWinnings),
-      getAccountMeta("poolPstVault", accounts.poolPstVault),
+      getAccountMeta("redemptionBatch", accounts.redemptionBatch),
       getAccountMeta("pendingRedemption", accounts.pendingRedemption),
-      getAccountMeta("humaProgram", accounts.humaProgram),
-      getAccountMeta("humaConfig", accounts.humaConfig),
-      getAccountMeta("humaPoolConfig", accounts.humaPoolConfig),
-      getAccountMeta("humaPoolState", accounts.humaPoolState),
-      getAccountMeta("humaModeConfig", accounts.humaModeConfig),
-      getAccountMeta("humaModeMint", accounts.humaModeMint),
-      getAccountMeta("humaRedemptionRequest", accounts.humaRedemptionRequest),
-      getAccountMeta("humaLenderState", accounts.humaLenderState),
-      getAccountMeta("humaPoolAuthority", accounts.humaPoolAuthority),
-      getAccountMeta("humaPoolModeToken", accounts.humaPoolModeToken),
-      getAccountMeta("tokenProgram", accounts.tokenProgram),
-      getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
@@ -643,20 +367,8 @@ export function getClaimNonReinvestedWinningsInstruction<
     TAccountUser,
     TAccountPool,
     TAccountUserWinnings,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -669,36 +381,21 @@ export type ParsedClaimNonReinvestedWinningsInstruction<
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /** The user claiming the non-reinvested winnings. Must be signer and payer. */
+    /** The user claiming their non-reinvested winnings. Must be signer and payer. */
     user: TAccountMetas[0];
     /** The prize pool state account, validated to match the vault authority bump. */
     pool: TAccountMetas[1];
     /** The user's winnings metadata account. */
     userWinnings: TAccountMetas[2];
-    /** Pool's $PST vault — shares are redeemed from here. */
-    poolPstVault: TAccountMetas[3];
-    /** PendingRedemption PDA created for this async withdrawal. */
+    /** Active accumulating redemption batch account. */
+    redemptionBatch: TAccountMetas[3];
+    /** PendingRedemption PDA created for this async batch claim receipt. */
     pendingRedemption: TAccountMetas[4];
-    humaProgram: TAccountMetas[5];
-    humaConfig: TAccountMetas[6];
-    humaPoolConfig: TAccountMetas[7];
-    humaPoolState: TAccountMetas[8];
-    humaModeConfig: TAccountMetas[9];
-    /** The Huma mode mint ($PST mint). */
-    humaModeMint: TAccountMetas[10];
-    humaRedemptionRequest: TAccountMetas[11];
-    humaLenderState: TAccountMetas[12];
-    humaPoolAuthority: TAccountMetas[13];
-    humaPoolModeToken: TAccountMetas[14];
-    /** The standard Token program interface. */
-    tokenProgram: TAccountMetas[15];
-    /** The SPL Token interface for the PST mint/vault. */
-    pstTokenProgram: TAccountMetas[16];
     /** The Solana System Program. */
-    systemProgram: TAccountMetas[17];
-    eventAuthority: TAccountMetas[18];
+    systemProgram: TAccountMetas[5];
+    eventAuthority: TAccountMetas[6];
     /** The YieldBonds program itself. */
-    program: TAccountMetas[19];
+    program: TAccountMetas[7];
   };
   data: ClaimNonReinvestedWinningsInstructionData;
 };
@@ -711,12 +408,12 @@ export function parseClaimNonReinvestedWinningsInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedClaimNonReinvestedWinningsInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 20) {
+  if (instruction.accounts.length < 8) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 20,
+        expectedAccountMetas: 8,
       }
     );
   }
@@ -732,20 +429,8 @@ export function parseClaimNonReinvestedWinningsInstruction<
       user: getNextAccount(),
       pool: getNextAccount(),
       userWinnings: getNextAccount(),
-      poolPstVault: getNextAccount(),
+      redemptionBatch: getNextAccount(),
       pendingRedemption: getNextAccount(),
-      humaProgram: getNextAccount(),
-      humaConfig: getNextAccount(),
-      humaPoolConfig: getNextAccount(),
-      humaPoolState: getNextAccount(),
-      humaModeConfig: getNextAccount(),
-      humaModeMint: getNextAccount(),
-      humaRedemptionRequest: getNextAccount(),
-      humaLenderState: getNextAccount(),
-      humaPoolAuthority: getNextAccount(),
-      humaPoolModeToken: getNextAccount(),
-      tokenProgram: getNextAccount(),
-      pstTokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),

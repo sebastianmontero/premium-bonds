@@ -1,17 +1,17 @@
 use crate::constants::{
-    DISCRIMINATOR, GLOBAL_CONFIG_SEED, HUMA_PROGRAM_ID, PENDING_REDEMPTION_SEED, POOL_PST_SEED,
-    POOL_VAULT_SEED, PRIZE_POOL_SEED,
+    DISCRIMINATOR, GLOBAL_CONFIG_SEED, PENDING_REDEMPTION_SEED, PRIZE_POOL_SEED,
+    REDEMPTION_BATCH_SEED,
 };
 use crate::error::PremiumBondsError;
 use crate::events::FeesWithdrawn;
-use crate::huma;
 use crate::state::{
-    GlobalConfig, InitPendingRedemptionParams, PendingRedemption, PrizePool, RedemptionType,
+    GlobalConfig, InitPendingRedemptionParams, PendingRedemption, PrizePool, RedemptionBatch,
+    RedemptionType,
 };
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::TokenAccount;
 
-/// Accounts required to withdraw accrued protocol fees.
+/// Accounts required to withdraw accrued protocol fees into the active redemption batch.
 #[derive(Accounts)]
 pub struct WithdrawFees<'info> {
     /// The admin authority executing the fee withdrawal.
@@ -31,8 +31,7 @@ pub struct WithdrawFees<'info> {
 
     /// The prize pool state account.
     ///
-    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-    /// Bump is verified from the pool's initialized authority bump.
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]`.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
@@ -40,21 +39,21 @@ pub struct WithdrawFees<'info> {
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
-    /// Pool's $PST vault holding Huma shares. Protocol fees are redeemed from here.
-    ///
-    /// PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
+    /// Active accumulating redemption batch account.
     #[account(
         mut,
-        seeds = [POOL_PST_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
-        bump,
-        token::token_program = pst_token_program
+        seeds = [
+            REDEMPTION_BATCH_SEED,
+            pool.load()?.pool_id.to_le_bytes().as_ref(),
+            pool.load()?.accumulating_redemption_batch_id.to_le_bytes().as_ref()
+        ],
+        bump = redemption_batch.bump
     )]
-    pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub redemption_batch: Box<Account<'info, RedemptionBatch>>,
 
     /// PendingRedemption PDA created to track this async fee withdrawal.
     ///
-    /// PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`
-    /// (i.e., `b"pending_redemption"` + pool_id + next_redemption_id).
+    /// PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`.
     #[account(
         init,
         payer = admin,
@@ -68,80 +67,11 @@ pub struct WithdrawFees<'info> {
     )]
     pub pending_redemption: Box<Account<'info, PendingRedemption>>,
 
-    // ── Huma Finance accounts ───────────────────────────────────────────────
-    /// CHECK: This is the Huma Finance program account. It is validated via the address constraint
-    /// to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call.
-    #[account(address = crate::constants::HUMA_PROGRAM_ID)]
-    pub huma_program: UncheckedAccount<'info>,
-
-    /// CHECK: This is the Huma global configuration account. It is unchecked here because its
-    /// structure and validity are fully validated by the Huma program during the CPI call.
-    pub huma_config: UncheckedAccount<'info>,
-
-    /// CHECK: This is the Huma pool configuration account. It is unchecked here because its
-    /// structure and validity are fully validated by the Huma program during the CPI call.
-    pub huma_pool_config: UncheckedAccount<'info>,
-
-    /// CHECK: This is the Huma pool state account. It is validated via the owner constraint
-    /// to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and its internal structures/amounts (assets, redemption queues)
-    /// are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
-    #[account(
-        mut,
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
-        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
-    )]
-    pub huma_pool_state: UncheckedAccount<'info>,
-
-    /// CHECK: This is the Huma mode configuration account. It is unchecked here because its
-    /// structure and validity are fully validated by the Huma program during the CPI call.
-    pub huma_mode_config: UncheckedAccount<'info>,
-
-    /// The Huma mode token mint ($PST token mint).
-    #[account(
-        address = pool_pst_vault.mint @ PremiumBondsError::InvalidModeMint,
-        mint::token_program = pst_token_program
-    )]
-    pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    /// CHECK: This is the Huma redemption request PDA that will be initialized. It is unchecked here because
-    /// its initialization and ownership are fully managed and validated by the Huma program during the CPI call.
-    #[account(mut)]
-    pub huma_redemption_request: UncheckedAccount<'info>,
-
-    /// CHECK: This is the Huma lender state account. It is unchecked here because its structure,
-    /// ownership, and authorization are fully validated by the Huma program during the CPI call.
-    #[account(mut)]
-    pub huma_lender_state: UncheckedAccount<'info>,
-
-    /// CHECK: This is the Huma pool authority PDA. It is unchecked here because its validity as the
-    /// pool's authority is fully validated by the Huma program during the CPI call.
-    pub huma_pool_authority: UncheckedAccount<'info>,
-
-    /// CHECK: This is the Huma pool's mode token account (holding underlying mode tokens). It is unchecked
-    /// here because its address and token authority are fully validated by the Huma program during the CPI call.
-    #[account(mut)]
-    pub huma_pool_mode_token: UncheckedAccount<'info>,
-
-    /// The underlying token mint (e.g. USDC).
-    #[account(
-        address = pool.load()?.token_mint,
-        mint::token_program = token_program
-    )]
-    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
-
     /// The designated fee wallet. Verified to match the fee wallet configured on the prize pool.
     #[account(
-        token::mint = token_mint,
-        token::token_program = token_program,
         constraint = fee_wallet.key() == pool.load()?.fee_wallet @ PremiumBondsError::InvalidFeeWallet
     )]
     pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    /// The SPL Token program interface for underlying tokens.
-    pub token_program: Interface<'info, TokenInterface>,
-
-    /// The SPL Token program interface for $PST tokens.
-    pub pst_token_program: Interface<'info, TokenInterface>,
 
     /// Solana System Program.
     pub system_program: Program<'info, System>,
@@ -154,19 +84,11 @@ pub struct WithdrawFees<'info> {
     pub program: Program<'info, crate::program::Anchor>,
 }
 
-/// Admin instruction to withdraw accrued protocol fees via Huma async redemption.
-///
-/// Creates a PendingRedemption PDA for the fee amount, which the fee wallet
-/// owner later claims via `claim_redemption`.
-///
-/// # Parameters
-/// * `ctx` - The context of the withdraw fees instruction.
-/// * `amount` - The amount of accrued USDC fees to withdraw.
+/// Admin instruction to withdraw accrued protocol fees into the active redemption batch.
 pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     require!(amount > 0, PremiumBondsError::InsufficientFeeBalance);
 
-    let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let (pool_id, pool_id_bytes, authority_bump, fee_wallet, huma_snapshot) = {
+    let (pool_id, fee_wallet) = {
         let pool = ctx.accounts.pool.load()?;
         pool.check_version()?;
 
@@ -180,89 +102,44 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
             PremiumBondsError::AwaitingRandomnessFreeze
         );
 
-        // Validate there are enough accrued fees to withdraw
         let available_fees = pool.unwithdrawn_fees()?;
         require!(
             amount <= available_fees,
             PremiumBondsError::InsufficientFeeBalance
         );
 
-        let snapshot = pool.assert_huma_solvency(
-            &ctx.accounts.huma_pool_state.to_account_info(),
-            ctx.accounts.pool_pst_vault.amount,
-            pst_supply,
-        )?;
-
-        (
-            pool.pool_id,
-            pool.pool_id.to_le_bytes(),
-            pool.vault_authority_bump,
-            pool.fee_wallet,
-            snapshot,
-        )
+        (pool.pool_id, pool.fee_wallet)
     };
 
-    // Post-solvency state mutations
-    let current_redemption_id = {
+    let (batch_id, current_redemption_id) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
         pool.ensure_current_version()?;
-        pool.total_fees_withdrawn = pool
-            .total_fees_withdrawn
-            .checked_add(amount)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        pool.queue_pending_redemption(amount)?
+        let current_redemption_id = pool.queue_fee_redemption(
+            &mut ctx.accounts.redemption_batch,
+            amount,
+        )?;
+        (ctx.accounts.redemption_batch.batch_id, current_redemption_id)
     };
 
-    // Calculate $PST shares for the fee amount
-    let pst_shares = huma_snapshot
-        .usdc_to_pst_shares(amount, pst_supply)?
-        .min(ctx.accounts.pool_pst_vault.amount);
-    let huma_request_id = huma_snapshot.pending_request_id();
-
-    // CPI: request async redemption from Huma
-    let signer_seeds: &[&[&[u8]]] =
-        &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
-
-    huma::add_redemption_request(
-        ctx.accounts.huma_program.to_account_info(),
-        ctx.accounts.admin.to_account_info(), // payer
-        ctx.accounts.pool.to_account_info(),  // lender (pool PDA)
-        ctx.accounts.huma_config.to_account_info(),
-        ctx.accounts.huma_pool_config.to_account_info(),
-        ctx.accounts.huma_pool_state.to_account_info(),
-        ctx.accounts.huma_mode_config.to_account_info(),
-        ctx.accounts.huma_mode_mint.to_account_info(),
-        ctx.accounts.huma_redemption_request.to_account_info(),
-        ctx.accounts.huma_lender_state.to_account_info(),
-        ctx.accounts.huma_pool_authority.to_account_info(),
-        ctx.accounts.huma_pool_mode_token.to_account_info(),
-        ctx.accounts.pool_pst_vault.to_account_info(), // lender_mode_token
-        ctx.accounts.pst_token_program.to_account_info(), // token_program
-        ctx.accounts.system_program.to_account_info(),
-        pst_shares,
-        signer_seeds,
-    )?;
-
-    // Create PendingRedemption receipt — fee_wallet is the beneficiary
+    // Create PendingRedemption receipt — fee_wallet.owner is the beneficiary
     ctx.accounts
         .pending_redemption
         .init(InitPendingRedemptionParams {
             pool_id,
             redemption_id: current_redemption_id,
+            batch_id,
             bump: ctx.bumps.pending_redemption,
-            user: ctx.accounts.fee_wallet.owner, // Fee wallet owner receives the USDC on disburse
+            user: ctx.accounts.fee_wallet.owner,
             amount,
-            pst_shares_locked: pst_shares,
-            huma_request_id,
             requested_at: Clock::get()?.unix_timestamp,
             redemption_type: RedemptionType::FeeWithdrawal,
         });
 
     #[cfg(feature = "debug-logs")]
     msg!(
-        "WithdrawFees: amount={}, pst_shares={}, redemption_id={}, fee_wallet={}",
+        "WithdrawFees: amount={}, batch_id={}, redemption_id={}, fee_wallet={}",
         amount,
-        pst_shares,
+        batch_id,
         current_redemption_id,
         ctx.accounts.fee_wallet.key(),
     );
@@ -271,10 +148,9 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         pool_id,
         admin: ctx.accounts.admin.key(),
         fee_wallet,
+        batch_id,
         amount,
-        pst_shares,
         redemption_id: current_redemption_id,
-        huma_request_id,
         timestamp: Clock::get()?.unix_timestamp,
     });
 

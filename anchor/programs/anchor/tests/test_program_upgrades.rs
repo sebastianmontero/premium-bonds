@@ -40,8 +40,7 @@ fn test_v1_canary_buffer_deserialization() {
             bump,
             user: ctx.user.pubkey(),
             amount: 5_000_000,
-            pst_shares_locked: 5_000_000,
-            huma_request_id: 10,
+            batch_id: 0,
             requested_at: 1234567,
             redemption_type: anchor::state::RedemptionType::BondSale,
         });
@@ -71,8 +70,8 @@ fn test_v1_canary_buffer_deserialization() {
     let read_acc = ctx.svm.get_account(&pending_pda).unwrap();
     assert_eq!(
         read_acc.data.len(),
-        160,
-        "pending_pda data length must be 160 bytes"
+        144,
+        "pending_pda data length must be 144 bytes"
     );
     let deserialized =
         anchor::state::PendingRedemption::try_deserialize(&mut &read_acc.data[..]).unwrap();
@@ -90,13 +89,13 @@ fn test_v1_canary_buffer_deserialization() {
 fn test_v1_rent_exemption_exact_160_bytes() {
     assert_eq!(
         anchor::state::PendingRedemption::INIT_SPACE,
-        152,
-        "PendingRedemption INIT_SPACE must be 152"
+        136,
+        "PendingRedemption INIT_SPACE must be 136"
     );
     assert_eq!(
         8 + anchor::state::PendingRedemption::INIT_SPACE,
-        160,
-        "PendingRedemption total account size must be 160 bytes"
+        144,
+        "PendingRedemption total account size must be 144 bytes"
     );
     assert_eq!(
         (8 + anchor::state::PendingRedemption::INIT_SPACE) % 8,
@@ -105,8 +104,8 @@ fn test_v1_rent_exemption_exact_160_bytes() {
     );
     assert_eq!(
         core::mem::offset_of!(anchor::state::PendingRedemption, _reserved),
-        88,
-        "Reserved offset must start at 88"
+        72,
+        "Reserved offset must start at 72"
     );
 }
 
@@ -383,6 +382,14 @@ fn test_v4_protocol_pending_redemptions_conservation() {
     // Settle and claim redemption
     inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, 5_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        5_000_000,
+        5_000_000,
+    );
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
     send_e2e_claim_redemption_for_user(
@@ -414,12 +421,20 @@ fn test_v5_pending_redemption_closure_100_percent_refund() {
 
     let (pending_pda, _) = pending_redemption_pda(1, 0);
     let pending_acc = ctx.svm.get_account(&pending_pda).unwrap();
-    assert_eq!(pending_acc.data.len(), 160);
+    assert_eq!(pending_acc.data.len(), 144);
     let pending_rent = pending_acc.lamports;
 
     // Claim redemption
     inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, 5_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        5_000_000,
+        5_000_000,
+    );
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
     let user_bal_pre_claim = ctx.svm.get_account(&user_kp.pubkey()).unwrap().lamports;
@@ -487,9 +502,10 @@ fn test_v5_resize_registry_preserves_header() {
 // ─── Vector 6: Time & Sysvar Boundaries ─────────────────────────────────────
 
 #[test]
-fn test_v6_claim_redemption_fails_unsettled_huma_queue() {
+fn test_v6_claim_redemption_fails_unsettled_batch() {
     let mut ctx = setup_e2e();
-    inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 1_000_000, 1_000_000);
+    inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 1_000_000, 0);
+    inject_redemption_batch(&mut ctx.svm, 1, 0);
 
     let user_token =
         create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
@@ -502,7 +518,7 @@ fn test_v6_claim_redemption_fails_unsettled_huma_queue() {
     let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(
         res,
-        anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
+        anchor::error::PremiumBondsError::RedemptionBatchNotSettled,
     );
 }
 
@@ -585,12 +601,11 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
 // ─── Vector 7: CPI & Security Boundaries ────────────────────────────────────
 
 #[test]
-fn test_v7_claim_redemption_rejects_spoofed_huma_state() {
+fn test_v7_claim_redemption_rejects_mismatched_batch() {
     let mut ctx = setup_e2e();
-    inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 1_000_000, 1_000_000);
+    inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 1_000_000, 0);
 
-    let spoofed_huma_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut ctx.svm, spoofed_huma_state);
+    let wrong_batch = inject_redemption_batch(&mut ctx.svm, 1, 99);
 
     let user_token =
         create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
@@ -598,11 +613,11 @@ fn test_v7_claim_redemption_rejects_spoofed_huma_state() {
     let ix = ClaimRedemptionBuilder::new(&ctx)
         .with_user(&ctx.user.pubkey(), user_token)
         .with_caller(ctx.user.pubkey())
-        .with_huma_pool_state(spoofed_huma_state)
+        .with_batch(wrong_batch)
         .with_redemption_id(0)
         .build_ix();
     let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MismatchedBatchId);
 }
 
 // ─── 100% Error Code Coverage: UnsupportedAccountVersion Across 9 Structs ───
@@ -655,6 +670,11 @@ fn test_unsupported_account_version_all_9_structs() {
         is_frozen_for_draw: 0,
         current_draw_cycle_id: 0,
         prize_tiers_count: 0,
+        accumulating_redemption_batch_id: 0,
+        next_redemption_batch_id: 1,
+        submitted_batch_id: anchor::constants::NO_SUBMITTED_BATCH,
+        total_accumulating_redemptions: 0,
+        paused_at: 0,
         _padding: [0; 3],
         prize_tiers: [anchor::state::PrizeTier {
             num_winners: 0,
@@ -824,10 +844,9 @@ fn test_unsupported_account_version_all_9_structs() {
 
     // 9. PendingRedemption
     let mut pred = PendingRedemption {
-        huma_request_id: 0,
         redemption_id: 1,
         amount: 100,
-        pst_shares_locked: 100,
+        batch_id: 0,
         requested_at: 0,
         user: Pubkey::default(),
         pool_id: 1,

@@ -696,7 +696,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<crate::state::TicketRegistry>(), 96);
         assert_eq!(std::mem::size_of::<crate::state::UserEntry>(), 64);
         assert_eq!(std::mem::size_of::<crate::state::PrizeTier>(), 8);
-        assert_eq!(std::mem::size_of::<crate::state::PrizePool>(), 440);
+        assert_eq!(std::mem::size_of::<crate::state::PrizePool>(), 480);
         assert_eq!(std::mem::size_of::<crate::state::Winner>(), 56);
         assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 96);
         assert_eq!(
@@ -713,10 +713,10 @@ mod tests {
         );
         assert_eq!(
             crate::state::PendingRedemption::INIT_SPACE,
-            16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 1 + 1 + 64
+            32 + 8 + 8 + 8 + 8 + 4 + 1 + 1 + 1 + 1 + 64
         );
-        assert_eq!(crate::state::PendingRedemption::INIT_SPACE, 152);
-        assert_eq!(8 + crate::state::PendingRedemption::INIT_SPACE, 160);
+        assert_eq!(crate::state::PendingRedemption::INIT_SPACE, 136);
+        assert_eq!(8 + crate::state::PendingRedemption::INIT_SPACE, 144);
     }
 
     #[test]
@@ -727,12 +727,12 @@ mod tests {
         assert_eq!(std::mem::size_of::<crate::state::PrizeTier>() % 8, 0);
         assert_eq!(std::mem::size_of::<crate::state::Winner>() % 8, 0);
         assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>() % 8, 0);
-        assert_eq!(crate::state::PendingRedemption::INIT_SPACE, 152);
+        assert_eq!(crate::state::PendingRedemption::INIT_SPACE, 136);
         assert_eq!((8 + crate::state::PendingRedemption::INIT_SPACE) % 8, 0);
-        assert_eq!(8 + crate::state::PendingRedemption::INIT_SPACE, 160);
+        assert_eq!(8 + crate::state::PendingRedemption::INIT_SPACE, 144);
         assert_eq!(
             core::mem::offset_of!(crate::state::PendingRedemption, _reserved),
-            88
+            72
         );
     }
 
@@ -742,7 +742,8 @@ mod tests {
         assert_eq!(PoolStatus::try_from(0).unwrap(), PoolStatus::Active);
         assert_eq!(PoolStatus::try_from(1).unwrap(), PoolStatus::Paused);
         assert_eq!(PoolStatus::try_from(2).unwrap(), PoolStatus::Closed);
-        assert!(PoolStatus::try_from(3).is_err());
+        assert_eq!(PoolStatus::try_from(3).unwrap(), PoolStatus::Impaired);
+        assert!(PoolStatus::try_from(4).is_err());
         assert!(PoolStatus::try_from(255).is_err());
     }
 
@@ -969,36 +970,41 @@ mod tests {
 
         // 2. PrizePool
         let mut pool = PrizePool {
-            vault_authority_bump: 0,
+            bond_price: 1_000_000,
+            stake_cycle_duration_hrs: 24,
+            min_yield_threshold: 0,
+            current_cycle_end_at: 0,
+            paused_at: 0,
+            total_deposited_principal: 0,
+            total_fees_accrued: 0,
+            total_fees_withdrawn: 0,
+            total_prizes_allocated: 0,
+            total_pending_redemptions: 0,
+            next_redemption_id: 0,
+            accumulating_redemption_batch_id: 0,
+            next_redemption_batch_id: 1,
+            submitted_batch_id: crate::constants::NO_SUBMITTED_BATCH,
+            total_accumulating_redemptions: 0,
             pool_id: 1,
+            current_draw_cycle_id: 0,
+            payout_timelock_seconds: 300,
+            fee_basis_points: 500,
+            max_yield_basis_points: 0,
+            vault_authority_bump: 0,
+            status: 0,
+            is_frozen_for_draw: 0,
+            version: PrizePool::CURRENT_VERSION,
+            prize_tiers_count: 0,
+            _padding: [0; 3],
             token_mint: Pubkey::default(),
             ticket_registry: Pubkey::default(),
             fee_wallet: Pubkey::default(),
             huma_pool_state: Pubkey::default(),
-            bond_price: 1_000_000,
-            stake_cycle_duration_hrs: 24,
-            min_yield_threshold: 0,
-            fee_basis_points: 500,
-            max_yield_basis_points: 0,
-            payout_timelock_seconds: 300,
-            status: 0,
-            total_deposited_principal: 0,
-            current_cycle_end_at: 0,
-            is_frozen_for_draw: 0,
-            current_draw_cycle_id: 0,
-            prize_tiers_count: 0,
-            _padding: [0; 3],
             prize_tiers: [crate::state::PrizeTier {
                 num_winners: 0,
                 basis_points: 0,
                 _padding: [0; 2],
             }; 10],
-            next_redemption_id: 0,
-            total_fees_accrued: 0,
-            total_fees_withdrawn: 0,
-            total_prizes_allocated: 0,
-            total_pending_redemptions: 0,
-            version: PrizePool::CURRENT_VERSION,
             _reserved: [0; 128],
         };
         assert!(pool.check_version().is_ok());
@@ -1184,12 +1190,11 @@ mod tests {
 
         // 9. PendingRedemption
         let mut pred = PendingRedemption {
-            huma_request_id: 0,
+            user: Pubkey::default(),
+            batch_id: 0,
             redemption_id: 1,
             amount: 100,
-            pst_shares_locked: 100,
             requested_at: 0,
-            user: Pubkey::default(),
             pool_id: 1,
             bump: 0,
             version: PendingRedemption::CURRENT_VERSION,

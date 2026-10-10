@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { generateKeyPairSigner, KeyPairSigner, AccountRole } from "@solana/kit";
+import { generateKeyPairSigner, KeyPairSigner } from "@solana/kit";
 import { HarvestYieldWorker } from "../workers/harvest-yield.worker";
 import { PrepareDrawWorker } from "../workers/prepare-draw.worker";
 import { RebindRandomnessWorker } from "../workers/rebind-randomness.worker";
@@ -1137,22 +1137,21 @@ describe("Strategy Workers Unit Tests", () => {
     // Claim ix is index 1 (after ATA creation)
     const claimIx = ixs.find((ix) => ix.programAddress !== ATA_PROGRAM_ID);
     assert.ok(claimIx, "Claim instruction must be generated");
-    const lenderMeta = claimIx.accounts?.find(
-      (a) => a.address === poolSpecificLender
+    assert.strictEqual(
+      claimIx.accounts?.length,
+      11,
+      "Claim instruction must contain 11 accounts"
     );
-    assert.ok(
-      lenderMeta,
-      "Claim instruction must contain pool-specific humaLenderState"
+    assert.strictEqual(
+      claimIx.accounts?.[0].address,
+      signer.address,
+      "Crank signer must be first account"
     );
-    assert.strictEqual(lenderMeta.role, AccountRole.WRITABLE);
   });
 
-  it("DisburseSentinelWorker should pass configured humaLenderState with AccountRole.WRITABLE in instruction accounts", async () => {
+  it("DisburseSentinelWorker should generate valid batch claim instruction with user beneficiary", async () => {
     const signer = await generateKeyPairSigner();
-    const configuredLender = TEST_ADDRESSES.USER_2;
-    const ctx = createMockContext(signer, {
-      humaLenderState: configuredLender,
-    });
+    const ctx = createMockContext(signer);
     const sentinel = new DisburseSentinelWorker();
 
     const snapshot = {
@@ -1174,7 +1173,7 @@ describe("Strategy Workers Unit Tests", () => {
       {
         redemptionId: 1n,
         user: mockAddress,
-        humaRequestId: 1n,
+        batchId: 0n,
         redemptionType: RedemptionType.BondSale,
       },
     ];
@@ -1186,14 +1185,16 @@ describe("Strategy Workers Unit Tests", () => {
     );
     const claimIx = ixs.find((ix) => ix.programAddress !== ATA_PROGRAM_ID);
     assert.ok(claimIx, "Claim instruction must be generated");
-    const lenderMeta = claimIx.accounts?.find(
-      (a) => a.address === configuredLender
+    assert.strictEqual(
+      claimIx.accounts?.length,
+      11,
+      "Claim instruction must contain 11 accounts"
     );
-    assert.ok(
-      lenderMeta,
-      "Claim instruction must contain configured humaLenderState"
+    assert.strictEqual(
+      claimIx.accounts?.[1].address,
+      mockAddress,
+      "Beneficiary user must be second account"
     );
-    assert.strictEqual(lenderMeta.role, AccountRole.WRITABLE);
   });
 
   it("DisburseSentinelWorker should quarantine deficient candidate and exclude from next evaluation", async () => {

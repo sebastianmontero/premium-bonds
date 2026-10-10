@@ -206,27 +206,25 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     draw_cycle.version = DrawCycle::CURRENT_VERSION;
 
     // ── Circuit Breaker 1: On-Chain Solvency Guard ───────────────────────────
-    if current_value < book_value {
+    if !pool.is_solvent(current_value)? {
         let deficit = book_value.saturating_sub(current_value);
-        if deficit > crate::constants::SOLVENCY_DUST_TOLERANCE {
-            draw_cycle.halt(
-                DrawStatus::HaltedInsolvent,
-                eligible_locked_count,
-                current_time,
-            )?;
-            pool.pause_and_advance_cycle(current_time)?;
-            emit_cpi!(crate::events::EmergencyInsolvencyDetected {
-                pool_id: pool.pool_id,
-                cycle_id: draw_cycle.cycle_id,
-                crank: ctx.accounts.crank.key(),
-                current_value,
-                book_value,
-                deficit,
-                locked_ticket_count: eligible_locked_count,
-                timestamp: current_time,
-            });
-            return Ok(());
-        }
+        draw_cycle.halt(
+            DrawStatus::HaltedInsolvent,
+            eligible_locked_count,
+            current_time,
+        )?;
+        pool.pause_and_advance_cycle(current_time)?;
+        emit_cpi!(crate::events::EmergencyInsolvencyDetected {
+            pool_id: pool.pool_id,
+            cycle_id: draw_cycle.cycle_id,
+            crank: ctx.accounts.crank.key(),
+            current_value,
+            book_value,
+            deficit,
+            locked_ticket_count: eligible_locked_count,
+            timestamp: current_time,
+        });
+        return Ok(());
     }
 
     // If there are no active tickets, we do not harvest any yield or accrue fees.

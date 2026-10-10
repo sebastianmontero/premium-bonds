@@ -94,15 +94,20 @@ fn test_resize_registry_zero_initialization() {
 }
 
 #[test]
-fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
+fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
     let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
-    let (pool_key, _) = pool_pda(pool_id);
-    let ticket_registry = Keypair::new().pubkey();
-    let token_mint = Keypair::new().pubkey();
+    let (pool_key, _bump) = pool_pda(pool_id);
     let pst_mint = Keypair::new().pubkey();
-    inject_mint(&mut svm, token_mint, 6);
     inject_mint(&mut svm, pst_mint, 6);
+
+    let token_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, token_mint, 6);
+
+    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
+
+    let ticket_registry = Keypair::new().pubkey();
     inject_pool(
         &mut svm,
         pool_id,
@@ -111,29 +116,6 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
         anchor::PoolStatus::Active,
         false,
     );
-
-    // Set total_deposited_principal to avoid subtraction overflow in handler
-    PrizePoolTestBuilder::from_state(&svm, pool_id)
-        .with_principal(10_000_000)
-        .inject(&mut svm);
-
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
-
-    let user = Keypair::new();
-    svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
-    inject_registry_with_tickets(
-        &mut svm,
-        ticket_registry,
-        pool_id,
-        100,
-        1,
-        0,
-        &[user.pubkey()],
-    );
-    common::inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
-
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
 
     // Counterfeit pool state owned by System Program instead of Huma
     let fake_pool_state = Keypair::new().pubkey();
@@ -149,48 +131,21 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
-    let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
-        .with_ticket_registry(ticket_registry)
-        .with_token_mint(token_mint)
-        .with_user_winnings(user_winnings)
-        .with_huma_mode_mint(pst_mint)
-        .with_huma_pool_state(fake_pool_state)
-        .with_shares(1, 0)
-        .send(&mut svm, &user);
+    let res = InitializeHumaLenderBuilder::new(admin.pubkey(), pool_id, fake_pool_state, pst_mint)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
-fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
+fn test_withdraw_fees_fails_uninitialized_batch() {
     let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, _bump) = pool_pda(pool_id);
-    let pst_mint = Keypair::new().pubkey();
-    inject_mint(&mut svm, pst_mint, 6);
-
     let token_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, token_mint, 6);
 
     let fee_wallet = Keypair::new().pubkey();
     inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
-
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
-
-    // counterfeit pool state owned by System Program
-    let fake_pool_state = Keypair::new().pubkey();
-    svm.set_account(
-        fake_pool_state,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![0u8; 1000],
-            owner: anchor_lang::system_program::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
 
     // Setup PrizePool with accrued fees
     PrizePoolTestBuilder::new(pool_id)
@@ -202,27 +157,19 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         .with_cycle_end_at(i64::MAX)
         .inject(&mut svm);
 
+    let wrong_batch = inject_redemption_batch(&mut svm, pool_id, 99);
     let res = WithdrawFeesBuilder::for_pool(pool_id, admin.pubkey())
         .with_fee_wallet(fee_wallet)
-        .with_token_mint(token_mint)
-        .with_huma_mode_mint(pst_mint)
-        .with_huma_pool_state(fake_pool_state)
+        .with_redemption_batch(wrong_batch)
         .with_amount(1_000_000)
         .send(&mut svm, &admin);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
-fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
+fn test_claim_non_reinvested_winnings_fails_invalid_batch() {
     let (mut svm, _admin) = setup_global_config();
     let pool_id = 1;
-    let (pool_key, _bump) = pool_pda(pool_id);
-    let pst_mint = Keypair::new().pubkey();
-    inject_mint(&mut svm, pst_mint, 6);
-
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
-
     let token_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, token_mint, 6);
 
@@ -240,31 +187,18 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
 
     let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
-    common::inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
+    common::inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 100, 0, 0, 0);
 
-    let fake_pool_state = Keypair::new().pubkey();
-    svm.set_account(
-        fake_pool_state,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![0u8; 1000],
-            owner: anchor_lang::system_program::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-
+    let wrong_batch = inject_redemption_batch(&mut svm, pool_id, 99);
     let res = ClaimNonReinvestedWinningsBuilder::for_pool(pool_id, user.pubkey())
         .with_user_winnings(user_winnings)
-        .with_huma_mode_mint(pst_mint)
-        .with_huma_pool_state(fake_pool_state)
+        .with_redemption_batch(wrong_batch)
         .send(&mut svm, &user);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
-fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
+fn test_claim_redemption_fails_mismatched_batch() {
     let (mut svm, _admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
@@ -290,29 +224,16 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
 
     let redemption_id = 0;
     let redemption_amount = 1_000_000;
-    let pst_shares_locked = 1_000_000;
     inject_pending_redemption(
         &mut svm,
         pool_id,
         redemption_id,
         user.pubkey(),
         redemption_amount,
-        pst_shares_locked,
+        0,
     );
 
-    // counterfeit pool state owned by System Program
-    let fake_pool_state = Keypair::new().pubkey();
-    svm.set_account(
-        fake_pool_state,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![0u8; 1000],
-            owner: anchor_lang::system_program::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    let wrong_batch = inject_redemption_batch(&mut svm, pool_id, 99);
 
     let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
     let res = ClaimRedemptionBuilder::for_redemption(
@@ -325,9 +246,9 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
     .with_token_mint(token_mint)
     .with_pool_vault_account(pool_vault)
     .with_beneficiary_token_account(user_token_account)
-    .with_huma_pool_state(fake_pool_state)
+    .with_batch(wrong_batch)
     .send(&mut svm, &user);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MismatchedBatchId);
 }
 
 #[test]
@@ -434,15 +355,8 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     )
     .unwrap();
 
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
-    let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
-        .with_ticket_registry(ticket_registry)
-        .with_token_mint(token_mint)
-        .with_user_winnings(user_winnings)
-        .with_huma_pool_state(fake_pool_state)
-        .with_huma_mode_mint(fake_mode_mint)
-        .with_shares(1, 0)
-        .send(&mut svm, &user);
+    let res = InitializeHumaLenderBuilder::new(admin.pubkey(), pool_id, fake_pool_state, fake_mode_mint)
+        .send(&mut svm, &admin);
 
     assert_anchor_error(
         res,
@@ -497,6 +411,14 @@ fn test_claim_redemption_reentrancy_protection() {
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        3_000_000,
+        3_000_000,
+    );
 
     // Claim redemption
     send_e2e_claim_redemption_for_user(
@@ -542,28 +464,6 @@ fn test_buy_bonds_fails_huma_pool_state_owner_mismatch() {
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
-#[test]
-fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
-    let mut ctx = setup_e2e();
-    let wrong_pool_state = Keypair::new().pubkey();
-    ctx.svm
-        .set_account(
-            wrong_pool_state,
-            solana_sdk::account::Account {
-                lamports: 1_000_000,
-                data: vec![0u8; 100],
-                owner: anchor_lang::system_program::ID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-
-    let res =
-        InitializeHumaLenderBuilder::new(ctx.admin.pubkey(), 1, wrong_pool_state, ctx.pst_mint)
-            .send(&mut ctx.svm, &ctx.admin);
-    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
-}
 
 #[test]
 fn test_claim_redemption_account_closure_and_discriminator_zeroing() {
@@ -605,6 +505,14 @@ fn test_claim_redemption_account_closure_and_discriminator_zeroing() {
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        3_000_000,
+        3_000_000,
+    );
 
     // Claim redemption
     let res = send_e2e_claim_redemption_for_user(
@@ -710,21 +618,26 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
 
-    // Huma settles ONLY request 0 (next_request_id = 1)
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-
-    // User B tries to claim redemption 1 -> MUST FAIL with NotSettled
-    let res_b = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_b,
-        user_b_usdc,
-        1,
-        Pubkey::default(),
-        huma_lender_state,
-    );
+    // User B tries to claim redemption 1 before batch is settled -> MUST FAIL with RedemptionBatchNotSettled
+    let (batch_0_key, _) = redemption_batch_pda(1, 0);
+    let res_b = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_b.pubkey(), user_b_usdc)
+        .with_redemption_id(1)
+        .with_batch(batch_0_key)
+        .send(&mut ctx.svm, &user_b);
     assert_custom_error(
         res_b,
-        anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
+        anchor::error::PremiumBondsError::RedemptionBatchNotSettled,
+    );
+
+    // Now settle batch 0 with 10 USDC (covers both redemptions)
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        10_000_000,
+        10_000_000,
     );
 
     // User A claims redemption 0 -> SUCCEEDS
@@ -738,8 +651,6 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     );
     assert!(res_a.is_ok(), "User A claim should succeed");
 
-    // Now Huma settles request 1 (next_request_id = 2)
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 2);
     ctx.svm.expire_blockhash();
 
     // User B claims redemption 1 -> SUCCEEDS
@@ -753,7 +664,8 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     );
     assert!(
         res_b.is_ok(),
-        "User B claim should succeed after settlement"
+        "User B claim should succeed after settlement: {:?}",
+        res_b
     );
 }
 

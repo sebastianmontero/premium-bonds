@@ -13,12 +13,12 @@ import {
   type RedemptionType,
 } from "@/app/lib/bonds-instruction-factory";
 import { pollSignatureConfirmation } from "@/app/lib/transaction-poller";
-import { usePrizePool } from "../queries/usePrizePool";
 
 import type { PendingRedemption } from "@/app/types";
 
 export interface ClaimRedemptionParams {
   redemptionId: number | bigint;
+  batchId?: number | bigint;
   userTokenAccount?: Address;
   redemptionType?: RedemptionType;
   feeWallet?: Address;
@@ -30,12 +30,12 @@ export function useClaimRedemption(poolId: PoolId = 1) {
   const rpc = client.runtime.rpc;
   const { wallet } = useWalletConnection();
   const { send } = useSendTransaction();
-  const { data: poolData } = usePrizePool(poolId);
   const userAddress = wallet?.account.address.toString();
 
   return useMutation({
     mutationFn: async ({
       redemptionId,
+      batchId,
       userTokenAccount,
       redemptionType,
       feeWallet,
@@ -46,12 +46,10 @@ export function useClaimRedemption(poolId: PoolId = 1) {
         poolId,
         userAddress: address(userAddress),
         redemptionId,
+        batchId: batchId ?? 0n,
         userTokenAccount,
         redemptionType,
         feeWallet,
-        humaAddresses: poolData?.humaPoolState
-          ? { poolState: address(poolData.humaPoolState) }
-          : undefined,
       });
 
       const signature = await send({ instructions: ixs });

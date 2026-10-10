@@ -1,5 +1,4 @@
 import {
-  address,
   Address,
   AccountRole,
   type Instruction,
@@ -19,6 +18,7 @@ import {
   findUserWinningsPda,
   findPoolVaultPda,
   findPoolPstVaultPda,
+  findRedemptionBatchPda,
   findPendingRedemptionPda,
   findHumaPoolAuthorityPda,
   findAtaAddress,
@@ -206,43 +206,22 @@ export async function buildSellBondsInstruction(
     params.poolId,
     params.userAddress
   );
-  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const redemptionBatch = await findRedemptionBatchPda(
+    params.poolId,
+    poolInfo.accumulatingRedemptionBatchId
+  );
   const pendingRedemption = await findPendingRedemptionPda(
     params.poolId,
     BigInt(poolInfo.nextRedemptionId)
   );
-  const huma = resolveAndRequireHumaAddresses(
-    params.humaAddresses,
-    SELL_BONDS_REQUIRED_HUMA_KEYS,
-    "SellBonds",
-    poolInfo.humaPoolState ? address(poolInfo.humaPoolState) : undefined
-  );
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(
-    huma.poolState,
-    huma.program
-  );
-  const humaPoolModeToken =
-    huma.poolModeToken ??
-    (await findAtaAddress(humaPoolAuthority, huma.modeMint, TOKEN_PROGRAM_ID));
 
   const ix = await getSellBondsInstructionAsync({
     user: params.userAddress as unknown as TransactionSigner,
     userWinnings,
     pool: poolPda,
+    redemptionBatch,
     ticketRegistry: ticketRegistryAddress,
-    tokenMint: USDC_MINT,
-    poolPstVault,
     pendingRedemption,
-    humaConfig: huma.config,
-    humaPoolConfig: huma.poolConfig,
-    humaPoolState: huma.poolState,
-    humaModeConfig: huma.modeConfig,
-    humaModeMint: huma.modeMint,
-    humaRedemptionRequest: huma.redemptionRequest,
-    humaLenderState: huma.lenderState,
-    humaPoolAuthority,
-    humaPoolModeToken,
-    pstTokenProgram: TOKEN_PROGRAM_ID,
     activeToSell: params.activeToSell,
     pendingToSell: params.pendingToSell,
   });
@@ -262,9 +241,9 @@ export interface ClaimRedemptionFactoryParams {
   userAddress?: Address;
   beneficiary?: Address;
   redemptionId: number | bigint;
+  batchId?: number | bigint;
   beneficiaryTokenAccount?: Address;
   userTokenAccount?: Address;
-  humaAddresses?: Partial<HumaPoolAddresses>;
   redemptionType?: RedemptionType;
   feeWallet?: Address;
   tokenProgram?: Address;
@@ -284,8 +263,8 @@ export async function buildClaimRedemptionInstruction(
     beneficiary,
     poolId: params.poolId,
     redemptionId: params.redemptionId,
+    batchId: params.batchId ?? 0n,
     tokenMint: USDC_MINT,
-    humaAddresses: params.humaAddresses,
     redemptionType: params.redemptionType,
     feeWallet: params.feeWallet,
     beneficiaryTokenAccount,
@@ -307,8 +286,8 @@ export async function buildClaimRedemptionInstructions(
     beneficiary,
     poolId: params.poolId,
     redemptionId: params.redemptionId,
+    batchId: params.batchId ?? 0n,
     tokenMint: USDC_MINT,
-    humaAddresses: params.humaAddresses,
     redemptionType: params.redemptionType,
     feeWallet: params.feeWallet,
     beneficiaryTokenAccount,
@@ -351,7 +330,7 @@ export interface ClaimNonReinvestedWinningsFactoryParams {
   userAddress: Address;
   amount: bigint | number;
   nextRedemptionId: number | bigint;
-  humaAddresses?: Partial<HumaPoolAddresses>;
+  accumulatingRedemptionBatchId: number | bigint;
 }
 
 export async function buildClaimNonReinvestedWinningsInstruction(
@@ -362,40 +341,21 @@ export async function buildClaimNonReinvestedWinningsInstruction(
     params.poolId,
     params.userAddress
   );
-  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const redemptionBatch = await findRedemptionBatchPda(
+    params.poolId,
+    params.accumulatingRedemptionBatchId
+  );
   const pendingRedemption = await findPendingRedemptionPda(
     params.poolId,
     BigInt(params.nextRedemptionId)
   );
-  const huma = resolveAndRequireHumaAddresses(
-    params.humaAddresses,
-    CLAIM_NON_REINVESTED_REQUIRED_HUMA_KEYS,
-    "ClaimNonReinvestedWinnings"
-  );
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(
-    huma.poolState,
-    huma.program
-  );
-  const humaPoolModeToken =
-    huma.poolModeToken ??
-    (await findAtaAddress(humaPoolAuthority, huma.modeMint, TOKEN_PROGRAM_ID));
 
   const ix = await getClaimNonReinvestedWinningsInstructionAsync({
     user: params.userAddress as unknown as TransactionSigner,
     pool,
     userWinnings,
-    poolPstVault,
+    redemptionBatch,
     pendingRedemption,
-    humaConfig: huma.config,
-    humaPoolConfig: huma.poolConfig,
-    humaPoolState: huma.poolState,
-    humaModeConfig: huma.modeConfig,
-    humaModeMint: huma.modeMint,
-    humaRedemptionRequest: huma.redemptionRequest,
-    humaLenderState: huma.lenderState,
-    humaPoolAuthority,
-    humaPoolModeToken,
-    pstTokenProgram: TOKEN_PROGRAM_ID,
   });
 
   return elevateSignerRole(ix, params.userAddress);

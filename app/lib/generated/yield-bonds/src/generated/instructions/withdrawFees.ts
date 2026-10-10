@@ -63,24 +63,9 @@ export type WithdrawFeesInstruction<
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
-  TAccountPoolPstVault extends string | AccountMeta<string> = string,
+  TAccountRedemptionBatch extends string | AccountMeta<string> = string,
   TAccountPendingRedemption extends string | AccountMeta<string> = string,
-  TAccountHumaProgram extends string | AccountMeta<string> =
-    "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz",
-  TAccountHumaConfig extends string | AccountMeta<string> = string,
-  TAccountHumaPoolConfig extends string | AccountMeta<string> = string,
-  TAccountHumaPoolState extends string | AccountMeta<string> = string,
-  TAccountHumaModeConfig extends string | AccountMeta<string> = string,
-  TAccountHumaModeMint extends string | AccountMeta<string> = string,
-  TAccountHumaRedemptionRequest extends string | AccountMeta<string> = string,
-  TAccountHumaLenderState extends string | AccountMeta<string> = string,
-  TAccountHumaPoolAuthority extends string | AccountMeta<string> = string,
-  TAccountHumaPoolModeToken extends string | AccountMeta<string> = string,
-  TAccountTokenMint extends string | AccountMeta<string> = string,
   TAccountFeeWallet extends string | AccountMeta<string> = string,
-  TAccountTokenProgram extends string | AccountMeta<string> =
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-  TAccountPstTokenProgram extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
   TAccountEventAuthority extends string | AccountMeta<string> = string,
@@ -101,54 +86,15 @@ export type WithdrawFeesInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
-      TAccountPoolPstVault extends string
-        ? WritableAccount<TAccountPoolPstVault>
-        : TAccountPoolPstVault,
+      TAccountRedemptionBatch extends string
+        ? WritableAccount<TAccountRedemptionBatch>
+        : TAccountRedemptionBatch,
       TAccountPendingRedemption extends string
         ? WritableAccount<TAccountPendingRedemption>
         : TAccountPendingRedemption,
-      TAccountHumaProgram extends string
-        ? ReadonlyAccount<TAccountHumaProgram>
-        : TAccountHumaProgram,
-      TAccountHumaConfig extends string
-        ? ReadonlyAccount<TAccountHumaConfig>
-        : TAccountHumaConfig,
-      TAccountHumaPoolConfig extends string
-        ? ReadonlyAccount<TAccountHumaPoolConfig>
-        : TAccountHumaPoolConfig,
-      TAccountHumaPoolState extends string
-        ? WritableAccount<TAccountHumaPoolState>
-        : TAccountHumaPoolState,
-      TAccountHumaModeConfig extends string
-        ? ReadonlyAccount<TAccountHumaModeConfig>
-        : TAccountHumaModeConfig,
-      TAccountHumaModeMint extends string
-        ? ReadonlyAccount<TAccountHumaModeMint>
-        : TAccountHumaModeMint,
-      TAccountHumaRedemptionRequest extends string
-        ? WritableAccount<TAccountHumaRedemptionRequest>
-        : TAccountHumaRedemptionRequest,
-      TAccountHumaLenderState extends string
-        ? WritableAccount<TAccountHumaLenderState>
-        : TAccountHumaLenderState,
-      TAccountHumaPoolAuthority extends string
-        ? ReadonlyAccount<TAccountHumaPoolAuthority>
-        : TAccountHumaPoolAuthority,
-      TAccountHumaPoolModeToken extends string
-        ? WritableAccount<TAccountHumaPoolModeToken>
-        : TAccountHumaPoolModeToken,
-      TAccountTokenMint extends string
-        ? ReadonlyAccount<TAccountTokenMint>
-        : TAccountTokenMint,
       TAccountFeeWallet extends string
         ? ReadonlyAccount<TAccountFeeWallet>
         : TAccountFeeWallet,
-      TAccountTokenProgram extends string
-        ? ReadonlyAccount<TAccountTokenProgram>
-        : TAccountTokenProgram,
-      TAccountPstTokenProgram extends string
-        ? ReadonlyAccount<TAccountPstTokenProgram>
-        : TAccountPstTokenProgram,
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
@@ -200,22 +146,9 @@ export type WithdrawFeesAsyncInput<
   TAccountAdmin extends string = string,
   TAccountGlobalConfig extends string = string,
   TAccountPool extends string = string,
-  TAccountPoolPstVault extends string = string,
+  TAccountRedemptionBatch extends string = string,
   TAccountPendingRedemption extends string = string,
-  TAccountHumaProgram extends string = string,
-  TAccountHumaConfig extends string = string,
-  TAccountHumaPoolConfig extends string = string,
-  TAccountHumaPoolState extends string = string,
-  TAccountHumaModeConfig extends string = string,
-  TAccountHumaModeMint extends string = string,
-  TAccountHumaRedemptionRequest extends string = string,
-  TAccountHumaLenderState extends string = string,
-  TAccountHumaPoolAuthority extends string = string,
-  TAccountHumaPoolModeToken extends string = string,
-  TAccountTokenMint extends string = string,
   TAccountFeeWallet extends string = string,
-  TAccountTokenProgram extends string = string,
-  TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
@@ -231,54 +164,19 @@ export type WithdrawFeesAsyncInput<
   /**
    * The prize pool state account.
    *
-   * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-   * Bump is verified from the pool's initialized authority bump.
+   * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]`.
    */
   pool: Address<TAccountPool>;
-  /**
-   * Pool's $PST vault holding Huma shares. Protocol fees are redeemed from here.
-   *
-   * PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
-   */
-  poolPstVault: Address<TAccountPoolPstVault>;
+  /** Active accumulating redemption batch account. */
+  redemptionBatch: Address<TAccountRedemptionBatch>;
   /**
    * PendingRedemption PDA created to track this async fee withdrawal.
    *
-   * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`
-   * (i.e., `b"pending_redemption"` + pool_id + next_redemption_id).
+   * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`.
    */
   pendingRedemption: Address<TAccountPendingRedemption>;
-  /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
-  humaProgram?: Address<TAccountHumaProgram>;
-  /** structure and validity are fully validated by the Huma program during the CPI call. */
-  humaConfig: Address<TAccountHumaConfig>;
-  /** structure and validity are fully validated by the Huma program during the CPI call. */
-  humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /**
-   * to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and its internal structures/amounts (assets, redemption queues)
-   * are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
-   */
-  humaPoolState: Address<TAccountHumaPoolState>;
-  /** structure and validity are fully validated by the Huma program during the CPI call. */
-  humaModeConfig: Address<TAccountHumaModeConfig>;
-  /** The Huma mode token mint ($PST token mint). */
-  humaModeMint: Address<TAccountHumaModeMint>;
-  /** its initialization and ownership are fully managed and validated by the Huma program during the CPI call. */
-  humaRedemptionRequest: Address<TAccountHumaRedemptionRequest>;
-  /** ownership, and authorization are fully validated by the Huma program during the CPI call. */
-  humaLenderState: Address<TAccountHumaLenderState>;
-  /** pool's authority is fully validated by the Huma program during the CPI call. */
-  humaPoolAuthority: Address<TAccountHumaPoolAuthority>;
-  /** here because its address and token authority are fully validated by the Huma program during the CPI call. */
-  humaPoolModeToken: Address<TAccountHumaPoolModeToken>;
-  /** The underlying token mint (e.g. USDC). */
-  tokenMint: Address<TAccountTokenMint>;
   /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool. */
   feeWallet: Address<TAccountFeeWallet>;
-  /** The SPL Token program interface for underlying tokens. */
-  tokenProgram?: Address<TAccountTokenProgram>;
-  /** The SPL Token program interface for $PST tokens. */
-  pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
   eventAuthority?: Address<TAccountEventAuthority>;
@@ -291,22 +189,9 @@ export async function getWithdrawFeesInstructionAsync<
   TAccountAdmin extends string,
   TAccountGlobalConfig extends string,
   TAccountPool extends string,
-  TAccountPoolPstVault extends string,
+  TAccountRedemptionBatch extends string,
   TAccountPendingRedemption extends string,
-  TAccountHumaProgram extends string,
-  TAccountHumaConfig extends string,
-  TAccountHumaPoolConfig extends string,
-  TAccountHumaPoolState extends string,
-  TAccountHumaModeConfig extends string,
-  TAccountHumaModeMint extends string,
-  TAccountHumaRedemptionRequest extends string,
-  TAccountHumaLenderState extends string,
-  TAccountHumaPoolAuthority extends string,
-  TAccountHumaPoolModeToken extends string,
-  TAccountTokenMint extends string,
   TAccountFeeWallet extends string,
-  TAccountTokenProgram extends string,
-  TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
@@ -316,22 +201,9 @@ export async function getWithdrawFeesInstructionAsync<
     TAccountAdmin,
     TAccountGlobalConfig,
     TAccountPool,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenMint,
     TAccountFeeWallet,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -343,22 +215,9 @@ export async function getWithdrawFeesInstructionAsync<
     TAccountAdmin,
     TAccountGlobalConfig,
     TAccountPool,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenMint,
     TAccountFeeWallet,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -372,37 +231,12 @@ export async function getWithdrawFeesInstructionAsync<
     admin: { value: input.admin ?? null, isWritable: true },
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: true },
-    poolPstVault: { value: input.poolPstVault ?? null, isWritable: true },
+    redemptionBatch: { value: input.redemptionBatch ?? null, isWritable: true },
     pendingRedemption: {
       value: input.pendingRedemption ?? null,
       isWritable: true,
     },
-    humaProgram: { value: input.humaProgram ?? null, isWritable: false },
-    humaConfig: { value: input.humaConfig ?? null, isWritable: false },
-    humaPoolConfig: { value: input.humaPoolConfig ?? null, isWritable: false },
-    humaPoolState: { value: input.humaPoolState ?? null, isWritable: true },
-    humaModeConfig: { value: input.humaModeConfig ?? null, isWritable: false },
-    humaModeMint: { value: input.humaModeMint ?? null, isWritable: false },
-    humaRedemptionRequest: {
-      value: input.humaRedemptionRequest ?? null,
-      isWritable: true,
-    },
-    humaLenderState: { value: input.humaLenderState ?? null, isWritable: true },
-    humaPoolAuthority: {
-      value: input.humaPoolAuthority ?? null,
-      isWritable: false,
-    },
-    humaPoolModeToken: {
-      value: input.humaPoolModeToken ?? null,
-      isWritable: true,
-    },
-    tokenMint: { value: input.tokenMint ?? null, isWritable: false },
     feeWallet: { value: input.feeWallet ?? null, isWritable: false },
-    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
-    pstTokenProgram: {
-      value: input.pstTokenProgram ?? null,
-      isWritable: false,
-    },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
@@ -418,14 +252,6 @@ export async function getWithdrawFeesInstructionAsync<
   // Resolve default values.
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
-  }
-  if (!accounts.humaProgram.value) {
-    accounts.humaProgram.value =
-      "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz" as Address<"ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz">;
-  }
-  if (!accounts.tokenProgram.value) {
-    accounts.tokenProgram.value =
-      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
   }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
@@ -445,22 +271,9 @@ export async function getWithdrawFeesInstructionAsync<
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("pool", accounts.pool),
-      getAccountMeta("poolPstVault", accounts.poolPstVault),
+      getAccountMeta("redemptionBatch", accounts.redemptionBatch),
       getAccountMeta("pendingRedemption", accounts.pendingRedemption),
-      getAccountMeta("humaProgram", accounts.humaProgram),
-      getAccountMeta("humaConfig", accounts.humaConfig),
-      getAccountMeta("humaPoolConfig", accounts.humaPoolConfig),
-      getAccountMeta("humaPoolState", accounts.humaPoolState),
-      getAccountMeta("humaModeConfig", accounts.humaModeConfig),
-      getAccountMeta("humaModeMint", accounts.humaModeMint),
-      getAccountMeta("humaRedemptionRequest", accounts.humaRedemptionRequest),
-      getAccountMeta("humaLenderState", accounts.humaLenderState),
-      getAccountMeta("humaPoolAuthority", accounts.humaPoolAuthority),
-      getAccountMeta("humaPoolModeToken", accounts.humaPoolModeToken),
-      getAccountMeta("tokenMint", accounts.tokenMint),
       getAccountMeta("feeWallet", accounts.feeWallet),
-      getAccountMeta("tokenProgram", accounts.tokenProgram),
-      getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
@@ -474,22 +287,9 @@ export async function getWithdrawFeesInstructionAsync<
     TAccountAdmin,
     TAccountGlobalConfig,
     TAccountPool,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenMint,
     TAccountFeeWallet,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -500,22 +300,9 @@ export type WithdrawFeesInput<
   TAccountAdmin extends string = string,
   TAccountGlobalConfig extends string = string,
   TAccountPool extends string = string,
-  TAccountPoolPstVault extends string = string,
+  TAccountRedemptionBatch extends string = string,
   TAccountPendingRedemption extends string = string,
-  TAccountHumaProgram extends string = string,
-  TAccountHumaConfig extends string = string,
-  TAccountHumaPoolConfig extends string = string,
-  TAccountHumaPoolState extends string = string,
-  TAccountHumaModeConfig extends string = string,
-  TAccountHumaModeMint extends string = string,
-  TAccountHumaRedemptionRequest extends string = string,
-  TAccountHumaLenderState extends string = string,
-  TAccountHumaPoolAuthority extends string = string,
-  TAccountHumaPoolModeToken extends string = string,
-  TAccountTokenMint extends string = string,
   TAccountFeeWallet extends string = string,
-  TAccountTokenProgram extends string = string,
-  TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
@@ -531,54 +318,19 @@ export type WithdrawFeesInput<
   /**
    * The prize pool state account.
    *
-   * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-   * Bump is verified from the pool's initialized authority bump.
+   * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]`.
    */
   pool: Address<TAccountPool>;
-  /**
-   * Pool's $PST vault holding Huma shares. Protocol fees are redeemed from here.
-   *
-   * PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
-   */
-  poolPstVault: Address<TAccountPoolPstVault>;
+  /** Active accumulating redemption batch account. */
+  redemptionBatch: Address<TAccountRedemptionBatch>;
   /**
    * PendingRedemption PDA created to track this async fee withdrawal.
    *
-   * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`
-   * (i.e., `b"pending_redemption"` + pool_id + next_redemption_id).
+   * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`.
    */
   pendingRedemption: Address<TAccountPendingRedemption>;
-  /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
-  humaProgram?: Address<TAccountHumaProgram>;
-  /** structure and validity are fully validated by the Huma program during the CPI call. */
-  humaConfig: Address<TAccountHumaConfig>;
-  /** structure and validity are fully validated by the Huma program during the CPI call. */
-  humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /**
-   * to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and its internal structures/amounts (assets, redemption queues)
-   * are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
-   */
-  humaPoolState: Address<TAccountHumaPoolState>;
-  /** structure and validity are fully validated by the Huma program during the CPI call. */
-  humaModeConfig: Address<TAccountHumaModeConfig>;
-  /** The Huma mode token mint ($PST token mint). */
-  humaModeMint: Address<TAccountHumaModeMint>;
-  /** its initialization and ownership are fully managed and validated by the Huma program during the CPI call. */
-  humaRedemptionRequest: Address<TAccountHumaRedemptionRequest>;
-  /** ownership, and authorization are fully validated by the Huma program during the CPI call. */
-  humaLenderState: Address<TAccountHumaLenderState>;
-  /** pool's authority is fully validated by the Huma program during the CPI call. */
-  humaPoolAuthority: Address<TAccountHumaPoolAuthority>;
-  /** here because its address and token authority are fully validated by the Huma program during the CPI call. */
-  humaPoolModeToken: Address<TAccountHumaPoolModeToken>;
-  /** The underlying token mint (e.g. USDC). */
-  tokenMint: Address<TAccountTokenMint>;
   /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool. */
   feeWallet: Address<TAccountFeeWallet>;
-  /** The SPL Token program interface for underlying tokens. */
-  tokenProgram?: Address<TAccountTokenProgram>;
-  /** The SPL Token program interface for $PST tokens. */
-  pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
   eventAuthority: Address<TAccountEventAuthority>;
@@ -591,22 +343,9 @@ export function getWithdrawFeesInstruction<
   TAccountAdmin extends string,
   TAccountGlobalConfig extends string,
   TAccountPool extends string,
-  TAccountPoolPstVault extends string,
+  TAccountRedemptionBatch extends string,
   TAccountPendingRedemption extends string,
-  TAccountHumaProgram extends string,
-  TAccountHumaConfig extends string,
-  TAccountHumaPoolConfig extends string,
-  TAccountHumaPoolState extends string,
-  TAccountHumaModeConfig extends string,
-  TAccountHumaModeMint extends string,
-  TAccountHumaRedemptionRequest extends string,
-  TAccountHumaLenderState extends string,
-  TAccountHumaPoolAuthority extends string,
-  TAccountHumaPoolModeToken extends string,
-  TAccountTokenMint extends string,
   TAccountFeeWallet extends string,
-  TAccountTokenProgram extends string,
-  TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
@@ -616,22 +355,9 @@ export function getWithdrawFeesInstruction<
     TAccountAdmin,
     TAccountGlobalConfig,
     TAccountPool,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenMint,
     TAccountFeeWallet,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -642,22 +368,9 @@ export function getWithdrawFeesInstruction<
   TAccountAdmin,
   TAccountGlobalConfig,
   TAccountPool,
-  TAccountPoolPstVault,
+  TAccountRedemptionBatch,
   TAccountPendingRedemption,
-  TAccountHumaProgram,
-  TAccountHumaConfig,
-  TAccountHumaPoolConfig,
-  TAccountHumaPoolState,
-  TAccountHumaModeConfig,
-  TAccountHumaModeMint,
-  TAccountHumaRedemptionRequest,
-  TAccountHumaLenderState,
-  TAccountHumaPoolAuthority,
-  TAccountHumaPoolModeToken,
-  TAccountTokenMint,
   TAccountFeeWallet,
-  TAccountTokenProgram,
-  TAccountPstTokenProgram,
   TAccountSystemProgram,
   TAccountEventAuthority,
   TAccountProgram
@@ -670,37 +383,12 @@ export function getWithdrawFeesInstruction<
     admin: { value: input.admin ?? null, isWritable: true },
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: true },
-    poolPstVault: { value: input.poolPstVault ?? null, isWritable: true },
+    redemptionBatch: { value: input.redemptionBatch ?? null, isWritable: true },
     pendingRedemption: {
       value: input.pendingRedemption ?? null,
       isWritable: true,
     },
-    humaProgram: { value: input.humaProgram ?? null, isWritable: false },
-    humaConfig: { value: input.humaConfig ?? null, isWritable: false },
-    humaPoolConfig: { value: input.humaPoolConfig ?? null, isWritable: false },
-    humaPoolState: { value: input.humaPoolState ?? null, isWritable: true },
-    humaModeConfig: { value: input.humaModeConfig ?? null, isWritable: false },
-    humaModeMint: { value: input.humaModeMint ?? null, isWritable: false },
-    humaRedemptionRequest: {
-      value: input.humaRedemptionRequest ?? null,
-      isWritable: true,
-    },
-    humaLenderState: { value: input.humaLenderState ?? null, isWritable: true },
-    humaPoolAuthority: {
-      value: input.humaPoolAuthority ?? null,
-      isWritable: false,
-    },
-    humaPoolModeToken: {
-      value: input.humaPoolModeToken ?? null,
-      isWritable: true,
-    },
-    tokenMint: { value: input.tokenMint ?? null, isWritable: false },
     feeWallet: { value: input.feeWallet ?? null, isWritable: false },
-    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
-    pstTokenProgram: {
-      value: input.pstTokenProgram ?? null,
-      isWritable: false,
-    },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
@@ -714,14 +402,6 @@ export function getWithdrawFeesInstruction<
   const args = { ...input };
 
   // Resolve default values.
-  if (!accounts.humaProgram.value) {
-    accounts.humaProgram.value =
-      "ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz" as Address<"ECMEF6mYCd3YqWk2jwZraPqJTz1bWDwLKrD2Ldgq3wKz">;
-  }
-  if (!accounts.tokenProgram.value) {
-    accounts.tokenProgram.value =
-      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -737,22 +417,9 @@ export function getWithdrawFeesInstruction<
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("pool", accounts.pool),
-      getAccountMeta("poolPstVault", accounts.poolPstVault),
+      getAccountMeta("redemptionBatch", accounts.redemptionBatch),
       getAccountMeta("pendingRedemption", accounts.pendingRedemption),
-      getAccountMeta("humaProgram", accounts.humaProgram),
-      getAccountMeta("humaConfig", accounts.humaConfig),
-      getAccountMeta("humaPoolConfig", accounts.humaPoolConfig),
-      getAccountMeta("humaPoolState", accounts.humaPoolState),
-      getAccountMeta("humaModeConfig", accounts.humaModeConfig),
-      getAccountMeta("humaModeMint", accounts.humaModeMint),
-      getAccountMeta("humaRedemptionRequest", accounts.humaRedemptionRequest),
-      getAccountMeta("humaLenderState", accounts.humaLenderState),
-      getAccountMeta("humaPoolAuthority", accounts.humaPoolAuthority),
-      getAccountMeta("humaPoolModeToken", accounts.humaPoolModeToken),
-      getAccountMeta("tokenMint", accounts.tokenMint),
       getAccountMeta("feeWallet", accounts.feeWallet),
-      getAccountMeta("tokenProgram", accounts.tokenProgram),
-      getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
@@ -766,22 +433,9 @@ export function getWithdrawFeesInstruction<
     TAccountAdmin,
     TAccountGlobalConfig,
     TAccountPool,
-    TAccountPoolPstVault,
+    TAccountRedemptionBatch,
     TAccountPendingRedemption,
-    TAccountHumaProgram,
-    TAccountHumaConfig,
-    TAccountHumaPoolConfig,
-    TAccountHumaPoolState,
-    TAccountHumaModeConfig,
-    TAccountHumaModeMint,
-    TAccountHumaRedemptionRequest,
-    TAccountHumaLenderState,
-    TAccountHumaPoolAuthority,
-    TAccountHumaPoolModeToken,
-    TAccountTokenMint,
     TAccountFeeWallet,
-    TAccountTokenProgram,
-    TAccountPstTokenProgram,
     TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
@@ -805,59 +459,24 @@ export type ParsedWithdrawFeesInstruction<
     /**
      * The prize pool state account.
      *
-     * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-     * Bump is verified from the pool's initialized authority bump.
+     * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]`.
      */
     pool: TAccountMetas[2];
-    /**
-     * Pool's $PST vault holding Huma shares. Protocol fees are redeemed from here.
-     *
-     * PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
-     */
-    poolPstVault: TAccountMetas[3];
+    /** Active accumulating redemption batch account. */
+    redemptionBatch: TAccountMetas[3];
     /**
      * PendingRedemption PDA created to track this async fee withdrawal.
      *
-     * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`
-     * (i.e., `b"pending_redemption"` + pool_id + next_redemption_id).
+     * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`.
      */
     pendingRedemption: TAccountMetas[4];
-    /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
-    humaProgram: TAccountMetas[5];
-    /** structure and validity are fully validated by the Huma program during the CPI call. */
-    humaConfig: TAccountMetas[6];
-    /** structure and validity are fully validated by the Huma program during the CPI call. */
-    humaPoolConfig: TAccountMetas[7];
-    /**
-     * to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and its internal structures/amounts (assets, redemption queues)
-     * are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
-     */
-    humaPoolState: TAccountMetas[8];
-    /** structure and validity are fully validated by the Huma program during the CPI call. */
-    humaModeConfig: TAccountMetas[9];
-    /** The Huma mode token mint ($PST token mint). */
-    humaModeMint: TAccountMetas[10];
-    /** its initialization and ownership are fully managed and validated by the Huma program during the CPI call. */
-    humaRedemptionRequest: TAccountMetas[11];
-    /** ownership, and authorization are fully validated by the Huma program during the CPI call. */
-    humaLenderState: TAccountMetas[12];
-    /** pool's authority is fully validated by the Huma program during the CPI call. */
-    humaPoolAuthority: TAccountMetas[13];
-    /** here because its address and token authority are fully validated by the Huma program during the CPI call. */
-    humaPoolModeToken: TAccountMetas[14];
-    /** The underlying token mint (e.g. USDC). */
-    tokenMint: TAccountMetas[15];
     /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool. */
-    feeWallet: TAccountMetas[16];
-    /** The SPL Token program interface for underlying tokens. */
-    tokenProgram: TAccountMetas[17];
-    /** The SPL Token program interface for $PST tokens. */
-    pstTokenProgram: TAccountMetas[18];
+    feeWallet: TAccountMetas[5];
     /** Solana System Program. */
-    systemProgram: TAccountMetas[19];
-    eventAuthority: TAccountMetas[20];
+    systemProgram: TAccountMetas[6];
+    eventAuthority: TAccountMetas[7];
     /** The YieldBonds program itself. */
-    program: TAccountMetas[21];
+    program: TAccountMetas[8];
   };
   data: WithdrawFeesInstructionData;
 };
@@ -870,12 +489,12 @@ export function parseWithdrawFeesInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedWithdrawFeesInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 22) {
+  if (instruction.accounts.length < 9) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 22,
+        expectedAccountMetas: 9,
       }
     );
   }
@@ -891,22 +510,9 @@ export function parseWithdrawFeesInstruction<
       admin: getNextAccount(),
       globalConfig: getNextAccount(),
       pool: getNextAccount(),
-      poolPstVault: getNextAccount(),
+      redemptionBatch: getNextAccount(),
       pendingRedemption: getNextAccount(),
-      humaProgram: getNextAccount(),
-      humaConfig: getNextAccount(),
-      humaPoolConfig: getNextAccount(),
-      humaPoolState: getNextAccount(),
-      humaModeConfig: getNextAccount(),
-      humaModeMint: getNextAccount(),
-      humaRedemptionRequest: getNextAccount(),
-      humaLenderState: getNextAccount(),
-      humaPoolAuthority: getNextAccount(),
-      humaPoolModeToken: getNextAccount(),
-      tokenMint: getNextAccount(),
       feeWallet: getNextAccount(),
-      tokenProgram: getNextAccount(),
-      pstTokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),

@@ -163,36 +163,41 @@ pub fn inject_pool_with_huma_state(
 ) -> Pubkey {
     let (pda, bump) = pool_pda(pool_id);
     let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id,
-        token_mint,
-        ticket_registry,
-        fee_wallet: Pubkey::default(),
-        huma_pool_state,
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: status as u8,
+        current_cycle_end_at: i64::MAX,
+        paused_at: 0,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
         total_prizes_allocated: 0,
-        next_redemption_id: 0,
         total_pending_redemptions: 0,
-        current_cycle_end_at: i64::MAX,
-        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
+        next_redemption_id: 0,
+        accumulating_redemption_batch_id: 0,
+        next_redemption_batch_id: 1,
+        submitted_batch_id: anchor::constants::NO_SUBMITTED_BATCH,
+        total_accumulating_redemptions: 0,
+        pool_id,
         current_draw_cycle_id: 0,
+        payout_timelock_seconds: 300,
+        fee_basis_points: 100,
+        max_yield_basis_points: 0,
+        vault_authority_bump: bump,
+        status: status as u8,
+        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
+        version: anchor::PrizePool::CURRENT_VERSION,
+        prize_tiers_count: 0,
+        _padding: [0; 3],
+        token_mint,
+        ticket_registry,
+        fee_wallet: Pubkey::default(),
+        huma_pool_state,
         prize_tiers: [anchor::PrizeTier {
             num_winners: 0,
             basis_points: 0,
             _padding: [0, 0],
         }; 10],
-        prize_tiers_count: 0,
-        _padding: [0; 3],
-        version: anchor::PrizePool::CURRENT_VERSION,
         _reserved: [0; 128],
     };
 
@@ -211,6 +216,8 @@ pub fn inject_pool_with_huma_state(
         },
     )
     .unwrap();
+
+    inject_redemption_batch(svm, pool_id, 0);
 
     pda
 }
@@ -496,7 +503,7 @@ pub fn inject_pending_redemption(
     redemption_id: u64,
     user: Pubkey,
     amount: u64,
-    pst_shares_locked: u64,
+    batch_id: u64,
 ) -> Pubkey {
     let (pda, bump) = pending_redemption_pda(pool_id, redemption_id);
     inject_pending_redemption_with_params(
@@ -504,11 +511,10 @@ pub fn inject_pending_redemption(
         anchor::state::InitPendingRedemptionParams {
             pool_id,
             redemption_id,
+            batch_id,
             bump,
             user,
             amount,
-            pst_shares_locked,
-            huma_request_id: 0,
             requested_at: 0,
             redemption_type: anchor::state::RedemptionType::BondSale,
         },
@@ -525,6 +531,90 @@ pub fn inject_pending_redemption_with_params(
     data.extend_from_slice(anchor::state::PendingRedemption::DISCRIMINATOR);
     pending.serialize(&mut data).unwrap();
     data.resize(8 + anchor::state::PendingRedemption::INIT_SPACE, 0);
+    svm.set_account(
+        pda,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    pda
+}
+
+pub fn inject_redemption_batch(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    batch_id: u64,
+) -> Pubkey {
+    let (pda, bump) = redemption_batch_pda(pool_id, batch_id);
+    let mut batch = anchor::state::RedemptionBatch {
+        huma_request_id: 0,
+        batch_id,
+        total_principal_requested: 0,
+        total_pst_shares_locked: 0,
+        settled_usdc_received: 0,
+        claimed_principal: 0,
+        created_at: 0,
+        submitted_at: 0,
+        settled_at: 0,
+        pool_id,
+        status: anchor::state::RedemptionBatchStatus::Accumulating,
+        bump,
+        _padding: [0; 2],
+        _reserved: [0; 72],
+    };
+    batch.init_accumulating(pool_id, batch_id, bump, 0);
+    let mut data = vec![];
+    data.extend_from_slice(anchor::state::RedemptionBatch::DISCRIMINATOR);
+    batch.serialize(&mut data).unwrap();
+    data.resize(8 + anchor::state::RedemptionBatch::INIT_SPACE, 0);
+    svm.set_account(
+        pda,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    pda
+}
+
+pub fn inject_redemption_batch_with_state(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    batch_id: u64,
+    status: anchor::state::RedemptionBatchStatus,
+    total_principal_requested: u64,
+    settled_usdc_received: u64,
+) -> Pubkey {
+    let (pda, bump) = redemption_batch_pda(pool_id, batch_id);
+    let batch = anchor::state::RedemptionBatch {
+        huma_request_id: 1,
+        batch_id,
+        total_principal_requested,
+        total_pst_shares_locked: total_principal_requested,
+        settled_usdc_received,
+        claimed_principal: 0,
+        created_at: 0,
+        submitted_at: 1,
+        settled_at: 2,
+        pool_id,
+        status,
+        bump,
+        _padding: [0; 2],
+        _reserved: [0; 72],
+    };
+    let mut data = vec![];
+    data.extend_from_slice(anchor::state::RedemptionBatch::DISCRIMINATOR);
+    batch.serialize(&mut data).unwrap();
+    data.resize(8 + anchor::state::RedemptionBatch::INIT_SPACE, 0);
     svm.set_account(
         pda,
         Account {

@@ -124,11 +124,6 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
 
     let ix_claim_dust = ClaimNonReinvestedWinningsBuilder::new(&h.ctx)
         .with_user(&winner_0)
-        .with_huma_pool_mode_token(huma_pool_mode_token)
-        .with_huma_pool_config(dummy)
-        .with_huma_mode_config(dummy)
-        .with_huma_redemption_request(dummy)
-        .with_huma_lender_state(dummy)
         .build_ix();
 
     send_user_tx(&mut h.svm, &winner_0_signer, ix_claim_dust)

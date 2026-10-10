@@ -160,31 +160,71 @@ export const ANCHOR_ERROR__RANDOMNESS_COMMITMENT_TAMPERED = 0x17b6; // 6070
 export const ANCHOR_ERROR__REBIND_LIMIT_REACHED = 0x17b7; // 6071
 /** DrawSnapshotMismatch: Ticket registry snapshot does not match draw cycle locked tickets. */
 export const ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH = 0x17b8; // 6072
+/** EmptyRedemptionBatch: Redemption batch is empty. */
+export const ANCHOR_ERROR__EMPTY_REDEMPTION_BATCH = 0x17b9; // 6073
+/** InvalidBatchStatus: Invalid redemption batch lifecycle status. */
+export const ANCHOR_ERROR__INVALID_BATCH_STATUS = 0x17ba; // 6074
+/** RedemptionBatchNotSettled: Redemption batch has not been settled yet. */
+export const ANCHOR_ERROR__REDEMPTION_BATCH_NOT_SETTLED = 0x17bb; // 6075
+/** HumaQueueNotSettled: Huma redemption queue has not progressed past the submitted request. */
+export const ANCHOR_ERROR__HUMA_QUEUE_NOT_SETTLED = 0x17bc; // 6076
+/** MismatchedBatchId: Mismatched redemption batch ID. */
+export const ANCHOR_ERROR__MISMATCHED_BATCH_ID = 0x17bd; // 6077
+/** MismatchedPoolId: Mismatched pool ID on batch account. */
+export const ANCHOR_ERROR__MISMATCHED_POOL_ID = 0x17be; // 6078
+/** SubmittedBatchInFlight: A redemption batch is already in-flight in Huma queue. */
+export const ANCHOR_ERROR__SUBMITTED_BATCH_IN_FLIGHT = 0x17bf; // 6079
+/** BatchNotFullyClaimed: Redemption batch has not been fully claimed yet. */
+export const ANCHOR_ERROR__BATCH_NOT_FULLY_CLAIMED = 0x17c0; // 6080
+/** ZeroSharesRedeemed: Batch submission derived zero PST shares. */
+export const ANCHOR_ERROR__ZERO_SHARES_REDEEMED = 0x17c1; // 6081
+/** BatchOverclaimed: Claim amount exceeds total requested principal in batch. */
+export const ANCHOR_ERROR__BATCH_OVERCLAIMED = 0x17c2; // 6082
+/** InvalidHumaLenderState: Huma lender state account is invalid. */
+export const ANCHOR_ERROR__INVALID_HUMA_LENDER_STATE = 0x17c3; // 6083
+/** CannotImpairSolventPool: Cannot transition a solvent pool to impaired mode. */
+export const ANCHOR_ERROR__CANNOT_IMPAIR_SOLVENT_POOL = 0x17c4; // 6084
+/** PoolImpaired: Pool is in impaired mode. */
+export const ANCHOR_ERROR__POOL_IMPAIRED = 0x17c5; // 6085
+/** ImpairmentTimelockActive: Impairment workout timelock is still active. */
+export const ANCHOR_ERROR__IMPAIRMENT_TIMELOCK_ACTIVE = 0x17c6; // 6086
+/** InvalidRecapitalizeAmount: Recapitalize deposit amount must be greater than zero. */
+export const ANCHOR_ERROR__INVALID_RECAPITALIZE_AMOUNT = 0x17c7; // 6087
+/** PoolNotPaused: Pool is not currently paused. */
+export const ANCHOR_ERROR__POOL_NOT_PAUSED = 0x17c8; // 6088
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
   | typeof ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE
   | typeof ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000
+  | typeof ANCHOR_ERROR__BATCH_NOT_FULLY_CLAIMED
+  | typeof ANCHOR_ERROR__BATCH_OVERCLAIMED
+  | typeof ANCHOR_ERROR__CANNOT_IMPAIR_SOLVENT_POOL
   | typeof ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS
   | typeof ANCHOR_ERROR__CANNOT_NOMINATE_SELF
   | typeof ANCHOR_ERROR__CYCLE_NOT_ENDED
   | typeof ANCHOR_ERROR__DRAW_ALREADY_VOIDED
   | typeof ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH
   | typeof ANCHOR_ERROR__DRAW_VOIDED
+  | typeof ANCHOR_ERROR__EMPTY_REDEMPTION_BATCH
   | typeof ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN
+  | typeof ANCHOR_ERROR__HUMA_QUEUE_NOT_SETTLED
   | typeof ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED
+  | typeof ANCHOR_ERROR__IMPAIRMENT_TIMELOCK_ACTIVE
   | typeof ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS
   | typeof ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE
   | typeof ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS
   | typeof ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE
   | typeof ANCHOR_ERROR__INVALID_ADMIN_ADDRESS
   | typeof ANCHOR_ERROR__INVALID_BATCH_SIZE
+  | typeof ANCHOR_ERROR__INVALID_BATCH_STATUS
   | typeof ANCHOR_ERROR__INVALID_BOND_PRICE
   | typeof ANCHOR_ERROR__INVALID_BOND_QUANTITY
   | typeof ANCHOR_ERROR__INVALID_DRAW_STATE
   | typeof ANCHOR_ERROR__INVALID_DRAW_STATUS
   | typeof ANCHOR_ERROR__INVALID_FEE_CONFIG
   | typeof ANCHOR_ERROR__INVALID_FEE_WALLET
+  | typeof ANCHOR_ERROR__INVALID_HUMA_LENDER_STATE
   | typeof ANCHOR_ERROR__INVALID_HUMA_POOL_DATA
   | typeof ANCHOR_ERROR__INVALID_HUMA_POOL_STATE
   | typeof ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS
@@ -193,6 +233,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_POOL_STATUS
   | typeof ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG
   | typeof ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT
+  | typeof ANCHOR_ERROR__INVALID_RECAPITALIZE_AMOUNT
   | typeof ANCHOR_ERROR__INVALID_REDEMPTION_OWNER
   | typeof ANCHOR_ERROR__INVALID_REDEMPTION_TYPE
   | typeof ANCHOR_ERROR__INVALID_REGISTRY_STATE
@@ -202,6 +243,8 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_USER_ENTRY_HINT
   | typeof ANCHOR_ERROR__INVALID_WINNER_INDEX
   | typeof ANCHOR_ERROR__MATH_OVERFLOW
+  | typeof ANCHOR_ERROR__MISMATCHED_BATCH_ID
+  | typeof ANCHOR_ERROR__MISMATCHED_POOL_ID
   | typeof ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS
   | typeof ANCHOR_ERROR__NO_PENDING_ADMIN
   | typeof ANCHOR_ERROR__NOT_PENDING_ADMIN
@@ -210,8 +253,10 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__PAYOUTS_PENDING
   | typeof ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE
   | typeof ANCHOR_ERROR__POOL_CLOSED
+  | typeof ANCHOR_ERROR__POOL_IMPAIRED
   | typeof ANCHOR_ERROR__POOL_NOT_ACTIVE
   | typeof ANCHOR_ERROR__POOL_NOT_FROZEN
+  | typeof ANCHOR_ERROR__POOL_NOT_PAUSED
   | typeof ANCHOR_ERROR__POOL_PAUSED
   | typeof ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED
   | typeof ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED
@@ -220,11 +265,13 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED
   | typeof ANCHOR_ERROR__REBIND_LIMIT_REACHED
+  | typeof ANCHOR_ERROR__REDEMPTION_BATCH_NOT_SETTLED
   | typeof ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE
   | typeof ANCHOR_ERROR__REGISTRY_FULL
   | typeof ANCHOR_ERROR__REGISTRY_TOO_SMALL
   | typeof ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT
   | typeof ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST
+  | typeof ANCHOR_ERROR__SUBMITTED_BATCH_IN_FLIGHT
   | typeof ANCHOR_ERROR__TOO_MANY_WINNERS
   | typeof ANCHOR_ERROR__TRANSFER_FEE_NOT_SUPPORTED
   | typeof ANCHOR_ERROR__TRANSFER_HOOK_NOT_SUPPORTED
@@ -234,7 +281,8 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION
   | typeof ANCHOR_ERROR__WINNER_MISMATCH
   | typeof ANCHOR_ERROR__YIELD_VENUE_INSOLVENT
-  | typeof ANCHOR_ERROR__ZERO_SHARES_MINTED;
+  | typeof ANCHOR_ERROR__ZERO_SHARES_MINTED
+  | typeof ANCHOR_ERROR__ZERO_SHARES_REDEEMED;
 
 let anchorErrorMessages: Record<AnchorError, string> | undefined;
 if (process.env["NODE_ENV"] !== "production") {
@@ -242,26 +290,34 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__ALREADY_CLAIMED]: `Trying to claim a prize that has already been claimed.`,
     [ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE]: `The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.`,
     [ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000]: `Total basis points across all tiers must equal exactly 10,000 (100%).`,
+    [ANCHOR_ERROR__BATCH_NOT_FULLY_CLAIMED]: `Redemption batch has not been fully claimed yet.`,
+    [ANCHOR_ERROR__BATCH_OVERCLAIMED]: `Claim amount exceeds total requested principal in batch.`,
+    [ANCHOR_ERROR__CANNOT_IMPAIR_SOLVENT_POOL]: `Cannot transition a solvent pool to impaired mode.`,
     [ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS]: `Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.`,
     [ANCHOR_ERROR__CANNOT_NOMINATE_SELF]: `Cannot nominate current admin as pending admin.`,
     [ANCHOR_ERROR__CYCLE_NOT_ENDED]: `The current stake cycle has not yet ended.`,
     [ANCHOR_ERROR__DRAW_ALREADY_VOIDED]: `This draw has already been voided.`,
     [ANCHOR_ERROR__DRAW_SNAPSHOT_MISMATCH]: `Ticket registry snapshot does not match draw cycle locked tickets.`,
     [ANCHOR_ERROR__DRAW_VOIDED]: `This draw has been voided.`,
+    [ANCHOR_ERROR__EMPTY_REDEMPTION_BATCH]: `Redemption batch is empty.`,
     [ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN]: `Protocol fees from this cycle were already withdrawn.`,
+    [ANCHOR_ERROR__HUMA_QUEUE_NOT_SETTLED]: `Huma redemption queue has not progressed past the submitted request.`,
     [ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED]: `Huma redemption has not been settled yet.`,
+    [ANCHOR_ERROR__IMPAIRMENT_TIMELOCK_ACTIVE]: `Impairment workout timelock is still active.`,
     [ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS]: `Insufficient active tickets for this transaction`,
     [ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE]: `Insufficient accrued fee balance for withdrawal.`,
     [ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS]: `Insufficient pending tickets for this transaction`,
     [ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE]: `Pool vault has insufficient balance to settle redemption.`,
     [ANCHOR_ERROR__INVALID_ADMIN_ADDRESS]: `Admin address cannot be the default zero address.`,
     [ANCHOR_ERROR__INVALID_BATCH_SIZE]: `Draw preparation batch size must be greater than 0.`,
+    [ANCHOR_ERROR__INVALID_BATCH_STATUS]: `Invalid redemption batch lifecycle status.`,
     [ANCHOR_ERROR__INVALID_BOND_PRICE]: `Bond price must be greater than 0.`,
     [ANCHOR_ERROR__INVALID_BOND_QUANTITY]: `Invalid bond quantity.`,
     [ANCHOR_ERROR__INVALID_DRAW_STATE]: `The draw cycle has an invalid locked count or prize pot.`,
     [ANCHOR_ERROR__INVALID_DRAW_STATUS]: `The draw cycle is in an invalid phase for this operation`,
     [ANCHOR_ERROR__INVALID_FEE_CONFIG]: `Fee basis points must be less than or equal to 10,000 (100%).`,
     [ANCHOR_ERROR__INVALID_FEE_WALLET]: `The provided fee wallet account is invalid or does not match the pool configuration`,
+    [ANCHOR_ERROR__INVALID_HUMA_LENDER_STATE]: `Huma lender state account is invalid.`,
     [ANCHOR_ERROR__INVALID_HUMA_POOL_DATA]: `Huma pool account data is truncated or malformed`,
     [ANCHOR_ERROR__INVALID_HUMA_POOL_STATE]: `Provided Huma pool state is invalid or uninitialized.`,
     [ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS]: `Max yield basis points must be less than or equal to 10,000 (100%).`,
@@ -270,6 +326,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_POOL_STATUS]: `Invalid pool status value.`,
     [ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG]: `Invalid prize tier configuration.`,
     [ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT]: `The provided randomness account is invalid or does not belong to Switchboard.`,
+    [ANCHOR_ERROR__INVALID_RECAPITALIZE_AMOUNT]: `Recapitalize deposit amount must be greater than zero.`,
     [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: `Beneficiary does not match pending redemption owner.`,
     [ANCHOR_ERROR__INVALID_REDEMPTION_TYPE]: `Invalid redemption type value.`,
     [ANCHOR_ERROR__INVALID_REGISTRY_STATE]: `Ticket registry buffer layout or alignment is invalid`,
@@ -279,6 +336,8 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: `Invalid registry user entry hint provided`,
     [ANCHOR_ERROR__INVALID_WINNER_INDEX]: `Winner index is out of bounds.`,
     [ANCHOR_ERROR__MATH_OVERFLOW]: `Calculation overflow occurred natively.`,
+    [ANCHOR_ERROR__MISMATCHED_BATCH_ID]: `Mismatched redemption batch ID.`,
+    [ANCHOR_ERROR__MISMATCHED_POOL_ID]: `Mismatched pool ID on batch account.`,
     [ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS]: `Required remaining account for swapped user's UserWinnings is missing`,
     [ANCHOR_ERROR__NO_PENDING_ADMIN]: `No pending admin transfer nomination in progress.`,
     [ANCHOR_ERROR__NOT_PENDING_ADMIN]: `Caller is not the nominated pending admin.`,
@@ -287,8 +346,10 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__PAYOUTS_PENDING]: `Cannot close payout registry: payouts are still pending.`,
     [ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE]: `Payout settlement timelock is active.`,
     [ANCHOR_ERROR__POOL_CLOSED]: `The prize pool is closed permanently.`,
+    [ANCHOR_ERROR__POOL_IMPAIRED]: `Pool is in impaired mode.`,
     [ANCHOR_ERROR__POOL_NOT_ACTIVE]: `The prize pool is not currently active.`,
     [ANCHOR_ERROR__POOL_NOT_FROZEN]: `The prize pool must be frozen for draw preparation`,
+    [ANCHOR_ERROR__POOL_NOT_PAUSED]: `Pool is not currently paused.`,
     [ANCHOR_ERROR__POOL_PAUSED]: `The prize pool is paused.`,
     [ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED]: `Prize tiers have not been configured for this pool.`,
     [ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED]: `Randomness account has already been revealed on-chain.`,
@@ -297,11 +358,13 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED]: `RandomnessNotExpired`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED]: `The randomness request has not yet been resolved by the oracle network.`,
     [ANCHOR_ERROR__REBIND_LIMIT_REACHED]: `Maximum crank rebind limit reached for this draw cycle.`,
+    [ANCHOR_ERROR__REDEMPTION_BATCH_NOT_SETTLED]: `Redemption batch has not been settled yet.`,
     [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: `The registry account has reached Solana's 10 MB maximum size.`,
     [ANCHOR_ERROR__REGISTRY_FULL]: `The prize pool registration capability has hit absolute capacity constraints.`,
     [ANCHOR_ERROR__REGISTRY_TOO_SMALL]: `The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.`,
     [ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT]: `Cannot rebind to the same randomness account.`,
     [ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST]: `The randomness request is stale or was committed before the harvest freeze.`,
+    [ANCHOR_ERROR__SUBMITTED_BATCH_IN_FLIGHT]: `A redemption batch is already in-flight in Huma queue.`,
     [ANCHOR_ERROR__TOO_MANY_WINNERS]: `Winner count exceeds payout registry capacity`,
     [ANCHOR_ERROR__TRANSFER_FEE_NOT_SUPPORTED]: `Token mint contains unsupported transfer fee extension.`,
     [ANCHOR_ERROR__TRANSFER_HOOK_NOT_SUPPORTED]: `Token mint contains unsupported transfer hook extension.`,
@@ -312,6 +375,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__WINNER_MISMATCH]: `Winner account does not match the payout registry entry.`,
     [ANCHOR_ERROR__YIELD_VENUE_INSOLVENT]: `Yield venue is insolvent.`,
     [ANCHOR_ERROR__ZERO_SHARES_MINTED]: `Huma deposit produced zero PST shares.`,
+    [ANCHOR_ERROR__ZERO_SHARES_REDEEMED]: `Batch submission derived zero PST shares.`,
   };
 }
 

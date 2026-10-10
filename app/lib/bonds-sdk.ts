@@ -31,9 +31,12 @@ import {
   decodePayoutRegistry,
   decodeUserWinnings,
   decodePendingRedemption,
+  decodeRedemptionBatch,
   getPendingRedemptionSize,
+  getRedemptionBatchSize,
   getUserWinningsSize,
   PENDING_REDEMPTION_DISCRIMINATOR,
+  REDEMPTION_BATCH_DISCRIMINATOR,
 } from "./generated/yield-bonds/src/generated";
 import type {
   GlobalConfig,
@@ -42,6 +45,7 @@ import type {
   PayoutRegistry,
   UserWinnings,
   PendingRedemption,
+  RedemptionBatch,
 } from "./generated/yield-bonds/src/generated";
 
 export {
@@ -52,7 +56,9 @@ export {
   decodePayoutRegistry,
   decodeUserWinnings,
   decodePendingRedemption,
+  decodeRedemptionBatch,
   PENDING_REDEMPTION_DISCRIMINATOR,
+  REDEMPTION_BATCH_DISCRIMINATOR,
 };
 export type {
   GlobalConfig,
@@ -61,6 +67,7 @@ export type {
   PayoutRegistry,
   UserWinnings,
   PendingRedemption,
+  RedemptionBatch,
 };
 
 import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
@@ -84,6 +91,7 @@ export type { TicketRegistry };
 
 export {
   RedemptionType,
+  RedemptionBatchStatus,
   DrawStatus,
   DrawSkipReason,
   PoolStatus,
@@ -629,6 +637,21 @@ export async function findPendingRedemptionPda(
   return addr;
 }
 
+export async function findRedemptionBatchPda(
+  poolId: number,
+  batchId: bigint | number
+): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [
+      textEncoder.encode("redemption_batch"),
+      encodeU32(poolId),
+      encodeU64(batchId),
+    ],
+  });
+  return addr;
+}
+
 export async function findHumaPoolAuthorityPda(
   poolState: Address | string,
   programId?: Address
@@ -864,6 +887,16 @@ export function parsePrizePool(data: Uint8Array) {
     totalFeesWithdrawn: Number(decoded.totalFeesWithdrawn),
     totalPrizesAllocated: Number(decoded.totalPrizesAllocated),
     totalPendingRedemptions: Number(decoded.totalPendingRedemptions),
+    accumulatingRedemptionBatchId: Number(
+      decoded.accumulatingRedemptionBatchId
+    ),
+    nextRedemptionBatchId: Number(decoded.nextRedemptionBatchId),
+    submittedBatchId:
+      decoded.submittedBatchId === 0xffffffffffffffffn
+        ? null
+        : Number(decoded.submittedBatchId),
+    totalAccumulatingRedemptions: Number(decoded.totalAccumulatingRedemptions),
+    pausedAt: Number(decoded.pausedAt),
     payoutTimelockSeconds: Number(decoded.payoutTimelockSeconds),
     prizeTiersCount,
     prizeTiers,
@@ -943,27 +976,32 @@ export function parsePendingRedemption(data: Uint8Array): PendingRedemption {
   );
 }
 
+export function parseRedemptionBatch(data: Uint8Array): RedemptionBatch {
+  return decodedData<RedemptionBatch>(decodeRedemptionBatch(mockAccount(data)));
+}
+
 export const PENDING_REDEMPTION_ACCOUNT_SIZE = BigInt(
   getPendingRedemptionSize()
-); // 160n
+); // 144n (8 discriminator + 136 struct)
+
+export const REDEMPTION_BATCH_ACCOUNT_SIZE = BigInt(getRedemptionBatchSize()); // 168n (8 discriminator + 160 struct)
 
 export const USER_WINNINGS_ACCOUNT_SIZE = BigInt(getUserWinningsSize()); // 138n
 
 export const PENDING_REDEMPTION_OFFSETS = {
   DISCRIMINATOR: 0,
-  HUMA_REQUEST_ID: 8,
-  REDEMPTION_ID: 24,
-  AMOUNT: 32,
-  PST_SHARES_LOCKED: 40,
-  REQUESTED_AT: 48,
-  USER: 56,
-  POOL_ID: 88,
-  BUMP: 92,
-  VERSION: 93,
-  REDEMPTION_TYPE: 94,
-  PADDING: 95,
-  RESERVED: 96,
-  ACCOUNT_SIZE: 160,
+  USER: 8,
+  BATCH_ID: 40,
+  REDEMPTION_ID: 48,
+  AMOUNT: 56,
+  REQUESTED_AT: 64,
+  POOL_ID: 72,
+  BUMP: 76,
+  VERSION: 77,
+  REDEMPTION_TYPE: 78,
+  PADDING: 79,
+  RESERVED: 80,
+  ACCOUNT_SIZE: 144,
 } as const;
 
 export interface PendingRedemptionFilterOptions {
@@ -1009,7 +1047,8 @@ export function compareBigInt(a: bigint, b: bigint): number {
 export interface PendingRedemptionCandidate {
   redemptionId: bigint;
   user: Address;
-  humaRequestId: bigint;
+  batchId?: bigint;
+  humaRequestId?: bigint;
   redemptionType?: RedemptionType;
   amount?: bigint;
 }
@@ -1019,6 +1058,7 @@ export interface FetchPendingRedemptionCandidatesParams {
   poolId: number;
   humaPoolState?: Address | string;
   nextRequestId?: bigint;
+  settledBatchId?: bigint;
 }
 
 export async function fetchHumaQueueNextRequestId(
@@ -1099,11 +1139,17 @@ export async function fetchPendingRedemptionCandidates(
     if (!dataBytes) continue;
     try {
       const parsed = parsePendingRedemption(dataBytes);
-      if (parsed.poolId === poolId && parsed.humaRequestId < nextRequestId) {
+      if (
+        parsed.poolId === poolId &&
+        (params.settledBatchId !== undefined
+          ? parsed.batchId === params.settledBatchId
+          : parsed.batchId < nextRequestId)
+      ) {
         candidates.push({
           redemptionId: parsed.redemptionId,
           user: address(parsed.user),
-          humaRequestId: parsed.humaRequestId,
+          batchId: parsed.batchId,
+          humaRequestId: parsed.batchId,
           redemptionType: parsed.redemptionType,
           amount: parsed.amount,
         });
@@ -1115,7 +1161,7 @@ export async function fetchPendingRedemptionCandidates(
 
   candidates.sort(
     (a, b) =>
-      compareBigInt(a.humaRequestId, b.humaRequestId) ||
+      compareBigInt(a.batchId ?? 0n, b.batchId ?? 0n) ||
       compareBigInt(a.redemptionId, b.redemptionId)
   );
 
@@ -1464,11 +1510,30 @@ export function calculatePoolYield(
   };
 }
 
-/** Maximum allowable deficit tolerated as rounding dust during on-chain solvency checks (0.001 USDC = 1,000 micro-USDC). */
-export const SOLVENCY_DUST_TOLERANCE_BASE_UNITS = 1_000n;
+/** Minimum allowable deficit tolerated as rounding dust during solvency checks ($0.01 USDC = 10,000 micro-USDC). */
+export const MIN_SOLVENCY_TOLERANCE = 10_000n;
+
+/** Maximum allowable deficit tolerated as rounding dust during solvency checks ($20.00 USDC cap = 20,000,000 micro-USDC). */
+export const MAX_SOLVENCY_TOLERANCE = 20_000_000n;
+
+/** Proportional solvency tolerance in basis points (1 bps = 0.01%). */
+export const SOLVENCY_TOLERANCE_BPS = 1n;
+
+/** Expiry in seconds before a batch can be closed with uncollected funds swept to fee wallet (180 days). */
+export const BATCH_CLAIM_EXPIRY_SECONDS = 180n * 86_400n;
 
 /** Default simulated deficit amount in USDC when none is specified (1.0 USDC = 1,000,000 micro-USDC). */
 export const DEFAULT_DEFICIT_USDC = 1.0;
+
+/**
+ * Calculates dynamic solvency tolerance given book value.
+ */
+export function calculateSolvencyTolerance(bookValue: bigint): bigint {
+  const dynamic = (bookValue * SOLVENCY_TOLERANCE_BPS) / 10_000n;
+  if (dynamic < MIN_SOLVENCY_TOLERANCE) return MIN_SOLVENCY_TOLERANCE;
+  if (dynamic > MAX_SOLVENCY_TOLERANCE) return MAX_SOLVENCY_TOLERANCE;
+  return dynamic;
+}
 
 export interface DeficitValuationParams {
   bookValue: bigint;
@@ -1571,7 +1636,7 @@ export function calculateDeficitSimulation(params: {
     requiredTotalAssets,
     deltaReduction,
     isBelowDustTolerance:
-      deficitMicroUsdc <= SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
+      deficitMicroUsdc <= calculateSolvencyTolerance(bookValue),
   };
 }
 
@@ -2295,49 +2360,30 @@ export async function buildWithdrawFeesInstruction(params: {
   admin: Address | TransactionSigner;
   poolId: number;
   amount: bigint | number;
-  tokenMint: Address;
   feeWallet: Address;
   nextRedemptionId: bigint | number;
-  humaAddresses?: Partial<HumaPoolAddresses>;
+  accumulatingRedemptionBatchId: bigint | number;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
-  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const redemptionBatch = await findRedemptionBatchPda(
+    params.poolId,
+    params.accumulatingRedemptionBatchId
+  );
   const pendingRedemption = await findPendingRedemptionPda(
     params.poolId,
     params.nextRedemptionId
   );
-  const huma = resolveAndRequireHumaAddresses(
-    params.humaAddresses,
-    WITHDRAW_FEES_REQUIRED_HUMA_KEYS,
-    "WithdrawFees"
-  );
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(
-    huma.poolState,
-    huma.program
-  );
-  const humaPoolModeToken =
-    huma.poolModeToken ??
-    (await findAtaAddress(humaPoolAuthority, huma.modeMint, TOKEN_PROGRAM_ID));
 
-  return getWithdrawFeesInstructionAsync({
+  const ix = await getWithdrawFeesInstructionAsync({
     admin: params.admin as TransactionSigner,
     pool,
-    poolPstVault,
+    redemptionBatch,
     pendingRedemption,
-    humaConfig: huma.config,
-    humaPoolConfig: huma.poolConfig,
-    humaPoolState: huma.poolState,
-    humaModeConfig: huma.modeConfig,
-    humaModeMint: huma.modeMint,
-    humaRedemptionRequest: huma.redemptionRequest,
-    humaLenderState: huma.lenderState,
-    humaPoolAuthority,
-    humaPoolModeToken,
-    pstTokenProgram: TOKEN_PROGRAM_ID,
-    amount: BigInt(params.amount),
-    tokenMint: params.tokenMint,
     feeWallet: params.feeWallet,
+    amount: BigInt(params.amount),
   });
+
+  return elevateSignerRole(ix, params.admin);
 }
 
 export async function buildAdminForceUnlockDrawInstruction(params: {
@@ -2394,8 +2440,8 @@ export interface BuildClaimRedemptionParams {
   beneficiary: Address;
   poolId: number;
   redemptionId: bigint | number;
+  batchId: bigint | number;
   tokenMint: Address;
-  humaAddresses?: Partial<HumaPoolAddresses>;
   redemptionType?: RedemptionType;
   feeWallet?: Address;
   beneficiaryTokenAccount?: Address;
@@ -2426,6 +2472,7 @@ export async function buildClaimRedemptionInstruction(
 ) {
   const pool = await findPrizePoolPda(params.poolId);
   const poolVaultAccount = await findPoolVaultPda(params.poolId);
+  const batch = await findRedemptionBatchPda(params.poolId, params.batchId);
   const pendingRedemption = await findPendingRedemptionPda(
     params.poolId,
     BigInt(params.redemptionId)
@@ -2441,46 +2488,16 @@ export async function buildClaimRedemptionInstruction(
           tokenProgram
         ));
 
-  const huma = resolveAndRequireHumaAddresses(
-    params.humaAddresses,
-    CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS,
-    "ClaimRedemption",
-    params.humaAddresses?.poolState
-  );
-
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(
-    huma.poolState,
-    huma.program
-  );
-  const humaPoolUnderlyingToken =
-    huma.poolUnderlyingToken ??
-    (await findAtaAddress(humaPoolAuthority, params.tokenMint, tokenProgram));
-
-  if (humaPoolUnderlyingToken === poolVaultAccount) {
-    throw new Error(
-      "Invariant violation: humaPoolUnderlyingToken cannot equal poolVaultAccount. This violates Anchor duplicate mutable account constraints."
-    );
-  }
-
-  const eventAuthority = await findEventAuthorityPda();
-
   const ix = await getClaimRedemptionInstructionAsync({
     caller: params.crank as TransactionSigner,
     beneficiary: params.beneficiary,
     pool,
+    batch,
     pendingRedemption,
     tokenMint: params.tokenMint,
     poolVaultAccount,
     beneficiaryTokenAccount,
-    humaConfig: huma.config,
-    humaPoolConfig: huma.poolConfig,
-    humaPoolState: huma.poolState,
-    humaModeConfig: huma.modeConfig,
-    humaLenderState: huma.lenderState,
-    humaPoolAuthority,
-    humaPoolUnderlyingToken,
     tokenProgram,
-    eventAuthority,
   });
 
   return elevateSignerRole(ix, params.crank);

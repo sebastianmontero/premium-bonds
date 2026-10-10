@@ -93,18 +93,11 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
         huma_pool_state,
     );
 
-    let huma_redemption_request = Keypair::new().pubkey();
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_dummy_huma_account(&mut svm, huma_redemption_request);
-    inject_dummy_huma_account(&mut svm, huma_lender_state);
+    let batch_pda = inject_redemption_batch(&mut svm, pool_id, 0);
 
     let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
         .with_ticket_registry(ticket_registry)
-        .with_token_mint(token_mint)
-        .with_huma_pool_state(huma_pool_state)
-        .with_huma_mode_mint(pst_mint)
-        .with_huma_redemption_request(huma_redemption_request)
-        .with_huma_lender_state(huma_lender_state)
+        .with_redemption_batch(batch_pda)
         .with_shares(1, 0)
         .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
@@ -138,14 +131,22 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
         anchor::state::InitPendingRedemptionParams {
             pool_id,
             redemption_id: 0,
+            batch_id: 0,
             bump,
             user: user.pubkey(),
             amount: 1_000_000,
-            pst_shares_locked: 1_000_000,
-            huma_request_id: 1,
             requested_at: 0,
             redemption_type: anchor::state::RedemptionType::BondSale,
         },
+    );
+
+    let batch_pda = inject_redemption_batch_with_state(
+        &mut svm,
+        pool_id,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        1_000_000,
+        1_000_000,
     );
 
     let huma_pool_state = Keypair::new().pubkey();
@@ -161,17 +162,10 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
         huma_pool_state,
     );
 
-    let huma_lender_state = Keypair::new().pubkey();
-    let huma_pool_underlying_token = Keypair::new().pubkey();
-    inject_dummy_huma_account(&mut svm, huma_lender_state);
-    inject_dummy_huma_account(&mut svm, huma_pool_underlying_token);
-
     let res = ClaimRedemptionBuilder::for_redemption(pool_id, 0, user.pubkey(), user.pubkey())
         .with_beneficiary_token_account(user_token_account)
         .with_token_mint(token_mint)
-        .with_huma_pool_state(huma_pool_state)
-        .with_huma_lender_state(huma_lender_state)
-        .with_huma_pool_underlying_token(huma_pool_underlying_token)
+        .with_batch(batch_pda)
         .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
@@ -215,18 +209,11 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
         .with_fees_accrued(10_000_000)
         .inject(&mut svm);
 
-    let huma_redemption_request = Keypair::new().pubkey();
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_dummy_huma_account(&mut svm, huma_redemption_request);
-    inject_dummy_huma_account(&mut svm, huma_lender_state);
+    let batch_pda = inject_redemption_batch(&mut svm, pool_id, 0);
 
     let res = WithdrawFeesBuilder::for_pool(pool_id, admin.pubkey())
-        .with_token_mint(token_mint)
         .with_fee_wallet(fee_wallet)
-        .with_huma_pool_state(huma_pool_state)
-        .with_huma_mode_mint(pst_mint)
-        .with_huma_redemption_request(huma_redemption_request)
-        .with_huma_lender_state(huma_lender_state)
+        .with_redemption_batch(batch_pda)
         .with_amount(1_000_000)
         .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::PoolPaused);

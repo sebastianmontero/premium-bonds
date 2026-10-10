@@ -56,6 +56,7 @@ import {
 } from "@solana/signers";
 import {
   findGlobalConfigPda,
+  findInitialRedemptionBatchPda,
   findPoolPda,
   findPoolPstVaultPda,
   findPoolVaultAccountPda,
@@ -81,6 +82,7 @@ export type CreatePoolInstruction<
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
+  TAccountInitialRedemptionBatch extends string | AccountMeta<string> = string,
   TAccountTicketRegistry extends string | AccountMeta<string> = string,
   TAccountTokenMint extends string | AccountMeta<string> = string,
   TAccountPstMint extends string | AccountMeta<string> = string,
@@ -108,6 +110,9 @@ export type CreatePoolInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
+      TAccountInitialRedemptionBatch extends string
+        ? WritableAccount<TAccountInitialRedemptionBatch>
+        : TAccountInitialRedemptionBatch,
       TAccountTicketRegistry extends string
         ? WritableAccount<TAccountTicketRegistry>
         : TAccountTicketRegistry,
@@ -210,6 +215,7 @@ export type CreatePoolAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountInitialRedemptionBatch extends string = string,
   TAccountTicketRegistry extends string = string,
   TAccountTokenMint extends string = string,
   TAccountPstMint extends string = string,
@@ -235,6 +241,12 @@ export type CreatePoolAsyncInput<
    * PDA seeds: `[PRIZE_POOL_SEED, pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
    */
   pool?: Address<TAccountPool>;
+  /**
+   * Initial accumulating redemption batch (Batch #0).
+   *
+   * PDA seeds: `[REDEMPTION_BATCH_SEED, pool_id.to_le_bytes().as_ref(), 0u64.to_le_bytes().as_ref()]`.
+   */
+  initialRedemptionBatch?: Address<TAccountInitialRedemptionBatch>;
   /**
    * The zero-initialized ticket registry account that will hold user raffle entries.
    * Must be pre-allocated by the client with sufficient space.
@@ -280,6 +292,7 @@ export async function getCreatePoolInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountInitialRedemptionBatch extends string,
   TAccountTicketRegistry extends string,
   TAccountTokenMint extends string,
   TAccountPstMint extends string,
@@ -296,6 +309,7 @@ export async function getCreatePoolInstructionAsync<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
+    TAccountInitialRedemptionBatch,
     TAccountTicketRegistry,
     TAccountTokenMint,
     TAccountPstMint,
@@ -314,6 +328,7 @@ export async function getCreatePoolInstructionAsync<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
+    TAccountInitialRedemptionBatch,
     TAccountTicketRegistry,
     TAccountTokenMint,
     TAccountPstMint,
@@ -334,6 +349,10 @@ export async function getCreatePoolInstructionAsync<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: true },
     pool: { value: input.pool ?? null, isWritable: true },
+    initialRedemptionBatch: {
+      value: input.initialRedemptionBatch ?? null,
+      isWritable: true,
+    },
     ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
     tokenMint: { value: input.tokenMint ?? null, isWritable: false },
     pstMint: { value: input.pstMint ?? null, isWritable: false },
@@ -368,6 +387,11 @@ export async function getCreatePoolInstructionAsync<
       poolId: getNonNullResolvedInstructionInput("poolId", args.poolId),
     });
   }
+  if (!accounts.initialRedemptionBatch.value) {
+    accounts.initialRedemptionBatch.value = await findInitialRedemptionBatchPda(
+      { poolId: getNonNullResolvedInstructionInput("poolId", args.poolId) }
+    );
+  }
   if (!accounts.poolVaultAccount.value) {
     accounts.poolVaultAccount.value = await findPoolVaultAccountPda({
       poolId: getNonNullResolvedInstructionInput("poolId", args.poolId),
@@ -393,6 +417,7 @@ export async function getCreatePoolInstructionAsync<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("initialRedemptionBatch", accounts.initialRedemptionBatch),
       getAccountMeta("ticketRegistry", accounts.ticketRegistry),
       getAccountMeta("tokenMint", accounts.tokenMint),
       getAccountMeta("pstMint", accounts.pstMint),
@@ -413,6 +438,7 @@ export async function getCreatePoolInstructionAsync<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
+    TAccountInitialRedemptionBatch,
     TAccountTicketRegistry,
     TAccountTokenMint,
     TAccountPstMint,
@@ -430,6 +456,7 @@ export type CreatePoolInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountInitialRedemptionBatch extends string = string,
   TAccountTicketRegistry extends string = string,
   TAccountTokenMint extends string = string,
   TAccountPstMint extends string = string,
@@ -455,6 +482,12 @@ export type CreatePoolInput<
    * PDA seeds: `[PRIZE_POOL_SEED, pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
    */
   pool: Address<TAccountPool>;
+  /**
+   * Initial accumulating redemption batch (Batch #0).
+   *
+   * PDA seeds: `[REDEMPTION_BATCH_SEED, pool_id.to_le_bytes().as_ref(), 0u64.to_le_bytes().as_ref()]`.
+   */
+  initialRedemptionBatch: Address<TAccountInitialRedemptionBatch>;
   /**
    * The zero-initialized ticket registry account that will hold user raffle entries.
    * Must be pre-allocated by the client with sufficient space.
@@ -500,6 +533,7 @@ export function getCreatePoolInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountInitialRedemptionBatch extends string,
   TAccountTicketRegistry extends string,
   TAccountTokenMint extends string,
   TAccountPstMint extends string,
@@ -516,6 +550,7 @@ export function getCreatePoolInstruction<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
+    TAccountInitialRedemptionBatch,
     TAccountTicketRegistry,
     TAccountTokenMint,
     TAccountPstMint,
@@ -533,6 +568,7 @@ export function getCreatePoolInstruction<
   TAccountGlobalConfig,
   TAccountAdmin,
   TAccountPool,
+  TAccountInitialRedemptionBatch,
   TAccountTicketRegistry,
   TAccountTokenMint,
   TAccountPstMint,
@@ -552,6 +588,10 @@ export function getCreatePoolInstruction<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: true },
     pool: { value: input.pool ?? null, isWritable: true },
+    initialRedemptionBatch: {
+      value: input.initialRedemptionBatch ?? null,
+      isWritable: true,
+    },
     ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
     tokenMint: { value: input.tokenMint ?? null, isWritable: false },
     pstMint: { value: input.pstMint ?? null, isWritable: false },
@@ -593,6 +633,7 @@ export function getCreatePoolInstruction<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("initialRedemptionBatch", accounts.initialRedemptionBatch),
       getAccountMeta("ticketRegistry", accounts.ticketRegistry),
       getAccountMeta("tokenMint", accounts.tokenMint),
       getAccountMeta("pstMint", accounts.pstMint),
@@ -613,6 +654,7 @@ export function getCreatePoolInstruction<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
+    TAccountInitialRedemptionBatch,
     TAccountTicketRegistry,
     TAccountTokenMint,
     TAccountPstMint,
@@ -647,36 +689,42 @@ export type ParsedCreatePoolInstruction<
      */
     pool: TAccountMetas[2];
     /**
+     * Initial accumulating redemption batch (Batch #0).
+     *
+     * PDA seeds: `[REDEMPTION_BATCH_SEED, pool_id.to_le_bytes().as_ref(), 0u64.to_le_bytes().as_ref()]`.
+     */
+    initialRedemptionBatch: TAccountMetas[3];
+    /**
      * The zero-initialized ticket registry account that will hold user raffle entries.
      * Must be pre-allocated by the client with sufficient space.
      */
-    ticketRegistry: TAccountMetas[3];
+    ticketRegistry: TAccountMetas[4];
     /** The underlying token mint (e.g. USDC) used for bond purchases. */
-    tokenMint: TAccountMetas[4];
+    tokenMint: TAccountMetas[5];
     /** The Huma yield-bearing $PST token mint representing deposits. */
-    pstMint: TAccountMetas[5];
+    pstMint: TAccountMetas[6];
     /**
      * The pool's underlying token vault holding intermediate deposits.
      *
      * PDA seeds: `[POOL_VAULT_SEED, pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
      */
-    poolVaultAccount: TAccountMetas[6];
+    poolVaultAccount: TAccountMetas[7];
     /**
      * The pool's $PST token vault holding the Huma yield-bearing shares.
      *
      * PDA seeds: `[POOL_PST_SEED, pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
      */
-    poolPstVault: TAccountMetas[7];
+    poolPstVault: TAccountMetas[8];
     /** The token account designated to receive protocol fees. */
-    feeWallet: TAccountMetas[8];
+    feeWallet: TAccountMetas[9];
     /** Pinned Huma pool state account for this pool. */
-    humaPoolState: TAccountMetas[9];
+    humaPoolState: TAccountMetas[10];
     /** Solana System Program. */
-    systemProgram: TAccountMetas[10];
+    systemProgram: TAccountMetas[11];
     /** Token program for the underlying mint. */
-    tokenProgram: TAccountMetas[11];
+    tokenProgram: TAccountMetas[12];
     /** Token program for the Huma $PST mint. */
-    pstTokenProgram: TAccountMetas[12];
+    pstTokenProgram: TAccountMetas[13];
   };
   data: CreatePoolInstructionData;
 };
@@ -689,12 +737,12 @@ export function parseCreatePoolInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedCreatePoolInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 13) {
+  if (instruction.accounts.length < 14) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 13,
+        expectedAccountMetas: 14,
       }
     );
   }
@@ -710,6 +758,7 @@ export function parseCreatePoolInstruction<
       globalConfig: getNextAccount(),
       admin: getNextAccount(),
       pool: getNextAccount(),
+      initialRedemptionBatch: getNextAccount(),
       ticketRegistry: getNextAccount(),
       tokenMint: getNextAccount(),
       pstMint: getNextAccount(),

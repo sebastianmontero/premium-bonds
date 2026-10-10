@@ -82,7 +82,7 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
       const red1 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 10n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
 
@@ -329,7 +329,7 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
       const redSettled = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 1n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
 
@@ -357,19 +357,19 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
       const redSettled = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 1n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
       const redUnsettledExact = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 2n,
-        humaRequestId: 5n,
+        batchId: 5n,
         user: TEST_ADDRESSES.USER,
       });
       const redUnsettledFuture = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 3n,
-        humaRequestId: 6n,
+        batchId: 6n,
         user: TEST_ADDRESSES.USER,
       });
 
@@ -405,13 +405,13 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
       const redPool1 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 1n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
       const redPool2 = buildMockPendingRedemptionEncoded({
         poolId: 2,
         redemptionId: 2n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
 
@@ -442,7 +442,7 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
       const redValid = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 1n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
 
@@ -475,19 +475,19 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
       const redReq3 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 1n,
-        humaRequestId: 3n,
+        batchId: 3n,
         user: TEST_ADDRESSES.USER,
       });
       const redReq1 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 2n,
-        humaRequestId: 1n,
+        batchId: 1n,
         user: TEST_ADDRESSES.USER,
       });
       const redReq2 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 3n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
 
@@ -524,19 +524,19 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
       const redId20 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 20n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
       const redId10 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 10n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
       const redId30 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 30n,
-        humaRequestId: 2n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
 

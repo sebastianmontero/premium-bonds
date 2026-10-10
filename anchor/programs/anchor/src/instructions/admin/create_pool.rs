@@ -1,10 +1,10 @@
 use crate::constants::{
-    DISCRIMINATOR, EXPECTED_TOKEN_DECIMALS, GLOBAL_CONFIG_SEED, POOL_PST_SEED, POOL_VAULT_SEED,
-    PRIZE_POOL_SEED, REGISTRY_INITIAL_SIZE,
+    DISCRIMINATOR, EXPECTED_TOKEN_DECIMALS, GLOBAL_CONFIG_SEED, NO_SUBMITTED_BATCH, POOL_PST_SEED,
+    POOL_VAULT_SEED, PRIZE_POOL_SEED, REDEMPTION_BATCH_SEED, REGISTRY_INITIAL_SIZE,
 };
 use crate::error::PremiumBondsError;
 use crate::events::PoolCreated;
-use crate::state::{GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
+use crate::state::{GlobalConfig, PoolStatus, PrizePool, RedemptionBatch, TicketRegistry};
 use crate::utils::registry_capacity_from_len;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
@@ -39,6 +39,22 @@ pub struct CreatePool<'info> {
         bump
     )]
     pub pool: AccountLoader<'info, PrizePool>,
+
+    /// Initial accumulating redemption batch (Batch #0).
+    ///
+    /// PDA seeds: `[REDEMPTION_BATCH_SEED, pool_id.to_le_bytes().as_ref(), 0u64.to_le_bytes().as_ref()]`.
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + std::mem::size_of::<RedemptionBatch>(),
+        seeds = [
+            REDEMPTION_BATCH_SEED,
+            pool_id.to_le_bytes().as_ref(),
+            0u64.to_le_bytes().as_ref(),
+        ],
+        bump
+    )]
+    pub initial_redemption_batch: Account<'info, RedemptionBatch>,
 
     /// The zero-initialized ticket registry account that will hold user raffle entries.
     /// Must be pre-allocated by the client with sufficient space.
@@ -113,17 +129,6 @@ pub struct CreatePool<'info> {
 
 /// Creates and initializes a new prize pool, setting up its configurations,
 /// vault accounts, and initializing the ticket registry.
-///
-/// # Parameters
-/// * `ctx` - The context of the create pool instruction.
-/// * `pool_id` - A unique identifier for the pool.
-/// * `bond_price` - The price of a single bond/ticket in underlying tokens.
-/// * `stake_cycle_duration_hrs` - The duration of each staking/draw cycle in hours.
-/// * `fee_basis_points` - Protocol fee rate in basis points (e.g., 50 = 0.5%).
-/// * `min_yield_threshold` - Minimum yield required (in base units) to execute a draw cycle.
-/// * `max_yield_basis_points` - Maximum allowable yield basis points per single cycle (0 = uncapped).
-/// * `payout_timelock_seconds` - Timelock delay in seconds before winner payouts can be cranked.
-/// * `prize_tiers` - The initial prize tiers distribution configuration for the pool.
 pub fn handle(
     ctx: Context<CreatePool>,
     pool_id: u32,
@@ -151,6 +156,8 @@ pub fn handle(
     crate::utils::assert_supported_mint_extensions(&ctx.accounts.token_mint.to_account_info())?;
     crate::utils::assert_supported_mint_extensions(&ctx.accounts.pst_mint.to_account_info())?;
 
+    let clock = Clock::get()?;
+
     let mut pool = ctx.accounts.pool.load_init()?;
     pool.vault_authority_bump = ctx.bumps.pool;
     pool.pool_id = pool_id;
@@ -166,11 +173,16 @@ pub fn handle(
     pool.min_yield_threshold = min_yield_threshold;
     pool.status = PoolStatus::Active as u8;
     pool.total_deposited_principal = 0;
+    pool.paused_at = 0;
     pool.is_frozen_for_draw = 0;
     pool.current_draw_cycle_id = 0;
     pool._padding = [0; 3];
     pool.set_prize_tiers(&prize_tiers)?;
     pool.next_redemption_id = 0;
+    pool.accumulating_redemption_batch_id = 0;
+    pool.next_redemption_batch_id = 1;
+    pool.submitted_batch_id = NO_SUBMITTED_BATCH;
+    pool.total_accumulating_redemptions = 0;
     pool.total_fees_accrued = 0;
     pool.total_fees_withdrawn = 0;
     pool.total_prizes_allocated = 0;
@@ -178,7 +190,14 @@ pub fn handle(
     pool.version = PrizePool::CURRENT_VERSION;
     pool._reserved = [0; 128];
 
-    let clock = Clock::get()?;
+    // Initialize initial accumulating batch (Batch #0)
+    ctx.accounts.initial_redemption_batch.init_accumulating(
+        pool_id,
+        0,
+        ctx.bumps.initial_redemption_batch,
+        clock.unix_timestamp,
+    );
+
     pool.advance_cycle_end_at(clock.unix_timestamp)?;
 
     let initial_len = ctx.accounts.ticket_registry.to_account_info().data_len();

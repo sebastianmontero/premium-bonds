@@ -4,18 +4,25 @@ pub mod admin_force_unlock_draw;
 pub mod admin_void_payout_registry;
 pub mod claim_non_reinvested_winnings;
 pub mod crank_close_payout_registry;
+pub mod crank_close_redemption_batch;
 pub mod crank_rebind_expired_randomness;
+pub mod crank_submit_redemption_batch;
 pub mod harvest_yield_and_commit;
 pub mod prepare_draw;
 pub mod reinvest_winnings;
 pub mod reveal_and_pick_winners;
+pub mod settle_redemption_batch;
 
 pub use admin_force_unlock_draw::*;
 pub use admin_void_payout_registry::*;
 pub use claim_non_reinvested_winnings::*;
 pub use crank_close_payout_registry::*;
+pub use crank_close_redemption_batch::*;
 pub use crank_rebind_expired_randomness::*;
+pub use crank_submit_redemption_batch::*;
 pub use harvest_yield_and_commit::*;
 pub use prepare_draw::*;
 pub use reinvest_winnings::*;
 pub use reveal_and_pick_winners::*;
+pub use settle_redemption_batch::*;
+

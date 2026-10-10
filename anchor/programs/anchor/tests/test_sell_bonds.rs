@@ -36,10 +36,7 @@ struct GuardCtx {
 impl GuardCtx {
     pub fn sell_builder(&self, active_to_sell: u32, pending_to_sell: u32) -> SellBondsBuilder {
         SellBondsBuilder::for_pool(1, self.user.pubkey())
-            .with_token_mint(self.token_mint)
             .with_ticket_registry(self.ticket_registry)
-            .with_huma_pool_state(self.huma_pool_state)
-            .with_huma_mode_mint(self.huma_mode_mint)
             .with_shares(active_to_sell, pending_to_sell)
     }
 
@@ -126,16 +123,16 @@ fn test_sell_bonds_fails_pool_frozen() {
 }
 
 #[test]
-fn test_sell_bonds_fails_invalid_huma_program() {
+fn test_sell_bonds_fails_invalid_batch() {
     let mut ctx = setup_guard(false, 1, 0, &[]);
-    let fake_huma = Keypair::new().pubkey();
+    let wrong_batch = inject_redemption_batch(&mut ctx.svm, 1, 99);
 
     let res = ctx
         .sell_builder(1, 0)
-        .with_huma_program(fake_huma)
+        .with_redemption_batch(wrong_batch)
         .send(&mut ctx.svm, &ctx.user);
 
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -225,16 +222,12 @@ fn test_sell_bonds_e2e_happy_path() {
         "Registry pending tickets must decrease to 7"
     );
 
-    // Vault balances: 3_000_000 PST should have moved to huma_pool_mode_token
+    // In unified batching, pool_pst_vault remains untouched during sell_bonds accumulation.
+    // PST shares are redeemed in bulk when crank_submit_redemption_batch is called.
     assert_eq!(
         read_token_balance(&ctx.svm, pool_pst_vault),
-        7_000_000,
-        "Pool PST vault must decrease to 7 PST shares"
-    );
-    assert_eq!(
-        read_token_balance(&ctx.svm, huma_pool_mode_token),
-        3_000_000,
-        "Huma pool mode token must receive 3 PST shares"
+        10_000_000,
+        "Pool PST vault holds shares until batch submission"
     );
 
     // A PendingRedemption PDA should be created at ID 0
@@ -257,10 +250,6 @@ fn test_sell_bonds_e2e_happy_path() {
     assert_eq!(
         pending_redemption.amount, 3_000_000,
         "Redemption amount mismatch"
-    );
-    assert_eq!(
-        pending_redemption.pst_shares_locked, 3_000_000,
-        "Locked PST shares mismatch"
     );
     assert_eq!(
         pending_redemption.redemption_type,
@@ -321,10 +310,18 @@ fn test_claim_redemption_e2e_happy_path() {
         "User USDC balance should be 90 USDC before claim"
     );
 
-    // Inject simulated Huma lender state
+    // Inject simulated Huma lender state and settled batch
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        3_000_000,
+        3_000_000,
+    );
 
     // Claim redemption
     send_e2e_claim_redemption_for_user(
@@ -433,8 +430,6 @@ fn test_sell_bonds_multiple_users_and_sales() {
     assert_eq!(event_a.bonds, 1, "event_a bonds sold is 1");
     assert_eq!(event_a.principal, 1_000_000, "event_a principal is 1 USDC");
     assert_eq!(event_a.redemption_id, 0, "event_a redemption_id is 0");
-    assert!(event_a.pst_shares > 0, "event_a pst_shares is positive");
-    assert_eq!(event_a.huma_request_id, 0, "event_a huma_request_id is 0");
     assert_eq!(
         event_a.user_remaining_bonds, 2,
         "event_a user_remaining_bonds is 2"
@@ -569,7 +564,7 @@ fn test_sell_bonds_e2e_swap_and_pop() {
 }
 
 #[test]
-fn test_sell_bonds_fails_huma_redemption_error() {
+fn test_sell_bonds_queues_into_accumulating_batch() {
     let mut ctx = setup_e2e();
     let huma_pool_mode_token = create_spl_token_account(
         &mut ctx.svm,
@@ -582,31 +577,24 @@ fn test_sell_bonds_fails_huma_redemption_error() {
 
     let user_a = clone_keypair(&ctx.user);
 
-    // Attempt to sell with FAIL_REDEMPTION_PUBKEY
     let res = send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
         0,
         1,
-        FAIL_REDEMPTION_PUBKEY,
+        Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,
     );
+    assert!(res.is_ok(), "Selling bonds must successfully queue into accumulating batch");
 
-    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedRedemptionFailure);
+    let pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool.total_accumulating_redemptions, 1_000_000);
 }
 
 #[test]
-fn test_claim_redemption_fails_huma_disburse_error() {
+fn test_claim_redemption_fails_unsettled_batch() {
     let mut ctx = setup_e2e();
-    mint_tokens(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.usdc_mint,
-        &ctx.huma_pool_underlying_token,
-        &ctx.usdc_mint_authority,
-        10_000_000,
-    );
     let huma_pool_mode_token = create_spl_token_account(
         &mut ctx.svm,
         &ctx.admin,
@@ -630,21 +618,12 @@ fn test_claim_redemption_fails_huma_disburse_error() {
     )
     .unwrap();
 
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 1_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    let res = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), user_a_usdc)
+        .with_redemption_id(0)
+        .send(&mut ctx.svm, &user_a);
 
-    // Claim with FAIL_DISBURSE_PUBKEY
-    let res = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
-        0,
-        FAIL_DISBURSE_PUBKEY,
-        huma_lender_state,
-    );
-
-    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedDisburseFailure);
+    assert_custom_error(res, anchor::error::PremiumBondsError::RedemptionBatchNotSettled);
 }
 
 #[test]
@@ -681,22 +660,15 @@ fn test_claim_redemption_fails_not_settled() {
     )
     .unwrap();
 
-    let huma_lender_state = Keypair::new().pubkey();
-    // Inject lender state with insufficient settled amount (500_000 < 1_000_000)
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 500_000);
-
-    let res = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
-        0,
-        Pubkey::default(),
-        huma_lender_state,
-    );
+    // Batch 0 is still Accumulating (not Settled)
+    let res = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), user_a_usdc)
+        .with_redemption_id(0)
+        .send(&mut ctx.svm, &user_a);
 
     assert_custom_error(
         res,
-        anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
+        anchor::error::PremiumBondsError::RedemptionBatchNotSettled,
     );
 }
 
@@ -759,7 +731,7 @@ fn test_claim_redemption_fails_wrong_owner() {
 }
 
 #[test]
-fn test_sell_bonds_fails_invalid_mode_mint() {
+fn test_sell_bonds_accumulates_without_huma_mode_mint_dependency() {
     let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
@@ -780,10 +752,6 @@ fn test_sell_bonds_fails_invalid_mode_mint() {
 
     let user_a = clone_keypair(&ctx.user);
 
-    // Create a fake mint and configure ctx.pst_mint to it
-    let fake_mint = create_spl_mint(&mut ctx.svm, &ctx.admin, &ctx.admin.pubkey(), 6);
-    ctx.pst_mint = fake_mint;
-
     let res = send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
@@ -794,7 +762,7 @@ fn test_sell_bonds_fails_invalid_mode_mint() {
         huma_pool_mode_token,
     );
 
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
+    assert!(res.is_ok(), "SellBonds does not depend on mode mint in unified batching");
 }
 
 #[test]
@@ -865,26 +833,20 @@ fn test_sell_bonds_fails_u32_overflow() {
 }
 
 #[test]
-fn test_sell_bonds_fails_yield_venue_insolvent() {
+fn test_sell_bonds_records_principal_in_accumulating_batch() {
     let mut ctx = setup_guard(false, 1, 0, &[]);
     // Inject valid user entry in ticket registry
     let entries = vec![UserEntryTestBuilder::active(ctx.user.pubkey(), 10)];
     inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 0);
 
-    // Update pool total_deposited_principal so sell_bonds doesn't underflow on checked_sub
+    // Update pool total_deposited_principal
     PrizePoolTestBuilder::from_state(&ctx.svm, 1)
         .with_principal(10_000_000)
         .inject(&mut ctx.svm);
 
-    // Set pst_mint supply > 0 (e.g. 1_000_000)
-    inject_mint_with_supply(&mut ctx.svm, ctx.huma_mode_mint, 6, 1_000_000);
-
-    // Set insolvent Huma pool state: total_assets = 0
-    inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 0);
-
     let res = send_sell_guard(&mut ctx, 1, 0);
-    assert_custom_error(res, anchor::error::PremiumBondsError::YieldVenueInsolvent);
+    assert!(res.is_ok(), "SellBonds records principal locally into accumulating batch");
 }
 
 #[test]
@@ -940,10 +902,9 @@ fn test_sell_bonds_pst_share_accounting_with_accrued_yield() {
     // 2. Pending redemptions incremented by expected principal
     assert_eq!(pool.total_pending_redemptions, 10_000_000);
 
-    // 3. PendingRedemption PDA stores expected_principal amount and locked PST shares (< 10_000_000)
+    // 3. PendingRedemption PDA stores expected_principal amount
     let pending = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(pending.amount, 10_000_000);
-    assert_eq!(pending.pst_shares_locked, 8_333_334);
 }
 
 #[test]
@@ -1053,9 +1014,6 @@ fn test_sell_bonds_fails_next_redemption_id_overflow() {
     let res = SellBondsBuilder::for_pool(1, ctx.user.pubkey())
         .with_shares(1, 0)
         .with_ticket_registry(ctx.ticket_registry)
-        .with_token_mint(ctx.token_mint)
-        .with_huma_mode_mint(ctx.huma_mode_mint)
-        .with_huma_pool_state(ctx.huma_pool_state)
         .with_pending_redemption(pending_redemption)
         .send(&mut ctx.svm, &ctx.user);
 
@@ -1099,8 +1057,8 @@ fn test_sell_bonds_event_u128_boundary() {
     .unwrap();
 
     let event = assert_cpi_event::<anchor::events::BondsSold>(&meta);
-    assert_eq!(event.huma_request_id, large_request_id);
-    assert!(event.pst_shares > 0);
+    assert_eq!(event.batch_id, 0);
+    assert_eq!(event.principal, 1_000_000);
 }
 
 #[test]
@@ -1202,7 +1160,6 @@ fn test_sell_bonds_swapped_winnings_at_remaining_index_zero() {
 
     SellBondsBuilder::from_ctx(&ctx)
         .with_user(&user_a.pubkey())
-        .with_huma_pool_mode_token(huma_pool_mode_token)
         .with_shares(0, 3)
         .with_swapped_user_winnings(Some(user_b_winnings))
         .send(&mut ctx.svm, &user_a)
@@ -1270,7 +1227,6 @@ fn test_sell_bonds_swapped_winnings_index_mismatch_fails() {
 
     let res = SellBondsBuilder::from_ctx(&ctx)
         .with_user(&user_a.pubkey())
-        .with_huma_pool_mode_token(huma_pool_mode_token)
         .with_shares(0, 3)
         .with_swapped_user_winnings(Some(user_b_winnings))
         .send(&mut ctx.svm, &user_a);
@@ -1314,7 +1270,6 @@ fn test_sell_bonds_decoy_accounts_rejected() {
     {
         let res = SellBondsBuilder::from_ctx(&ctx)
             .with_user(&user_a.pubkey())
-            .with_huma_pool_mode_token(huma_pool_mode_token)
             .with_shares(0, 3)
             .with_remaining_account(solana_program::instruction::AccountMeta::new_readonly(
                 user_b_winnings,
@@ -1345,7 +1300,6 @@ fn test_sell_bonds_decoy_accounts_rejected() {
 
         let res = SellBondsBuilder::from_ctx(&ctx)
             .with_user(&user_a.pubkey())
-            .with_huma_pool_mode_token(huma_pool_mode_token)
             .with_shares(0, 3)
             .with_remaining_account(solana_program::instruction::AccountMeta::new(
                 fake_key, false,
@@ -1375,7 +1329,6 @@ fn test_sell_bonds_decoy_accounts_rejected() {
 
         let res = SellBondsBuilder::from_ctx(&ctx)
             .with_user(&user_a.pubkey())
-            .with_huma_pool_mode_token(huma_pool_mode_token)
             .with_shares(0, 3)
             .with_remaining_account(solana_program::instruction::AccountMeta::new(
                 fake_key, false,
@@ -1420,7 +1373,6 @@ fn test_sell_bonds_decoy_accounts_rejected() {
 
         let res = SellBondsBuilder::from_ctx(&ctx)
             .with_user(&user_a.pubkey())
-            .with_huma_pool_mode_token(huma_pool_mode_token)
             .with_shares(0, 3)
             .with_remaining_account(solana_program::instruction::AccountMeta::new(
                 decoy_pda, false,

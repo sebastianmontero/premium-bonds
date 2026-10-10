@@ -52,6 +52,17 @@ pub fn pending_redemption_pda(pool_id: u32, redemption_id: u64) -> (Pubkey, u8) 
     )
 }
 
+pub fn redemption_batch_pda(pool_id: u32, batch_id: u64) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            REDEMPTION_BATCH_SEED,
+            pool_id.to_le_bytes().as_ref(),
+            batch_id.to_le_bytes().as_ref(),
+        ],
+        &anchor::id(),
+    )
+}
+
 pub fn draw_cycle_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[

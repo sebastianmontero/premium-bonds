@@ -250,9 +250,9 @@ pub struct SellBondsBuilder {
 impl SellBondsBuilder {
     pub fn for_pool(pool_id: u32, user: Pubkey) -> Self {
         let (pool_pda_addr, _) = pool_pda(pool_id);
-        let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
         let (user_winnings, _) = user_winnings_pda(pool_id, &user);
+        let (redemption_batch, _) = redemption_batch_pda(pool_id, 0);
         let dummy = Keypair::new().pubkey();
 
         Self {
@@ -261,22 +261,9 @@ impl SellBondsBuilder {
                 user,
                 user_winnings,
                 pool: pool_pda_addr,
+                redemption_batch,
                 ticket_registry: dummy,
-                token_mint: dummy,
-                pool_pst_vault,
                 pending_redemption,
-                huma_program: huma_program_id(),
-                huma_config: dummy,
-                huma_pool_config: dummy,
-                huma_pool_state: dummy,
-                huma_mode_config: dummy,
-                huma_mode_mint: dummy,
-                huma_redemption_request: dummy,
-                huma_lender_state: dummy,
-                huma_pool_authority: dummy,
-                huma_pool_mode_token: dummy,
-                token_program: anchor_spl::token::ID,
-                pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
@@ -295,10 +282,9 @@ impl SellBondsBuilder {
         let pool_id = 1;
         let (pool_pda_addr, _) = pool_pda(pool_id);
         let pool = read_pool_state(&ctx.svm, pool_id);
-        let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, pool.next_redemption_id);
         let (user_winnings, _) = user_winnings_pda(pool_id, &ctx.user.pubkey());
-        let dummy = Keypair::new().pubkey();
+        let (redemption_batch, _) = redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
 
         Self {
             pool_id,
@@ -306,22 +292,9 @@ impl SellBondsBuilder {
                 user: ctx.user.pubkey(),
                 user_winnings,
                 pool: pool_pda_addr,
+                redemption_batch,
                 ticket_registry: ctx.ticket_registry,
-                token_mint: ctx.usdc_mint,
-                pool_pst_vault,
                 pending_redemption,
-                huma_program: huma_program_id(),
-                huma_config: dummy,
-                huma_pool_config: dummy,
-                huma_pool_state: ctx.huma_pool_state,
-                huma_mode_config: dummy,
-                huma_mode_mint: ctx.pst_mint,
-                huma_redemption_request: dummy,
-                huma_lender_state: ctx.huma_lender_state,
-                huma_pool_authority: ctx.huma_pool_authority,
-                huma_pool_mode_token: ctx.huma_pool_mode_token,
-                token_program: anchor_spl::token::ID,
-                pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
@@ -359,68 +332,13 @@ impl SellBondsBuilder {
         self
     }
 
-    pub fn with_token_mint(mut self, token_mint: Pubkey) -> Self {
-        self.accounts.token_mint = token_mint;
-        self
-    }
-
-    pub fn with_pool_pst_vault(mut self, pool_pst_vault: Pubkey) -> Self {
-        self.accounts.pool_pst_vault = pool_pst_vault;
+    pub fn with_redemption_batch(mut self, redemption_batch: Pubkey) -> Self {
+        self.accounts.redemption_batch = redemption_batch;
         self
     }
 
     pub fn with_pending_redemption(mut self, pending_redemption: Pubkey) -> Self {
         self.accounts.pending_redemption = pending_redemption;
-        self
-    }
-
-    pub fn with_huma_program(mut self, huma_program: Pubkey) -> Self {
-        self.accounts.huma_program = huma_program;
-        self
-    }
-
-    pub fn with_huma_config(mut self, huma_config: Pubkey) -> Self {
-        self.accounts.huma_config = huma_config;
-        self
-    }
-
-    pub fn with_huma_pool_config(mut self, huma_pool_config: Pubkey) -> Self {
-        self.accounts.huma_pool_config = huma_pool_config;
-        self
-    }
-
-    pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
-        self.accounts.huma_pool_state = huma_pool_state;
-        self
-    }
-
-    pub fn with_huma_mode_config(mut self, huma_mode_config: Pubkey) -> Self {
-        self.accounts.huma_mode_config = huma_mode_config;
-        self
-    }
-
-    pub fn with_huma_mode_mint(mut self, huma_mode_mint: Pubkey) -> Self {
-        self.accounts.huma_mode_mint = huma_mode_mint;
-        self
-    }
-
-    pub fn with_huma_redemption_request(mut self, huma_redemption_request: Pubkey) -> Self {
-        self.accounts.huma_redemption_request = huma_redemption_request;
-        self
-    }
-
-    pub fn with_huma_lender_state(mut self, huma_lender_state: Pubkey) -> Self {
-        self.accounts.huma_lender_state = huma_lender_state;
-        self
-    }
-
-    pub fn with_huma_pool_authority(mut self, huma_pool_authority: Pubkey) -> Self {
-        self.accounts.huma_pool_authority = huma_pool_authority;
-        self
-    }
-
-    pub fn with_huma_pool_mode_token(mut self, huma_pool_mode_token: Pubkey) -> Self {
-        self.accounts.huma_pool_mode_token = huma_pool_mode_token;
         self
     }
 
@@ -495,6 +413,7 @@ impl ClaimRedemptionBuilder {
         let (pool_pda_addr, _) = pool_pda(pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
         let (pool_vault, _) = pool_vault_pda(pool_id);
+        let (batch, _) = redemption_batch_pda(pool_id, 0);
         let dummy = Keypair::new().pubkey();
 
         Self {
@@ -504,18 +423,11 @@ impl ClaimRedemptionBuilder {
                 caller,
                 beneficiary,
                 pool: pool_pda_addr,
+                batch,
                 pending_redemption,
                 token_mint: dummy,
                 pool_vault_account: pool_vault,
                 beneficiary_token_account: dummy,
-                huma_program: huma_program_id(),
-                huma_config: dummy,
-                huma_pool_config: dummy,
-                huma_pool_state: dummy,
-                huma_mode_config: dummy,
-                huma_lender_state: dummy,
-                huma_pool_authority: dummy,
-                huma_pool_underlying_token: dummy,
                 token_program: anchor_spl::token::ID,
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
@@ -533,7 +445,7 @@ impl ClaimRedemptionBuilder {
         let (pool_pda_addr, _) = pool_pda(pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
         let (pool_vault, _) = pool_vault_pda(pool_id);
-        let dummy = Keypair::new().pubkey();
+        let (batch, _) = redemption_batch_pda(pool_id, 0);
 
         Self {
             pool_id,
@@ -542,18 +454,11 @@ impl ClaimRedemptionBuilder {
                 caller: ctx.user.pubkey(),
                 beneficiary: ctx.user.pubkey(),
                 pool: pool_pda_addr,
+                batch,
                 pending_redemption,
                 token_mint: ctx.usdc_mint,
                 pool_vault_account: pool_vault,
                 beneficiary_token_account: ctx.user_usdc_account,
-                huma_program: huma_program_id(),
-                huma_config: dummy,
-                huma_pool_config: dummy,
-                huma_pool_state: ctx.huma_pool_state,
-                huma_mode_config: dummy,
-                huma_lender_state: ctx.huma_lender_state,
-                huma_pool_authority: ctx.huma_pool_authority,
-                huma_pool_underlying_token: ctx.huma_pool_underlying_token,
                 token_program: anchor_spl::token::ID,
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
@@ -588,6 +493,11 @@ impl ClaimRedemptionBuilder {
         self
     }
 
+    pub fn with_batch(mut self, batch: Pubkey) -> Self {
+        self.accounts.batch = batch;
+        self
+    }
+
     pub fn with_redemption_id(mut self, redemption_id: u64) -> Self {
         self.accounts.pending_redemption = pending_redemption_pda(1, redemption_id).0;
         self
@@ -615,46 +525,6 @@ impl ClaimRedemptionBuilder {
 
     pub fn with_beneficiary_token_account(mut self, beneficiary_token_account: Pubkey) -> Self {
         self.accounts.beneficiary_token_account = beneficiary_token_account;
-        self
-    }
-
-    pub fn with_huma_program(mut self, huma_program: Pubkey) -> Self {
-        self.accounts.huma_program = huma_program;
-        self
-    }
-
-    pub fn with_huma_config(mut self, huma_config: Pubkey) -> Self {
-        self.accounts.huma_config = huma_config;
-        self
-    }
-
-    pub fn with_huma_pool_config(mut self, huma_pool_config: Pubkey) -> Self {
-        self.accounts.huma_pool_config = huma_pool_config;
-        self
-    }
-
-    pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
-        self.accounts.huma_pool_state = huma_pool_state;
-        self
-    }
-
-    pub fn with_huma_mode_config(mut self, huma_mode_config: Pubkey) -> Self {
-        self.accounts.huma_mode_config = huma_mode_config;
-        self
-    }
-
-    pub fn with_huma_lender_state(mut self, huma_lender_state: Pubkey) -> Self {
-        self.accounts.huma_lender_state = huma_lender_state;
-        self
-    }
-
-    pub fn with_huma_pool_authority(mut self, huma_pool_authority: Pubkey) -> Self {
-        self.accounts.huma_pool_authority = huma_pool_authority;
-        self
-    }
-
-    pub fn with_huma_pool_underlying_token(mut self, huma_pool_underlying_token: Pubkey) -> Self {
-        self.accounts.huma_pool_underlying_token = huma_pool_underlying_token;
         self
     }
 
@@ -704,8 +574,8 @@ impl WithdrawFeesBuilder {
     pub fn for_pool(pool_id: u32, admin: Pubkey) -> Self {
         let (global_config, _) = global_config_pda();
         let (pool_pda_addr, _) = pool_pda(pool_id);
-        let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
+        let (redemption_batch, _) = redemption_batch_pda(pool_id, 0);
         let dummy = Keypair::new().pubkey();
 
         Self {
@@ -714,22 +584,9 @@ impl WithdrawFeesBuilder {
                 admin,
                 global_config,
                 pool: pool_pda_addr,
+                redemption_batch,
                 fee_wallet: dummy,
                 pending_redemption,
-                token_mint: dummy,
-                pool_pst_vault,
-                huma_program: huma_program_id(),
-                huma_config: dummy,
-                huma_pool_config: dummy,
-                huma_pool_state: dummy,
-                huma_mode_config: dummy,
-                huma_mode_mint: dummy,
-                huma_redemption_request: dummy,
-                huma_lender_state: dummy,
-                huma_pool_authority: dummy,
-                huma_pool_mode_token: dummy,
-                token_program: anchor_spl::token::ID,
-                pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
@@ -747,9 +604,8 @@ impl WithdrawFeesBuilder {
         let (global_config, _) = global_config_pda();
         let (pool_pda_addr, _) = pool_pda(pool_id);
         let pool = read_pool_state(&ctx.svm, pool_id);
-        let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, pool.next_redemption_id);
-        let dummy = Keypair::new().pubkey();
+        let (redemption_batch, _) = redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
 
         Self {
             pool_id,
@@ -757,26 +613,13 @@ impl WithdrawFeesBuilder {
                 admin: ctx.admin.pubkey(),
                 global_config,
                 pool: pool_pda_addr,
+                redemption_batch,
                 fee_wallet: if ctx.fee_wallet != Pubkey::default() {
                     ctx.fee_wallet
                 } else {
                     pool.fee_wallet
                 },
                 pending_redemption,
-                token_mint: ctx.usdc_mint,
-                pool_pst_vault,
-                huma_program: huma_program_id(),
-                huma_config: dummy,
-                huma_pool_config: dummy,
-                huma_pool_state: ctx.huma_pool_state,
-                huma_mode_config: dummy,
-                huma_mode_mint: ctx.pst_mint,
-                huma_redemption_request: dummy,
-                huma_lender_state: ctx.huma_lender_state,
-                huma_pool_authority: ctx.huma_pool_authority,
-                huma_pool_mode_token: ctx.huma_pool_mode_token,
-                token_program: anchor_spl::token::ID,
-                pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
@@ -787,6 +630,11 @@ impl WithdrawFeesBuilder {
 
     pub fn with_redemption_id(mut self, redemption_id: u64) -> Self {
         self.accounts.pending_redemption = pending_redemption_pda(self.pool_id, redemption_id).0;
+        self
+    }
+
+    pub fn with_redemption_batch(mut self, redemption_batch: Pubkey) -> Self {
+        self.accounts.redemption_batch = redemption_batch;
         self
     }
 
@@ -817,66 +665,6 @@ impl WithdrawFeesBuilder {
 
     pub fn with_pending_redemption(mut self, pending_redemption: Pubkey) -> Self {
         self.accounts.pending_redemption = pending_redemption;
-        self
-    }
-
-    pub fn with_token_mint(mut self, token_mint: Pubkey) -> Self {
-        self.accounts.token_mint = token_mint;
-        self
-    }
-
-    pub fn with_pool_pst_vault(mut self, pool_pst_vault: Pubkey) -> Self {
-        self.accounts.pool_pst_vault = pool_pst_vault;
-        self
-    }
-
-    pub fn with_huma_program(mut self, huma_program: Pubkey) -> Self {
-        self.accounts.huma_program = huma_program;
-        self
-    }
-
-    pub fn with_huma_config(mut self, huma_config: Pubkey) -> Self {
-        self.accounts.huma_config = huma_config;
-        self
-    }
-
-    pub fn with_huma_pool_config(mut self, huma_pool_config: Pubkey) -> Self {
-        self.accounts.huma_pool_config = huma_pool_config;
-        self
-    }
-
-    pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
-        self.accounts.huma_pool_state = huma_pool_state;
-        self
-    }
-
-    pub fn with_huma_mode_config(mut self, huma_mode_config: Pubkey) -> Self {
-        self.accounts.huma_mode_config = huma_mode_config;
-        self
-    }
-
-    pub fn with_huma_mode_mint(mut self, huma_mode_mint: Pubkey) -> Self {
-        self.accounts.huma_mode_mint = huma_mode_mint;
-        self
-    }
-
-    pub fn with_huma_redemption_request(mut self, huma_redemption_request: Pubkey) -> Self {
-        self.accounts.huma_redemption_request = huma_redemption_request;
-        self
-    }
-
-    pub fn with_huma_lender_state(mut self, huma_lender_state: Pubkey) -> Self {
-        self.accounts.huma_lender_state = huma_lender_state;
-        self
-    }
-
-    pub fn with_huma_pool_authority(mut self, huma_pool_authority: Pubkey) -> Self {
-        self.accounts.huma_pool_authority = huma_pool_authority;
-        self
-    }
-
-    pub fn with_huma_pool_mode_token(mut self, huma_pool_mode_token: Pubkey) -> Self {
-        self.accounts.huma_pool_mode_token = huma_pool_mode_token;
         self
     }
 
@@ -1460,26 +1248,16 @@ impl ClaimNonReinvestedWinningsBuilder {
         let (user_winnings, _) = user_winnings_pda(pool_id, &user);
         let dummy = Keypair::new().pubkey();
 
+        let (redemption_batch, _) = redemption_batch_pda(pool_id, 0);
+
         Self {
             pool_id,
             accounts: anchor::accounts::ClaimNonReinvestedWinnings {
                 user,
                 pool: pool_pda_addr,
                 user_winnings,
-                pool_pst_vault,
+                redemption_batch,
                 pending_redemption,
-                huma_program: huma_program_id(),
-                huma_config: dummy,
-                huma_pool_config: dummy,
-                huma_pool_state: dummy,
-                huma_mode_config: dummy,
-                huma_mode_mint: dummy,
-                huma_redemption_request: dummy,
-                huma_lender_state: dummy,
-                huma_pool_authority: dummy,
-                huma_pool_mode_token: dummy,
-                token_program: anchor_spl::token::ID,
-                pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
@@ -1495,10 +1273,9 @@ impl ClaimNonReinvestedWinningsBuilder {
         let pool_id = 1;
         let (pool_pda_addr, _) = pool_pda(pool_id);
         let pool = read_pool_state(&ctx.svm, pool_id);
-        let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, pool.next_redemption_id);
         let (user_winnings, _) = user_winnings_pda(pool_id, &ctx.user.pubkey());
-        let dummy = Keypair::new().pubkey();
+        let (redemption_batch, _) = redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
 
         Self {
             pool_id,
@@ -1506,20 +1283,8 @@ impl ClaimNonReinvestedWinningsBuilder {
                 user: ctx.user.pubkey(),
                 pool: pool_pda_addr,
                 user_winnings,
-                pool_pst_vault,
+                redemption_batch,
                 pending_redemption,
-                huma_program: huma_program_id(),
-                huma_config: dummy,
-                huma_pool_config: dummy,
-                huma_pool_state: ctx.huma_pool_state,
-                huma_mode_config: dummy,
-                huma_mode_mint: ctx.pst_mint,
-                huma_redemption_request: dummy,
-                huma_lender_state: ctx.huma_lender_state,
-                huma_pool_authority: ctx.huma_pool_authority,
-                huma_pool_mode_token: ctx.huma_pool_mode_token,
-                token_program: anchor_spl::token::ID,
-                pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
                 event_authority: event_authority_pda(),
                 program: anchor::id(),
@@ -1529,6 +1294,11 @@ impl ClaimNonReinvestedWinningsBuilder {
 
     pub fn with_redemption_id(mut self, pool_id: u32, redemption_id: u64) -> Self {
         self.accounts.pending_redemption = pending_redemption_pda(pool_id, redemption_id).0;
+        self
+    }
+
+    pub fn with_redemption_batch(mut self, redemption_batch: Pubkey) -> Self {
+        self.accounts.redemption_batch = redemption_batch;
         self
     }
 
@@ -1548,63 +1318,8 @@ impl ClaimNonReinvestedWinningsBuilder {
         self
     }
 
-    pub fn with_pool_pst_vault(mut self, pool_pst_vault: Pubkey) -> Self {
-        self.accounts.pool_pst_vault = pool_pst_vault;
-        self
-    }
-
     pub fn with_pending_redemption(mut self, pending_redemption: Pubkey) -> Self {
         self.accounts.pending_redemption = pending_redemption;
-        self
-    }
-
-    pub fn with_huma_program(mut self, huma_program: Pubkey) -> Self {
-        self.accounts.huma_program = huma_program;
-        self
-    }
-
-    pub fn with_huma_config(mut self, huma_config: Pubkey) -> Self {
-        self.accounts.huma_config = huma_config;
-        self
-    }
-
-    pub fn with_huma_pool_config(mut self, huma_pool_config: Pubkey) -> Self {
-        self.accounts.huma_pool_config = huma_pool_config;
-        self
-    }
-
-    pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
-        self.accounts.huma_pool_state = huma_pool_state;
-        self
-    }
-
-    pub fn with_huma_mode_config(mut self, huma_mode_config: Pubkey) -> Self {
-        self.accounts.huma_mode_config = huma_mode_config;
-        self
-    }
-
-    pub fn with_huma_mode_mint(mut self, huma_mode_mint: Pubkey) -> Self {
-        self.accounts.huma_mode_mint = huma_mode_mint;
-        self
-    }
-
-    pub fn with_huma_redemption_request(mut self, huma_redemption_request: Pubkey) -> Self {
-        self.accounts.huma_redemption_request = huma_redemption_request;
-        self
-    }
-
-    pub fn with_huma_lender_state(mut self, huma_lender_state: Pubkey) -> Self {
-        self.accounts.huma_lender_state = huma_lender_state;
-        self
-    }
-
-    pub fn with_huma_pool_authority(mut self, huma_pool_authority: Pubkey) -> Self {
-        self.accounts.huma_pool_authority = huma_pool_authority;
-        self
-    }
-
-    pub fn with_huma_pool_mode_token(mut self, huma_pool_mode_token: Pubkey) -> Self {
-        self.accounts.huma_pool_mode_token = huma_pool_mode_token;
         self
     }
 
@@ -2406,6 +2121,7 @@ impl CreatePoolBuilder {
         let (pool, _) = pool_pda(self.config.pool_id);
         let (pool_vault, _) = pool_vault_pda(self.config.pool_id);
         let (pool_pst_vault, _) = pool_pst_vault_pda(self.config.pool_id);
+        let (initial_redemption_batch, _) = redemption_batch_pda(self.config.pool_id, 0);
 
         Instruction {
             program_id: anchor::id(),
@@ -2413,6 +2129,7 @@ impl CreatePoolBuilder {
                 global_config,
                 admin: *admin,
                 pool,
+                initial_redemption_batch,
                 ticket_registry: self.config.ticket_registry,
                 token_mint: self.config.token_mint,
                 pst_mint: self.config.pst_mint,

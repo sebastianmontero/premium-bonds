@@ -290,10 +290,7 @@ fn test_err_insufficient_active_tickets() {
 
     let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
         .with_shares(10, 0)
-        .with_token_mint(token_mint)
-        .with_huma_mode_mint(pst_mint)
         .with_ticket_registry(ticket_registry)
-        .with_huma_pool_state(huma_pool_state)
         .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::InsufficientActiveTickets);
 }
@@ -337,10 +334,7 @@ fn test_err_insufficient_pending_tickets() {
 
     let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
         .with_shares(0, 5)
-        .with_token_mint(token_mint)
-        .with_huma_mode_mint(pst_mint)
         .with_ticket_registry(ticket_registry)
-        .with_huma_pool_state(huma_pool_state)
         .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::InsufficientPendingTickets);
 }
@@ -605,15 +599,23 @@ fn test_err_insufficient_vault_balance() {
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 0);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-
-    let res = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user,
-        user_usdc,
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
         0,
-        Pubkey::default(),
-        huma_lender_state,
+        anchor::state::RedemptionBatchStatus::Settled,
+        3 * 1_000_000,
+        3 * 1_000_000,
     );
+
+    let (pool_vault, _) = pool_vault_pda(1);
+    let pool_key = pool_pda(1).0;
+    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_key, 0);
+
+    let res = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user.pubkey(), user_usdc)
+        .with_redemption_id(0)
+        .send(&mut ctx.svm, &user);
     assert_custom_error(res, PremiumBondsError::InsufficientVaultBalance);
 }
 
@@ -647,8 +649,6 @@ fn test_err_no_winnings_to_claim() {
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_addr, 10_000_000);
 
     let res = ClaimNonReinvestedWinningsBuilder::for_pool(pool_id, user.pubkey())
-        .with_huma_mode_mint(pst_mint)
-        .with_huma_pool_state(huma_pool_state)
         .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::NoWinningsToClaim);
 }

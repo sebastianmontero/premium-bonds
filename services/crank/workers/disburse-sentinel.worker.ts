@@ -273,19 +273,6 @@ export class DisburseSentinelWorker implements ICrankTask {
     context: CrankExecutionContext,
     batch: PendingRedemptionCandidate[]
   ): Promise<Instruction[]> {
-    const humaAddresses = resolveHumaAddresses(
-      {
-        lenderState:
-          context.config?.poolHumaLenderStates?.[snapshot.poolId] ??
-          context.config?.humaLenderState,
-        config: context.config?.humaConfig,
-        poolConfig: context.config?.humaPoolConfig,
-        modeConfig: context.config?.humaModeConfig,
-        poolUnderlyingToken: context.config?.humaPoolUnderlyingToken,
-      },
-      snapshot.pool.humaPoolState
-    );
-
     const tokenMint = address(snapshot.pool.tokenMint);
     const instructions: Instruction[] = [];
     const seenBeneficiaries = new Set<string>();
@@ -306,8 +293,8 @@ export class DisburseSentinelWorker implements ICrankTask {
         beneficiary: candidate.user,
         poolId: snapshot.poolId,
         redemptionId: candidate.redemptionId,
+        batchId: candidate.batchId ?? 0n,
         tokenMint,
-        humaAddresses,
         redemptionType: candidate.redemptionType,
         feeWallet: snapshot.pool.feeWallet
           ? address(snapshot.pool.feeWallet)

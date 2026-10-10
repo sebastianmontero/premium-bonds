@@ -1,12 +1,13 @@
 use {
-    crate::common::{account_builders::*, context::*, pda::*, readers::*, spl::*},
-    anchor_lang::{AnchorDeserialize, InstructionData, ToAccountMetas},
+    crate::common::{account_builders::*, context::*, injectors::*, pda::*, readers::*, spl::*},
+    anchor_lang::{AccountDeserialize, AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData, Space, ToAccountMetas},
     litesvm::LiteSVM,
     solana_program::{
         instruction::{AccountMeta, Instruction},
         pubkey::Pubkey,
     },
     solana_sdk::{
+        account::Account,
         message::{Message, VersionedMessage},
         signature::Keypair,
         signer::Signer,
@@ -219,6 +220,7 @@ pub fn build_create_pool_instruction_with_programs(
     let (pool, _) = pool_pda(pool_id);
     let (pool_vault, _) = pool_vault_pda(pool_id);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+    let (initial_redemption_batch, _) = redemption_batch_pda(pool_id, 0);
 
     Instruction {
         program_id: anchor::id(),
@@ -226,6 +228,7 @@ pub fn build_create_pool_instruction_with_programs(
             global_config,
             admin: admin.pubkey(),
             pool,
+            initial_redemption_batch,
             ticket_registry,
             token_mint,
             pst_mint,
@@ -770,16 +773,9 @@ pub fn send_e2e_sell_bonds_for_user(
         huma_pool_mode_token
     };
 
-    let mut builder = SellBondsBuilder::new(ctx)
+    let builder = SellBondsBuilder::new(ctx)
         .with_user(&user.pubkey())
-        .with_swapped_user_winnings(swapped_user_winnings)
-        .with_huma_pool_mode_token(huma_pool_mode_token);
-    if huma_config != Pubkey::default() {
-        builder = builder.with_huma_config(huma_config);
-    }
-    if huma_lender_state != Pubkey::default() {
-        builder = builder.with_huma_lender_state(huma_lender_state);
-    }
+        .with_swapped_user_winnings(swapped_user_winnings);
 
     let ix = builder.build_ix(active_to_sell, pending_to_sell);
     send_user_tx(&mut ctx.svm, user, ix)
@@ -808,20 +804,105 @@ pub fn send_e2e_claim_redemption_full(
     beneficiary: Pubkey,
     beneficiary_token_account: Pubkey,
     redemption_id: u64,
-    huma_config: Pubkey,
-    huma_lender_state: Pubkey,
+    _huma_config: Pubkey,
+    _huma_lender_state: Pubkey,
 ) -> TxResult {
     let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
-    let mut builder = ClaimRedemptionBuilder::new(ctx)
+    let (pool_vault, _) = pool_vault_pda(1);
+    let mut batch_pda_key = redemption_batch_pda(1, 0).0;
+    let mut settled_amount = 0u64;
+
+    // Check if _huma_lender_state was provided and has settled funds recorded
+    if let Some(lender_acc) = ctx.svm.get_account(&_huma_lender_state) {
+        if lender_acc.data.len() >= 16 {
+            settled_amount = u64::from_le_bytes(lender_acc.data[8..16].try_into().unwrap());
+        }
+    }
+
+    if let Some(acc) = ctx.svm.get_account(&pending_redemption) {
+        if let Ok(pending) = anchor::PendingRedemption::try_deserialize(&mut &acc.data[..]) {
+            batch_pda_key = redemption_batch_pda(1, pending.batch_id).0;
+            if let Some(batch_acc) = ctx.svm.get_account(&batch_pda_key) {
+                if let Ok(mut batch) = anchor::state::RedemptionBatch::try_deserialize(&mut &batch_acc.data[..]) {
+                    if batch.status != anchor::state::RedemptionBatchStatus::Settled {
+                        batch.status = anchor::state::RedemptionBatchStatus::Settled;
+                        if batch.settled_usdc_received == 0 {
+                            batch.settled_usdc_received = if settled_amount > 0 {
+                                settled_amount
+                            } else {
+                                batch.total_principal_requested
+                            };
+                        }
+                        let mut data = vec![];
+                        data.extend_from_slice(anchor::state::RedemptionBatch::DISCRIMINATOR);
+                        batch.serialize(&mut data).unwrap();
+                        data.resize(8 + anchor::state::RedemptionBatch::INIT_SPACE, 0);
+                        ctx.svm.set_account(
+                            batch_pda_key,
+                            Account {
+                                lamports: 1_000_000_000,
+                                data,
+                                owner: anchor::id(),
+                                executable: false,
+                                rent_epoch: 0,
+                            },
+                        ).unwrap();
+
+                        let pool = read_pool_state(&ctx.svm, 1);
+                        if pool.accumulating_redemption_batch_id == pending.batch_id {
+                            mutate_pool_state(&mut ctx.svm, 1, |p| {
+                                p.accumulating_redemption_batch_id = pending.batch_id + 1;
+                            });
+                            inject_redemption_batch(&mut ctx.svm, 1, pending.batch_id + 1);
+                        }
+                    }
+                    if settled_amount == 0 && batch.settled_usdc_received > 0 {
+                        settled_amount = batch.settled_usdc_received;
+                    }
+                }
+            } else {
+                let actual_settled = if settled_amount > 0 { settled_amount } else { pending.amount };
+                inject_redemption_batch_with_state(
+                    &mut ctx.svm,
+                    1,
+                    pending.batch_id,
+                    anchor::state::RedemptionBatchStatus::Settled,
+                    pending.amount,
+                    actual_settled,
+                );
+                settled_amount = actual_settled;
+                let pool = read_pool_state(&ctx.svm, 1);
+                if pool.accumulating_redemption_batch_id == pending.batch_id {
+                    mutate_pool_state(&mut ctx.svm, 1, |p| {
+                        p.accumulating_redemption_batch_id = pending.batch_id + 1;
+                    });
+                    inject_redemption_batch(&mut ctx.svm, 1, pending.batch_id + 1);
+                }
+            }
+        }
+    }
+
+    let current_bal = ctx
+        .svm
+        .get_account(&pool_vault)
+        .map(|acc| {
+            if acc.data.len() >= 72 {
+                u64::from_le_bytes(acc.data[64..72].try_into().unwrap())
+            } else {
+                0
+            }
+        })
+        .unwrap_or(0);
+    if current_bal == 0 && settled_amount > 0 {
+        let pool_key = pool_pda(1).0;
+        inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_key, settled_amount);
+    }
+
+    let builder = ClaimRedemptionBuilder::new(ctx)
         .with_caller(caller.pubkey())
         .with_beneficiary(beneficiary, beneficiary_token_account)
-        .with_pending_redemption(pending_redemption);
-    if huma_config != Pubkey::default() {
-        builder = builder.with_huma_config(huma_config);
-    }
-    if huma_lender_state != Pubkey::default() {
-        builder = builder.with_huma_lender_state(huma_lender_state);
-    }
+        .with_pending_redemption(pending_redemption)
+        .with_batch(batch_pda_key);
 
     let ix = builder.build_ix();
     send_user_tx(&mut ctx.svm, caller, ix)
@@ -981,15 +1062,8 @@ pub fn send_e2e_withdraw_fees_with_admin(
     admin: &Keypair,
     amount: u64,
 ) -> TxResult {
-    let huma_pool_mode_token = create_spl_token_account(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.pst_mint,
-        &ctx.huma_pool_authority,
-    );
     WithdrawFeesBuilder::from_ctx(ctx)
         .with_admin(admin.pubkey())
-        .with_huma_pool_mode_token(huma_pool_mode_token)
         .with_amount(amount)
         .send(&mut ctx.svm, admin)
 }

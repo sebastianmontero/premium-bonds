@@ -15,7 +15,11 @@ import {
   decodePayoutRegistry,
   PAYOUT_REGISTRY_DISCRIMINATOR,
 } from "../app/lib/generated/yield-bonds/src/generated/accounts";
-import { ANCHOR_PROGRAM_ADDRESS } from "../app/lib/generated/yield-bonds/src/generated";
+import {
+  ANCHOR_PROGRAM_ADDRESS,
+  PoolStatus,
+} from "../app/lib/generated/yield-bonds/src/generated";
+import { buildMockPrizePoolEncoded } from "../app/lib/test-harness/account-builders";
 import {
   RedemptionType,
   parseDrawCycle,
@@ -36,7 +40,9 @@ import {
   calculateAvailableFees,
   calculateBookValue,
   calculateDeficitTotalAssets,
-  SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
+  MIN_SOLVENCY_TOLERANCE,
+  MAX_SOLVENCY_TOLERANCE,
+  SOLVENCY_TOLERANCE_BPS,
   DEFAULT_DEFICIT_USDC,
   resolveUserTickets,
   parseUserEntryFromSlice,
@@ -129,25 +135,23 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should decode PendingRedemption account correctly", () => {
-    const buffer = new Uint8Array(160);
+    const buffer = new Uint8Array(144);
     const view = new DataView(buffer.buffer);
 
-    view.setBigUint64(8, 123n, true);
-    view.setBigUint64(16, 0n, true);
-    view.setBigUint64(24, 7n, true);
-    view.setBigUint64(32, 1_000_000n, true);
-    view.setBigUint64(40, 1_000_000n, true);
-    view.setBigInt64(48, 1700000000n, true);
-    view.setUint32(88, 1, true);
-    buffer[92] = 254;
-    buffer[93] = 1;
-    buffer[94] = 1; // PrizeClaim
+    buffer.fill(1, 8, 40); // user address
+    view.setBigUint64(40, 123n, true); // batchId
+    view.setBigUint64(48, 7n, true); // redemptionId
+    view.setBigUint64(56, 1_000_000n, true); // amount
+    view.setBigInt64(64, 1700000000n, true); // requestedAt
+    view.setUint32(72, 1, true); // poolId
+    buffer[76] = 254; // bump
+    buffer[77] = 1; // version
+    buffer[78] = 1; // redemptionType: PrizeClaim
 
     const parsed = decodePendingRedemption(mockAccount(buffer)).data;
-    assert.strictEqual(parsed.humaRequestId, 123n);
+    assert.strictEqual(parsed.batchId, 123n);
     assert.strictEqual(parsed.redemptionId, 7n);
     assert.strictEqual(parsed.amount, 1_000_000n);
-    assert.strictEqual(parsed.pstSharesLocked, 1_000_000n);
     assert.strictEqual(parsed.requestedAt, 1700000000n);
     assert.strictEqual(parsed.poolId, 1);
     assert.strictEqual(parsed.bump, 254);
@@ -249,38 +253,36 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should parse PrizePool account correctly", () => {
-    const buffer = new Uint8Array(8 + 440);
-    const view = new DataView(buffer.buffer);
-
-    view.setBigUint64(8, 1_000_000n, true); // bondPrice (0)
-    view.setBigInt64(16, 24n, true); // stakeCycleDurationHrs (8)
-    view.setBigUint64(24, 0n, true); // minYieldThreshold (16)
-    view.setBigUint64(32, 50_000_000n, true); // totalDepositedPrincipal (24)
-    view.setBigInt64(40, 1700000000n, true); // currentCycleEndAt (32)
-    view.setBigUint64(48, 10n, true); // nextRedemptionId (40)
-    view.setBigUint64(56, 100_000n, true); // totalFeesAccrued (48)
-    view.setBigUint64(64, 0n, true); // totalFeesWithdrawn (56)
-    view.setBigUint64(72, 500_000n, true); // totalPrizesAllocated (64)
-    view.setBigUint64(80, 0n, true); // totalPendingRedemptions (72)
-
-    view.setUint32(88, 1, true); // poolId (80)
-    view.setUint32(92, 3, true); // currentDrawCycleId (84)
-    view.setUint16(96, 250, true); // feeBasisPoints (88)
-    view.setUint16(98, 500, true); // maxYieldBasisPoints (90)
-    view.setUint32(100, 300, true); // payoutTimelockSeconds (92)
-    buffer[8 + 96] = 254; // vaultAuthorityBump (96)
-    buffer[8 + 97] = 0; // status (0 = Active) (97)
-    buffer[8 + 98] = 0; // isFrozenForDraw (98)
-    buffer[8 + 99] = 1; // version (99)
-    buffer[8 + 100] = 1; // prizeTiersCount (100)
-
-    // 4 x 32-byte pubkeys: tokenMint (104), ticketRegistry (136), feeWallet (168), humaPoolState (200)
-    buffer.fill(3, 8 + 200, 8 + 232); // humaPoolState
-
-    // prizeTier 0 at offset 8 + 232 (after 4 x 32-byte pubkeys: tokenMint, ticketRegistry, feeWallet, humaPoolState)
-    const tierOffset = 8 + 232;
-    view.setUint32(tierOffset, 1, true); // numWinners
-    view.setUint16(tierOffset + 4, 10000, true); // basisPoints
+    const buffer = buildMockPrizePoolEncoded({
+      bondPrice: 1_000_000n,
+      stakeCycleDurationHrs: 24n,
+      minYieldThreshold: 0n,
+      totalDepositedPrincipal: 50_000_000n,
+      currentCycleEndAt: 1700000000n,
+      nextRedemptionId: 10n,
+      totalFeesAccrued: 100_000n,
+      totalFeesWithdrawn: 0n,
+      totalPrizesAllocated: 500_000n,
+      totalPendingRedemptions: 0n,
+      poolId: 1,
+      currentDrawCycleId: 3,
+      feeBasisPoints: 250,
+      maxYieldBasisPoints: 500,
+      payoutTimelockSeconds: 300,
+      vaultAuthorityBump: 254,
+      status: PoolStatus.Active,
+      isFrozenForDraw: 0,
+      version: 1,
+      prizeTiersCount: 1,
+      prizeTiers: [
+        { basisPoints: 10000, numWinners: 1, padding: new Uint8Array(2) },
+        ...Array.from({ length: 9 }, () => ({
+          basisPoints: 0,
+          numWinners: 0,
+          padding: new Uint8Array(2),
+        })),
+      ],
+    });
 
     const parsed = parsePrizePool(buffer);
     assert.strictEqual(parsed.poolId, 1);
@@ -867,12 +869,13 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
 
   describe("calculateDeficitTotalAssets & Solvency Breaker Math", () => {
     it("should export correct domain constants", () => {
-      assert.strictEqual(SOLVENCY_DUST_TOLERANCE_BASE_UNITS, 1_000n);
+      assert.strictEqual(MIN_SOLVENCY_TOLERANCE, 10_000n);
+      assert.strictEqual(MAX_SOLVENCY_TOLERANCE, 20_000_000n);
+      assert.strictEqual(SOLVENCY_TOLERANCE_BPS, 1n);
       assert.strictEqual(DEFAULT_DEFICIT_USDC, 1.0);
       assert.ok(
-        BigInt(DEFAULT_DEFICIT_USDC * 1_000_000) >
-          SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
-        "Default deficit must exceed SOLVENCY_DUST_TOLERANCE"
+        BigInt(DEFAULT_DEFICIT_USDC * 1_000_000) > MIN_SOLVENCY_TOLERANCE,
+        "Default deficit must exceed MIN_SOLVENCY_TOLERANCE"
       );
     });
 

@@ -91,19 +91,43 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
     )
     .expect("ClaimRedemption must succeed");
 
+    // Settle out redemption state in pool accounting
+    let pool_id = h.pool_id;
+    mutate_pool_state(&mut h.svm, pool_id, |p| {
+        p.total_accumulating_redemptions = 0;
+        p.total_pending_redemptions = 0;
+    });
+
+    // Pool PST vault held 100M PST shares initially from Alice buying 100 bonds.
+    // Alice redeemed 40 USDC; align pool_pst_vault to 60M PST shares.
+    inject_token_account(
+        &mut h.svm,
+        pool_pst_vault,
+        pst_mint,
+        pool_pda_addr,
+        60_000_000,
+    );
+
     // 4. Protocol Fee Accrual and Withdrawal
     let pool_id = h.pool_id;
     let crank = clone_keypair(&h.crank);
 
     // Harvest Cycle 0 to mature the 60 pending tickets into active tickets
+    // Set Huma pool assets to 60M (matching 60M PST shares and 60 USDC book value) so pool is solvent
+    set_mock_huma_pool_assets(&mut h.svm, huma_pool_state, 60_000_000);
+    set_token_mint_supply(&mut h.svm, pst_mint, 60_000_000);
+
     let pool_0 = read_pool_state(&h.svm, pool_id);
+    eprintln!("Before cycle 0 harvest: pool status={}, is_frozen={}, cycle_id={}", pool_0.status, pool_0.is_frozen_for_draw, pool_0.current_draw_cycle_id);
     warp_to_timestamp(&mut h.svm, pool_0.current_cycle_end_at);
     send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
         .expect("Cycle 0 harvest matures tickets");
 
+    let pool_after_0 = read_pool_state(&h.svm, pool_id);
+    eprintln!("After cycle 0 harvest: pool status={}, is_frozen={}, cycle_id={}", pool_after_0.status, pool_after_0.is_frozen_for_draw, pool_after_0.current_draw_cycle_id);
+
     // Set Huma pool assets to 110M with supply 60M (yield = 50M, fee at 10% = 5_000_000)
     set_mock_huma_pool_assets(&mut h.svm, huma_pool_state, 110_000_000);
-    set_token_mint_supply(&mut h.svm, pst_mint, 60_000_000);
 
     let pool_1 = read_pool_state(&h.svm, pool_id);
     warp_to_timestamp(&mut h.svm, pool_1.current_cycle_end_at);

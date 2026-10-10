@@ -10,4 +10,5 @@ export * from "./drawSkipReason";
 export * from "./drawStatus";
 export * from "./poolStatus";
 export * from "./prizeTier";
+export * from "./redemptionBatchStatus";
 export * from "./redemptionType";

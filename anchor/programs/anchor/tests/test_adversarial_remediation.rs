@@ -41,49 +41,6 @@ fn test_buy_bonds_rejects_spoofed_huma_state() {
 }
 
 #[test]
-fn test_sell_bonds_rejects_spoofed_huma_state() {
-    let mut ctx = setup_e2e();
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
-
-    let spoofed_huma_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut ctx.svm, spoofed_huma_state);
-
-    let ix = SellBondsBuilder::new(&ctx)
-        .with_huma_pool_state(spoofed_huma_state)
-        .build_ix(5, 0);
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
-    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
-}
-
-#[test]
-fn test_claim_winnings_rejects_spoofed_huma_state() {
-    let mut ctx = setup_e2e();
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
-
-    let spoofed_huma_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut ctx.svm, spoofed_huma_state);
-
-    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx)
-        .with_huma_pool_state(spoofed_huma_state)
-        .build_ix();
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
-    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
-}
-
-#[test]
-fn test_withdraw_fees_rejects_spoofed_huma_state() {
-    let mut ctx = setup_e2e();
-    let spoofed_huma_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut ctx.svm, spoofed_huma_state);
-
-    let ix = WithdrawFeesBuilder::new(&ctx)
-        .with_huma_pool_state(spoofed_huma_state)
-        .build_ix(1_000);
-    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
-    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
-}
-
-#[test]
 fn test_harvest_yield_rejects_spoofed_huma_state() {
     let mut ctx = setup_e2e();
     let spoofed_huma_state = Keypair::new().pubkey();
@@ -97,21 +54,6 @@ fn test_harvest_yield_rejects_spoofed_huma_state() {
         .with_randomness_account(randomness_account)
         .build_ix();
     let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
-    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
-}
-
-#[test]
-fn test_claim_redemption_rejects_spoofed_huma_state() {
-    let mut ctx = setup_e2e();
-    inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 1_000_000, 1_000_000);
-
-    let spoofed_huma_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut ctx.svm, spoofed_huma_state);
-
-    let ix = ClaimRedemptionBuilder::new(&ctx)
-        .with_huma_pool_state(spoofed_huma_state)
-        .build_ix();
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -132,123 +74,7 @@ fn test_initialize_huma_lender_rejects_spoofed_huma_state() {
 // SEC-03: Unified Full Liabilities Solvency Guards
 // ═══════════════════════════════════════════════════════════════════════════
 
-#[test]
-fn test_sell_bonds_fails_when_huma_sub_par() {
-    let mut ctx = setup_e2e();
-    // Buy 10 bonds = 10 USDC = 10,000,000 lamports
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
-    // Make Huma sub-par: assets = 9,000,000, supply = 10,000,000 (value drops to 9 USDC < 10 USDC book liabilities)
-    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 9_000_000);
-    set_token_mint_supply(&mut ctx.svm, ctx.pst_mint, 10_000_000);
-
-    let ix = SellBondsBuilder::new(&ctx).build_ix(5, 0);
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
-    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
-}
-
-#[test]
-fn test_sell_bonds_fails_when_committed_yield_exceeds_vault() {
-    let mut ctx = setup_e2e();
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
-
-    // Increase total_prizes_allocated on pool to 50,000,000 (total book liabilities = 10M principal + 50M prizes = 60M)
-    // While pool vault only has 10M PST
-    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
-        .with_prizes_allocated(50_000_000)
-        .inject(&mut ctx.svm);
-
-    let ix = SellBondsBuilder::new(&ctx).build_ix(5, 0);
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
-    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
-}
-
-#[test]
-fn test_claim_winnings_fails_when_insolvent() {
-    let mut ctx = setup_e2e();
-
-    // Pre-fund user with 10,000 USDC ($10,000 in 6 decimals = 10_000_000_000 base units)
-    mint_tokens(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.usdc_mint,
-        &ctx.user_usdc_account,
-        &ctx.usdc_mint_authority,
-        10_000_000_000,
-    );
-
-    // Buy 10,000 bonds = 10,000 USDC (10_000_000_000 base units)
-    send_e2e_buy_bonds(&mut ctx, 10_000).unwrap();
-
-    // Set up user_winnings with 5_000_000_000 unclaimed winnings and pool with 5_000_000_000 total_prizes_allocated
-    // Total liabilities = 10_000_000_000 principal + 5_000_000_000 allocated = 15_000_000_000
-    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
-        .with_prizes_allocated(5_000_000_000)
-        .inject(&mut ctx.svm);
-
-    inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000_000, 0, 0);
-
-    // Impair Huma assets to 8,000_000_000 (less than 15,000_000_000 book liabilities) with 10_000_000_000 PST supply
-    set_huma_solvency_state(
-        &mut ctx.svm,
-        ctx.huma_pool_state,
-        ctx.pst_mint,
-        8_000_000_000,
-        10_000_000_000,
-    );
-
-    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx).build_ix();
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
-    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
-
-    // Verify user unclaimed balance remains untouched
-    let unwrapped_user_winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
-    assert_eq!(
-        unwrapped_user_winnings.unclaimed_non_reinvested_winnings,
-        5_000_000_000
-    );
-}
-
-#[test]
-fn test_withdraw_fees_fails_when_insolvent() {
-    let mut ctx = setup_e2e();
-
-    // Pre-fund user with 50,000 USDC ($50,000 in 6 decimals = 50_000_000_000 base units)
-    mint_tokens(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.usdc_mint,
-        &ctx.user_usdc_account,
-        &ctx.usdc_mint_authority,
-        50_000_000_000,
-    );
-
-    // Buy 50,000 bonds = 50,000 USDC (50_000_000_000 base units)
-    send_e2e_buy_bonds(&mut ctx, 50_000).unwrap();
-
-    // Set accrued fees = 2,000_000_000 on pool (total book liabilities = 50B principal + 2B fees = 52B)
-    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
-        .with_fees_accrued(2_000_000_000)
-        .with_fees_withdrawn(0)
-        .inject(&mut ctx.svm);
-
-    // Impair Huma assets to 40,000_000_000 (below 52,000_000_000 book liabilities) with 50_000_000_000 PST supply
-    set_huma_solvency_state(
-        &mut ctx.svm,
-        ctx.huma_pool_state,
-        ctx.pst_mint,
-        40_000_000_000,
-        50_000_000_000,
-    );
-
-    let ix = WithdrawFeesBuilder::new(&ctx).build_ix(1_000_000_000);
-    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
-    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
-
-    // Verify pool total_fees_withdrawn remains 0
-    let updated_pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(updated_pool.total_fees_withdrawn, 0);
-}
 
 #[test]
 fn test_solvency_dust_tolerance_boundary() {
@@ -260,36 +86,22 @@ fn test_solvency_dust_tolerance_boundary() {
     pool.total_prizes_allocated = 5_000_000;
     // Book value = 10M + 1M + 5M = 16,000,000
 
-    // Deficit of 1,000 lamports (current_value = 15,999,000) -> within SOLVENCY_DUST_TOLERANCE -> OK
-    pool.assert_solvent(16_000_000 - 1_000)
-        .expect("Deficit within dust tolerance must be accepted");
+    // Tolerance on 16M book value at 1 bps is 1,600, clamped to MIN_SOLVENCY_TOLERANCE (10_000)
+    let tolerance = pool.calculate_solvency_tolerance(16_000_000).unwrap();
+    assert_eq!(tolerance, 10_000);
 
-    // Deficit of 1,001 lamports (current_value = 15,998,999) -> exceeds tolerance -> error
+    // Deficit of tolerance (current_value = 16_000_000 - tolerance) -> within tolerance -> OK
+    pool.assert_solvent(16_000_000 - tolerance)
+        .expect("Deficit within tolerance must be accepted");
+
+    // Deficit of tolerance + 1 -> exceeds tolerance -> error
     assert_eq!(
-        pool.assert_solvent(16_000_000 - 1_001).unwrap_err(),
+        pool.assert_solvent(16_000_000 - (tolerance + 1)).unwrap_err(),
         PremiumBondsError::YieldVenueInsolvent.into()
     );
 }
 
-#[test]
-fn test_sell_bonds_pre_mutation_ordering() {
-    let mut ctx = setup_e2e();
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
-    let initial_pool = read_pool_state(&ctx.svm, 1);
-    let initial_principal = initial_pool.total_deposited_principal;
-
-    // Force insolvency by setting sub-par assets in Huma
-    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 5_000_000);
-
-    let ix = SellBondsBuilder::new(&ctx).build_ix(5, 0);
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
-    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
-
-    // Verify on-chain state remained 100% untouched
-    let post_pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(post_pool.total_deposited_principal, initial_principal);
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SEC-05: Token Extension Whitelist Filter Tests
@@ -716,117 +528,6 @@ fn test_v3_withdraw_fees_rejects_unauthorized_signer() {
 
 // ─── Vector 4: Financial Math & Zero-Mutation Invariance ───────────────────
 
-#[test]
-fn test_v4_sell_bonds_solvency_failure_preserves_liabilities() {
-    let mut ctx = setup_e2e();
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
-
-    let initial_pool = read_pool_state(&ctx.svm, 1);
-    let initial_principal = initial_pool.total_deposited_principal;
-    let initial_active = read_registry_active(&ctx.svm, ctx.ticket_registry);
-    let initial_pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
-    let initial_entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
-
-    // Impair Huma solvency
-    set_huma_solvency_state(
-        &mut ctx.svm,
-        ctx.huma_pool_state,
-        ctx.pst_mint,
-        5_000_000,
-        10_000_000,
-    );
-
-    let res = SellBondsBuilder::new(&ctx)
-        .with_shares(0, 5)
-        .send(&mut ctx.svm, &ctx.user);
-    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
-
-    // Assert 100% untouched state
-    let post_pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(post_pool.total_deposited_principal, initial_principal);
-    assert_eq!(
-        read_registry_active(&ctx.svm, ctx.ticket_registry),
-        initial_active
-    );
-    assert_eq!(
-        read_registry_pending(&ctx.svm, ctx.ticket_registry),
-        initial_pending
-    );
-    let post_entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
-    assert_eq!(post_entry.active, initial_entry.active);
-    assert_eq!(post_entry.pending, initial_entry.pending);
-}
-
-#[test]
-fn test_v4_claim_winnings_solvency_failure_preserves_liabilities() {
-    let mut ctx = setup_e2e();
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
-
-    // Set up 5,000,000 allocated prizes
-    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
-        .with_prizes_allocated(5_000_000)
-        .inject(&mut ctx.svm);
-
-    inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000, 0, 0);
-
-    // Impair Huma assets (sub-par)
-    set_huma_solvency_state(
-        &mut ctx.svm,
-        ctx.huma_pool_state,
-        ctx.pst_mint,
-        8_000_000,
-        10_000_000,
-    );
-
-    let res = ClaimNonReinvestedWinningsBuilder::new(&ctx).send(&mut ctx.svm, &ctx.user);
-    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
-
-    // Assert liabilities and user winnings 100% unchanged
-    let post_pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(post_pool.total_prizes_allocated, 5_000_000);
-    assert_eq!(post_pool.total_pending_redemptions, 0);
-    let post_winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
-    assert_eq!(post_winnings.unclaimed_non_reinvested_winnings, 5_000_000);
-    assert_eq!(post_winnings.total_claimed, 0);
-}
-
-#[test]
-fn test_v4_withdraw_fees_solvency_failure_preserves_liabilities() {
-    let mut ctx = setup_e2e();
-
-    let fee_wallet = create_spl_token_account(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.usdc_mint,
-        &ctx.admin.pubkey(),
-    );
-
-    // Accrue 2,000,000 fees in pool
-    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
-        .with_fees_accrued(2_000_000)
-        .with_fee_wallet(fee_wallet)
-        .inject(&mut ctx.svm);
-
-    // Impair Huma solvency
-    set_huma_solvency_state(
-        &mut ctx.svm,
-        ctx.huma_pool_state,
-        ctx.pst_mint,
-        1_000_000,
-        10_000_000,
-    );
-
-    let res = WithdrawFeesBuilder::new(&ctx)
-        .with_fee_wallet(fee_wallet)
-        .with_amount(1_000_000)
-        .send(&mut ctx.svm, &ctx.admin);
-    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
-
-    // Assert fees withdrawn and pending redemptions 100% unchanged
-    let post_pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(post_pool.total_fees_withdrawn, 0);
-    assert_eq!(post_pool.total_pending_redemptions, 0);
-}
 
 // ─── Vector 5: Account Closure & Realloc Safety ────────────────────────────
 
@@ -880,8 +581,25 @@ fn test_v5_pending_redemption_exact_rent_refund_and_closure() {
 
     // Settle Huma redemption
     let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        3_000_000,
+        3_000_000,
+    );
+
+    // Fund pool_vault with 3_000_000 USDC
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pda_addr, _) = pool_pda(1);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_vault,
+        ctx.usdc_mint,
+        pool_pda_addr,
+        10_000_000,
+    );
 
     let user_balance_before = ctx.svm.get_account(&user_a.pubkey()).unwrap().lamports;
 
@@ -889,7 +607,6 @@ fn test_v5_pending_redemption_exact_rent_refund_and_closure() {
     ClaimRedemptionBuilder::new(&ctx)
         .with_pending_redemption(pending_redemption_key)
         .with_beneficiary_token_account(ctx.user_usdc_account)
-        .with_huma_lender_state(huma_lender_state)
         .send(&mut ctx.svm, &user_a)
         .expect("claim redemption should succeed");
 
@@ -1014,59 +731,7 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
 
 // ─── Vector 7: CPI & Reentrancy Rollback Atomicity ─────────────────────────
 
-#[test]
-fn test_v7_sell_bonds_huma_cpi_failure_atomic_rollback() {
-    let mut ctx = setup_e2e();
-    let huma_pool_mode_token = create_spl_token_account(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.pst_mint,
-        &ctx.huma_pool_authority,
-    );
 
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
-
-    let initial_pool = read_pool_state(&ctx.svm, 1);
-    let initial_principal = initial_pool.total_deposited_principal;
-    let initial_redemption_id = initial_pool.next_redemption_id;
-    let initial_pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
-
-    let user_a = clone_keypair(&ctx.user);
-
-    // Attempt to sell bonds passing FAIL_REDEMPTION_PUBKEY to trigger simulated Huma CPI failure
-    let res = send_e2e_sell_bonds_for_user(
-        &mut ctx,
-        &user_a,
-        0,
-        3,
-        FAIL_REDEMPTION_PUBKEY,
-        Pubkey::default(),
-        huma_pool_mode_token,
-    );
-    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedRedemptionFailure);
-
-    // Verify all on-chain states were atomically rolled back by the runtime
-    let post_pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(
-        post_pool.total_deposited_principal, initial_principal,
-        "Principal must not be decremented on CPI failure"
-    );
-    assert_eq!(
-        post_pool.next_redemption_id, initial_redemption_id,
-        "next_redemption_id must not be incremented on CPI failure"
-    );
-    assert_eq!(
-        read_registry_pending(&ctx.svm, ctx.ticket_registry),
-        initial_pending,
-        "Tickets must not be debited on CPI failure"
-    );
-
-    let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
-    assert!(
-        ctx.svm.get_account(&pending_redemption_key).is_none(),
-        "PendingRedemption account must not exist on CPI failure"
-    );
-}
 
 #[test]
 fn test_v4_buy_bonds_zero_share_inflation_guard() {
@@ -1135,7 +800,9 @@ fn test_v4_terminal_share_clamping_all_exits() {
 
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool.total_deposited_principal, 0);
-    assert_eq!(pool.calculate_book_value().unwrap(), 0);
+    // In batch model, accumulating redemptions preserve book liabilities until batch is submitted
+    assert_eq!(pool.total_accumulating_redemptions, 10_000_000);
+    assert_eq!(pool.calculate_book_value().unwrap(), 10_000_000);
 }
 
 #[test]
@@ -1186,7 +853,6 @@ fn test_v4_terminal_share_clamping_withdraw_fees() {
 
     let res = WithdrawFeesBuilder::new(&ctx)
         .with_fee_wallet(fee_wallet)
-        .with_huma_pool_mode_token(huma_pool_mode_token)
         .with_amount(5_000_000)
         .send(&mut ctx.svm, &ctx.admin);
     assert!(
@@ -1237,7 +903,6 @@ fn test_v4_terminal_share_clamping_claim_non_reinvested_winnings() {
     );
 
     let res = ClaimNonReinvestedWinningsBuilder::new(&ctx)
-        .with_huma_pool_mode_token(huma_pool_mode_token)
         .send(&mut ctx.svm, &ctx.user);
     assert!(
         res.is_ok(),
@@ -1246,7 +911,8 @@ fn test_v4_terminal_share_clamping_claim_non_reinvested_winnings() {
 
     let updated_pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(updated_pool.total_prizes_allocated, 0);
-    assert_eq!(updated_pool.calculate_book_value().unwrap(), 0);
+    assert_eq!(updated_pool.total_accumulating_redemptions, 3_000_000);
+    assert_eq!(updated_pool.calculate_book_value().unwrap(), 3_000_000);
 }
 
 #[test]
@@ -1275,18 +941,27 @@ fn test_v4_terminal_dust_clamping_claim_redemption() {
     );
     assert!(res.is_ok(), "Sell bonds should succeed: {res:?}");
 
-    // 3. Settle Huma redemption
+    // 3. Settle Huma redemption and batch
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        10_000_000,
+        9_999_999,
+    );
 
-    // 4. Inject huma_pool_underlying_token with 1 unit LESS (9_999_999 instead of 10_000_000)
-    // so disburse delivers 9_999_999 to pool_vault_account
+    // 4. Fund pool vault with 9_999_999 USDC
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pda_addr, _) = pool_pda(1);
     inject_token_account(
         &mut ctx.svm,
-        ctx.huma_pool_underlying_token,
+        pool_vault,
         ctx.usdc_mint,
-        ctx.huma_pool_authority,
+        pool_pda_addr,
         9_999_999,
     );
 

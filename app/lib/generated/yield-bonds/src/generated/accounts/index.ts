@@ -11,5 +11,6 @@ export * from "./globalConfig";
 export * from "./payoutRegistry";
 export * from "./pendingRedemption";
 export * from "./prizePool";
+export * from "./redemptionBatch";
 export * from "./ticketRegistry";
 export * from "./userWinnings";

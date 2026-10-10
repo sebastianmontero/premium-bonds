@@ -188,18 +188,23 @@ impl PrizePoolTestBuilder {
                 bond_price: 1_000_000,
                 stake_cycle_duration_hrs: 24,
                 min_yield_threshold: 0,
-                total_deposited_principal: 0,
                 current_cycle_end_at: 0,
-                next_redemption_id: 0,
+                paused_at: 0,
+                total_deposited_principal: 0,
                 total_fees_accrued: 0,
                 total_fees_withdrawn: 0,
                 total_prizes_allocated: 0,
                 total_pending_redemptions: 0,
+                next_redemption_id: 0,
+                accumulating_redemption_batch_id: 0,
+                next_redemption_batch_id: 1,
+                submitted_batch_id: anchor::constants::NO_SUBMITTED_BATCH,
+                total_accumulating_redemptions: 0,
                 pool_id,
                 current_draw_cycle_id: 0,
+                payout_timelock_seconds: 0,
                 fee_basis_points: 100,
                 max_yield_basis_points: 0,
-                payout_timelock_seconds: 0,
                 vault_authority_bump: bump,
                 status: anchor::PoolStatus::Active as u8,
                 is_frozen_for_draw: 0,
@@ -379,6 +384,8 @@ impl PrizePoolTestBuilder {
             },
         )
         .expect("Injecting PrizePool account into LiteSVM must succeed");
+
+        crate::common::injectors::inject_redemption_batch(svm, pool.pool_id, 0);
 
         (pda, pool)
     }

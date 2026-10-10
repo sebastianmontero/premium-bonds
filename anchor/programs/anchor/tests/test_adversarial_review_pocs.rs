@@ -246,25 +246,16 @@ fn poc_h2_last_claimant_absorbs_settlement_loss() {
     );
     assert!(res1.is_ok(), "Sell bonds 1: {res1:?}");
 
-    // Settle both redemptions on Huma, but Huma experiences a 10% haircut:
-    // 10 USDC principal yields only 9 USDC redeemed back into vault.
+    // With H-2 Unified Batch Redemptions, both receipts are in the same batch.
+    // The batch receives 9_000_000 USDC for 10_000_000 requested (10% haircut).
+    // In dispatch, inject_lender_state sets settled_amount to 9_000_000.
     let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 2);
-
-    // Inject huma_pool_underlying_token with 9_000_000 instead of 10_000_000
-    inject_token_account(
-        &mut ctx.svm,
-        ctx.huma_pool_underlying_token,
-        ctx.usdc_mint,
-        ctx.huma_pool_authority,
-        9_000_000,
-    );
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 9_000_000);
 
     let user_usdc = ctx.user_usdc_account;
+    let initial_user_balance = read_token_balance(&ctx.svm, user_usdc);
 
-    // First claimant claims receipt 0: gets full 5_000_000 USDC
+    // First claimant claims receipt 0: receives pro-rata 4.5 USDC (4_500_000)
     let claim0 = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
@@ -273,9 +264,15 @@ fn poc_h2_last_claimant_absorbs_settlement_loss() {
         Pubkey::default(),
         huma_lender_state,
     );
-    assert!(claim0.is_ok(), "Claim 0 should receive full payout: {claim0:?}");
+    assert!(claim0.is_ok(), "Claim 0 should succeed pro-rata: {claim0:?}");
+    let bal_after_0 = read_token_balance(&ctx.svm, user_usdc);
+    assert_eq!(
+        bal_after_0 - initial_user_balance,
+        4_500_000,
+        "Claim 0 must receive exactly 4.5 USDC pro-rata (10% haircut)"
+    );
 
-    // Second claimant claims receipt 1: vault only has 4_000_000 USDC left!
+    // Second claimant claims receipt 1: receives pro-rata 4.5 USDC (4_500_000)
     let claim1 = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
@@ -284,7 +281,13 @@ fn poc_h2_last_claimant_absorbs_settlement_loss() {
         Pubkey::default(),
         huma_lender_state,
     );
-    assert_custom_error(claim1, PremiumBondsError::InsufficientVaultBalance);
+    assert!(claim1.is_ok(), "Claim 1 must succeed pro-rata instead of failing: {claim1:?}");
+    let bal_after_1 = read_token_balance(&ctx.svm, user_usdc);
+    assert_eq!(
+        bal_after_1 - bal_after_0,
+        4_500_000,
+        "Claim 1 must receive exactly 4.5 USDC pro-rata (10% haircut)"
+    );
 }
 
 #[test]

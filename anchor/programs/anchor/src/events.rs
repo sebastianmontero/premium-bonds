@@ -23,23 +23,21 @@ pub struct BondsPurchased {
     pub timestamp: i64,
 }
 
-/// Emitted when a user sells bonds and initiates an async redemption.
+/// Emitted when a user sells bonds and initiates an async batch redemption.
 #[event]
 pub struct BondsSold {
     /// Public key of the user who sold bonds.
     pub user: Pubkey,
     /// Pool ID where the bonds were sold.
     pub pool_id: u32,
+    /// Batch ID this redemption was queued into.
+    pub batch_id: u64,
     /// Number of bonds sold.
     pub bonds: u32,
     /// Principal amount of USDC owed to the user (in base units).
     pub principal: u64,
     /// Unique identifier of the pending redemption account created.
     pub redemption_id: u64,
-    /// Number of $PST shares locked in the Huma redemption request.
-    pub pst_shares: u64,
-    /// The corresponding Huma request ID in the pool redemption queue.
-    pub huma_request_id: u128,
     /// Pool's total deposited principal after this sale.
     pub new_total_deposited_principal: u64,
     /// User's remaining bonds after this sale (active + pending), or 0 if exited.
@@ -77,21 +75,19 @@ pub struct WinningsReinvested {
 
 const _: () = assert!(std::mem::size_of::<WinningsReinvested>() == 120);
 
-/// Emitted when a user claims non-reinvested winnings (initiates async redemption).
+/// Emitted when a user claims non-reinvested winnings (initiates async batch redemption).
 #[event]
 pub struct WinningsClaimed {
     /// Public key of the user claiming winnings.
     pub user: Pubkey,
     /// Pool ID from which the winnings were claimed.
     pub pool_id: u32,
+    /// Batch ID this redemption was queued into.
+    pub batch_id: u64,
     /// Amount of USDC winnings claimed (in base units).
     pub amount: u64,
     /// Unique identifier of the pending redemption account created.
     pub redemption_id: u64,
-    /// Number of $PST shares locked in the Huma redemption request.
-    pub pst_shares: u64,
-    /// The corresponding Huma request ID in the pool redemption queue.
-    pub huma_request_id: u128,
     /// Unix timestamp of the claim request.
     pub timestamp: i64,
 }
@@ -105,16 +101,14 @@ pub struct RedemptionClaimed {
     pub user: Pubkey,
     /// Pool ID this redemption belongs to.
     pub pool_id: u32,
+    /// Batch ID this redemption was settled in.
+    pub batch_id: u64,
     /// Amount of USDC disbursed (in base units).
     pub amount: u64,
     /// Unique identifier of the redeemed pending redemption.
     pub redemption_id: u64,
     /// Origin type of the redemption (BondSale, PrizeClaim, FeeWithdrawal).
     pub redemption_type: RedemptionType,
-    /// $PST shares that were locked in the original redemption request.
-    pub pst_shares_locked: u64,
-    /// The corresponding Huma request ID in the pool redemption queue.
-    pub huma_request_id: u128,
     /// Unix timestamp when the redemption was originally requested.
     pub requested_at: i64,
     /// Unix timestamp when this claim was executed.
@@ -378,10 +372,9 @@ pub struct FeesWithdrawn {
     pub pool_id: u32,
     pub admin: Pubkey,
     pub fee_wallet: Pubkey,
+    pub batch_id: u64,
     pub amount: u64,
-    pub pst_shares: u64,
     pub redemption_id: u64,
-    pub huma_request_id: u128,
     pub timestamp: i64,
 }
 
@@ -413,5 +406,61 @@ pub struct PayoutRegistryClosed {
     pub cycle_id: u32,
     pub crank: Pubkey,
     pub rent_reclaimed_lamports: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a redemption batch is submitted to Huma queue.
+#[event]
+pub struct RedemptionBatchSubmitted {
+    pub pool_id: u32,
+    pub batch_id: u64,
+    pub huma_request_id: u128,
+    pub total_principal_requested: u64,
+    pub pst_shares_locked: u64,
+    pub next_batch_id: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a redemption batch is settled from Huma queue.
+#[event]
+pub struct RedemptionBatchSettled {
+    pub pool_id: u32,
+    pub batch_id: u64,
+    pub huma_request_id: u128,
+    pub total_principal_requested: u64,
+    pub settled_usdc_received: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a fully claimed or expired redemption batch is closed.
+#[event]
+pub struct RedemptionBatchClosed {
+    pub pool_id: u32,
+    pub batch_id: u64,
+    pub caller: Pubkey,
+    pub rent_reclaimed: u64,
+    pub unclaimed_principal_swept: u64,
+    pub unclaimed_usdc_swept: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a pool transitions into Impaired workout mode.
+#[event]
+pub struct PoolImpairedModeEnabled {
+    pub pool_id: u32,
+    pub authority: Pubkey,
+    pub total_deposited_principal: u64,
+    pub total_accumulating_redemptions: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a sponsor deposits funds to recapitalize an insolvent pool.
+#[event]
+pub struct PoolRecapitalized {
+    pub pool_id: u32,
+    pub sponsor: Pubkey,
+    pub amount: u64,
+    pub pst_shares_minted: u64,
+    pub is_unpaused: bool,
     pub timestamp: i64,
 }

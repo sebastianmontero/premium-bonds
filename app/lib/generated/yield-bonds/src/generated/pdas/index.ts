@@ -8,6 +8,7 @@
 
 export * from "./eventAuthority";
 export * from "./globalConfig";
+export * from "./initialRedemptionBatch";
 export * from "./payoutRegistry";
 export * from "./pool";
 export * from "./poolPstVault";

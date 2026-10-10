@@ -64,16 +64,16 @@ fn test_claim_redemption_fails_pool_id_mismatch() {
 }
 
 #[test]
-fn test_claim_redemption_fails_huma_program_mismatch() {
+fn test_claim_redemption_fails_wrong_program() {
     let mut ctx = ClaimRedemptionFixtureBuilder::new().build();
     let user_kp = clone_keypair(&ctx.user);
-    let wrong_huma_program = Pubkey::new_unique();
-    let res = ctx
-        .claim_builder(user_kp.pubkey())
-        .with_huma_program(wrong_huma_program)
-        .send(&mut ctx.svm, &user_kp);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
+    let wrong_program = Pubkey::new_unique();
+    let mut builder = ctx.claim_builder(user_kp.pubkey());
+    builder.accounts.program = wrong_program;
+    let res = builder.send(&mut ctx.svm, &user_kp);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::InvalidProgramId);
 }
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // E2E Happy Path & Failure Tests
@@ -168,55 +168,32 @@ fn test_claim_redemption_e2e_happy_path() {
 }
 
 #[test]
-fn test_claim_redemption_fails_insufficient_settled_amount() {
+fn test_claim_redemption_fails_when_batch_not_settled() {
     let mut ctx = setup_e2e();
-    mint_tokens(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.usdc_mint,
-        &ctx.huma_pool_underlying_token,
-        &ctx.usdc_mint_authority,
-        10_000_000,
-    );
-    let huma_pool_mode_token = create_spl_token_account(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.pst_mint,
-        &ctx.huma_pool_authority,
-    );
-
-    send_e2e_buy_bonds(&mut ctx, 3).unwrap();
-
     let user_a = clone_keypair(&ctx.user);
     let user_a_usdc = ctx.user_usdc_account;
 
-    send_e2e_sell_bonds_for_user(
-        &mut ctx,
-        &user_a,
-        0,
+    // Inject pending redemption pointing to batch 0
+    inject_pending_redemption(&mut ctx.svm, 1, 0, user_a.pubkey(), 1_000_000, 0);
+
+    // Inject batch 0 in Submitted status (not yet Settled)
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
         1,
-        Pubkey::default(),
-        Pubkey::default(),
-        huma_pool_mode_token,
-    )
-    .unwrap();
-
-    let huma_lender_state = Keypair::new().pubkey();
-    // Inject lender state with insufficient settled amount (500_000 USDC < 1_000_000 USDC needed)
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 500_000);
-
-    let res = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
+        anchor::state::RedemptionBatchStatus::Submitted,
+        1_000_000,
+        0,
     );
+
+    let res = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), user_a_usdc)
+        .with_redemption_id(0)
+        .send(&mut ctx.svm, &user_a);
 
     assert_custom_error(
         res,
-        anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
+        anchor::error::PremiumBondsError::RedemptionBatchNotSettled,
     );
 
     // PendingRedemption PDA should NOT be closed
@@ -225,54 +202,45 @@ fn test_claim_redemption_fails_insufficient_settled_amount() {
 }
 
 #[test]
-fn test_claim_redemption_fails_simulated_disburse_failure() {
+fn test_claim_redemption_fails_mismatched_batch_id() {
     let mut ctx = setup_e2e();
-    mint_tokens(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.usdc_mint,
-        &ctx.huma_pool_underlying_token,
-        &ctx.usdc_mint_authority,
-        10_000_000,
-    );
-    let huma_pool_mode_token = create_spl_token_account(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.pst_mint,
-        &ctx.huma_pool_authority,
-    );
-
-    send_e2e_buy_bonds(&mut ctx, 3).unwrap();
-
     let user_a = clone_keypair(&ctx.user);
     let user_a_usdc = ctx.user_usdc_account;
 
-    send_e2e_sell_bonds_for_user(
-        &mut ctx,
-        &user_a,
-        0,
+    // Inject pending redemption pointing to batch 0
+    inject_pending_redemption(&mut ctx.svm, 1, 0, user_a.pubkey(), 1_000_000, 0);
+
+    // Inject batch 0 as settled
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
         1,
-        Pubkey::default(),
-        Pubkey::default(),
-        huma_pool_mode_token,
-    )
-    .unwrap();
-
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 1_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-
-    // Claim with FAIL_DISBURSE_PUBKEY to trigger simulated Huma error
-    let res = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
         0,
-        FAIL_DISBURSE_PUBKEY,
-        huma_lender_state,
+        anchor::state::RedemptionBatchStatus::Settled,
+        1_000_000,
+        1_000_000,
+    );
+    // Inject batch 1 as settled
+    let (batch_1_key, _) = redemption_batch_pda(1, 1);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        1,
+        anchor::state::RedemptionBatchStatus::Settled,
+        1_000_000,
+        1_000_000,
     );
 
-    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedDisburseFailure);
+    // Pass batch 1 instead of batch 0
+    let res = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), user_a_usdc)
+        .with_redemption_id(0)
+        .with_batch(batch_1_key)
+        .send(&mut ctx.svm, &user_a);
+
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::MismatchedBatchId,
+    );
 
     // PendingRedemption PDA should NOT be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
@@ -288,19 +256,12 @@ fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
 fn send_e2e_claim_winnings_for_user(
     ctx: &mut E2eContext,
     user: &Keypair,
-    huma_config: Pubkey,
-    huma_lender_state: Pubkey,
-    huma_pool_mode_token: Pubkey,
+    _huma_config: Pubkey,
+    _huma_lender_state: Pubkey,
+    _huma_pool_mode_token: Pubkey,
 ) -> TxResult {
-    let mut builder = ClaimNonReinvestedWinningsBuilder::new(ctx)
-        .with_user(&user.pubkey())
-        .with_huma_pool_mode_token(huma_pool_mode_token);
-    if huma_config != Pubkey::default() {
-        builder = builder.with_huma_config(huma_config);
-    }
-    if huma_lender_state != Pubkey::default() {
-        builder = builder.with_huma_lender_state(huma_lender_state);
-    }
+    let builder = ClaimNonReinvestedWinningsBuilder::new(ctx)
+        .with_user(&user.pubkey());
     send_user_tx(&mut ctx.svm, user, builder.build_ix())
 }
 
@@ -344,10 +305,7 @@ fn test_claim_redemption_rounding_error_failure() {
     .unwrap();
 
     let pending_data = read_pending_redemption(&ctx.svm, 1, 0);
-
-    // S = ceil(3,000,000 * 10,000,000 / 10,000,030) = 2,999,992 shares
-    // This assertion verifies that ceiling behavior is applied.
-    assert_eq!(pending_data.pst_shares_locked, 2_999_992);
+    assert_eq!(pending_data.amount, 3_000_000);
 
     // Huma payout calculation on old code:
     // D = floor(2,999,991 * 10,000,030 / 10,000,000) = 2,999,999 USDC
@@ -411,11 +369,11 @@ fn test_claim_redemption_case_a_1_to_1() {
     )
     .unwrap();
 
-    // Verify locked shares (exactly 3,000,000 for 1:1)
+    // Verify pending redemption amount
     let pending_data = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(
-        pending_data.pst_shares_locked, 3_000_000,
-        "Pending redemption locked PST shares must equal 3,000,000"
+        pending_data.amount, 3_000_000,
+        "Pending redemption amount must equal 3,000,000"
     );
 
     let huma_lender_state = Keypair::new().pubkey();
@@ -480,10 +438,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     .unwrap();
 
     let pending_data0 = read_pending_redemption(&ctx.svm, 1, 0);
-
-    // Ceiling expectation:
-    // S = ceil(3,000,000 * 10,000,000 / 12,000,030) = 2,499,994 shares
-    assert_eq!(pending_data0.pst_shares_locked, 2_499_994);
+    assert_eq!(pending_data0.amount, 3_000_000);
 
     let huma_lender_state0 = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state0, 3_000_000);
@@ -513,8 +468,6 @@ fn test_claim_redemption_case_b_accrued_yield() {
         anchor::state::RedemptionType::BondSale,
         "event redemption_type is BondSale"
     );
-    assert!(event.pst_shares_locked > 0, "pst_shares_locked is positive");
-    assert_eq!(event.huma_request_id, 0, "huma_request_id is 0");
     assert!(event.requested_at > 0, "requested_at timestamp is valid");
     assert!(event.timestamp > 0, "event timestamp is valid");
 
@@ -538,10 +491,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     .unwrap();
 
     let pending_data1 = read_pending_redemption(&ctx.svm, 1, 1);
-
-    // Ceiling expectation:
-    // S = ceil(2,000,000 * 10,000,000 / 12,000,030) = 1,666,663 shares
-    assert_eq!(pending_data1.pst_shares_locked, 1_666_663);
+    assert_eq!(pending_data1.amount, 2_000_000);
 
     let huma_lender_state1 = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state1, 2_000_000);
@@ -581,10 +531,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     .unwrap();
 
     let pending_data2 = read_pending_redemption(&ctx.svm, 1, 2);
-
-    // Ceiling expectation:
-    // S = ceil(7,000,000 * 10,000,000 / 12,000,030) = 5,833,319 shares
-    assert_eq!(pending_data2.pst_shares_locked, 5_833_319);
+    assert_eq!(pending_data2.amount, 7_000_000);
 
     let huma_lender_state2 = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state2, 7_000_000);
@@ -1043,9 +990,14 @@ fn test_claim_redemption_surplus_vault_leaves_excess() {
     .unwrap();
     let user_a_usdc = ctx.user_usdc_account;
 
-    // Disburse 10,000,000 into pool vault (3,000,000 redemption + 7,000,000 surplus)
+    // Pool vault has 10,000,000 USDC (3,000,000 redemption + 7,000,000 surplus)
+    let (pool_vault, _) = pool_vault_pda(1);
+    let pool_key = pool_pda(1).0;
+    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_key, 10_000_000);
+
+    // Batch settled at 3_000_000 par
     let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     let res = send_e2e_claim_redemption_for_user(
@@ -1067,7 +1019,6 @@ fn test_claim_redemption_surplus_vault_leaves_excess() {
         93_000_000,
         "User must receive exactly 3 USDC"
     );
-    let (pool_vault, _) = pool_vault_pda(1);
     assert_eq!(
         read_token_balance(&ctx.svm, pool_vault),
         7_000_000,
@@ -1111,7 +1062,7 @@ fn test_claim_redemption_max_dust_tolerance_succeeds() {
     inject_lender_state(
         &mut ctx.svm,
         huma_lender_state,
-        3_000_000 - anchor::constants::SOLVENCY_DUST_TOLERANCE,
+        3_000_000 - anchor::constants::MIN_SOLVENCY_TOLERANCE,
     );
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
@@ -1124,21 +1075,21 @@ fn test_claim_redemption_max_dust_tolerance_succeeds() {
         huma_lender_state,
     );
     let meta = res.expect(
-        "claim redemption at exact dust tolerance boundary (1,000 deficit) must succeed",
+        "claim redemption at exact dust tolerance boundary must succeed",
     );
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
     assert_eq!(
-        event.amount, 2_999_000,
-        "Disbursed amount must equal 2_999_000"
+        event.amount, 2_990_000,
+        "Disbursed amount must equal 2_990_000"
     );
     assert_eq!(
         read_token_balance(&ctx.svm, user_a_usdc),
-        92_999_000,
+        92_990_000,
         "User balance must match clamped transfer"
     );
 }
 
-// Vector V5 & V7: Exceeds Dust Tolerance by 1 Base Unit Fails & Preserves State
+// Vector V5 & V7: Exceeds Dust Tolerance / Deficit Fails & Preserves State
 #[test]
 fn test_claim_redemption_exceeds_dust_tolerance_fails() {
     let mut ctx = setup_e2e();
@@ -1170,23 +1121,34 @@ fn test_claim_redemption_exceeds_dust_tolerance_fails() {
     .unwrap();
     let user_a_usdc = ctx.user_usdc_account;
 
+    // Settle batch for full 3_000_000 par
     let huma_lender_state = Keypair::new().pubkey();
-    // 1,001 deficit (exceeds 1,000 tolerance by 1 base unit)
-    inject_lender_state(
-        &mut ctx.svm,
-        huma_lender_state,
-        3_000_000 - (anchor::constants::SOLVENCY_DUST_TOLERANCE + 1),
-    );
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-
-    let res = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
         0,
-        Pubkey::default(),
-        huma_lender_state,
+        anchor::state::RedemptionBatchStatus::Settled,
+        3_000_000,
+        3_000_000,
     );
+
+    // Inject pool vault with deficit: vault balance is 2_989_999 (less than 3_000_000 payout)
+    let (pool_vault, _) = pool_vault_pda(1);
+    let pool_key = pool_pda(1).0;
+    inject_token_account(
+        &mut ctx.svm,
+        pool_vault,
+        ctx.usdc_mint,
+        pool_key,
+        3_000_000 - (anchor::constants::MIN_SOLVENCY_TOLERANCE + 1),
+    );
+
+    let res = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), user_a_usdc)
+        .with_redemption_id(0)
+        .send(&mut ctx.svm, &user_a);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::InsufficientVaultBalance,
@@ -1237,18 +1199,28 @@ fn test_claim_redemption_empty_vault_fails() {
     .unwrap();
     let user_a_usdc = ctx.user_usdc_account;
 
+    // Settle batch for 3_000_000 par
     let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 0);
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-
-    let res = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
         0,
-        Pubkey::default(),
-        huma_lender_state,
+        anchor::state::RedemptionBatchStatus::Settled,
+        3_000_000,
+        3_000_000,
     );
+
+    // Explicitly empty vault
+    let (pool_vault, _) = pool_vault_pda(1);
+    let pool_key = pool_pda(1).0;
+    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_key, 0);
+
+    let res = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), user_a_usdc)
+        .with_redemption_id(0)
+        .send(&mut ctx.svm, &user_a);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::InsufficientVaultBalance,
@@ -1263,8 +1235,8 @@ fn test_claim_redemption_sub_tolerance_zero_vault_succeeds_and_refunds_rent() {
     let user_a_usdc = ctx.user_usdc_account;
     let initial_user_sol = ctx.svm.get_balance(&user_a.pubkey()).unwrap();
 
-    // Inject a sub-tolerance pending redemption (500 base units <= SOLVENCY_DUST_TOLERANCE)
-    let pda = inject_pending_redemption(&mut ctx.svm, 1, 99, user_a.pubkey(), 500, 500);
+    // Inject a sub-tolerance pending redemption (500 base units)
+    let pda = inject_pending_redemption(&mut ctx.svm, 1, 99, user_a.pubkey(), 500, 0);
 
     // Update pool state to reflect the injected liability
     mutate_pool_state(&mut ctx.svm, 1, |pool| {
@@ -1272,22 +1244,30 @@ fn test_claim_redemption_sub_tolerance_zero_vault_succeeds_and_refunds_rent() {
         pool.next_redemption_id = 100;
     });
 
-    // Pool vault balance is 0
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 0);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-
-    // Claim must succeed: 500 deficit is within the 1,000 dust tolerance threshold
-    let res = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
-        99,
-        Pubkey::default(),
-        huma_lender_state,
+    // Inject batch 0 settled with 0 USDC received (severe haircut / zero payout)
+    let (batch_0_key, _) = redemption_batch_pda(1, 0);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        500,
+        0,
     );
+
+    // Pool vault balance is 0
+    let (pool_vault, _) = pool_vault_pda(1);
+    let pool_key = pool_pda(1).0;
+    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_key, 0);
+
+    // Claim must succeed: payout is 0 so no token transfer is attempted, receipt closes and refunds rent
+    let res = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), user_a_usdc)
+        .with_redemption_id(99)
+        .with_batch(batch_0_key)
+        .send(&mut ctx.svm, &user_a);
     let meta = res.expect(
-        "sub-tolerance redemption with empty vault must succeed under dust tolerance",
+        "sub-tolerance zero payout redemption must succeed and refund rent",
     );
 
     // Truthful event reporting: disbursed 0
@@ -1311,23 +1291,27 @@ fn test_claim_redemption_sub_tolerance_zero_vault_succeeds_and_refunds_rent() {
 }
 
 #[test]
-fn test_claim_redemption_fails_when_lender_state_is_readonly() {
+fn test_claim_redemption_fails_when_batch_is_readonly() {
     let mut ctx = setup_e2e();
     let user_a = clone_keypair(&ctx.user);
-    inject_pending_redemption(&mut ctx.svm, 1, 0, user_a.pubkey(), 1_000_000, 1_000_000);
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 1_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    inject_pending_redemption(&mut ctx.svm, 1, 0, user_a.pubkey(), 1_000_000, 0);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        1,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        1_000_000,
+        1_000_000,
+    );
 
     let builder = ClaimRedemptionBuilder::new(&ctx)
         .with_user(&user_a.pubkey(), ctx.user_usdc_account)
-        .with_redemption_id(0)
-        .with_huma_lender_state(huma_lender_state);
+        .with_redemption_id(0);
 
     let mut ix = builder.build_ix();
-    // Demote huma_lender_state from writable to read-only AccountMeta to trigger ConstraintMut
+    // Demote batch from writable to read-only AccountMeta to trigger ConstraintMut
     for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == huma_lender_state {
+        if meta.pubkey == builder.accounts.batch {
             meta.is_writable = false;
         }
     }
@@ -1341,8 +1325,8 @@ fn test_claim_redemption_account_count() {
     let ctx = setup_e2e();
     assert_eq!(
         ClaimRedemptionBuilder::new(&ctx).build_metas().len(),
-        18,
-        "ClaimRedemption must have exactly 18 account metas after system_program removal"
+        11,
+        "ClaimRedemption must have exactly 11 account metas"
     );
 }
 

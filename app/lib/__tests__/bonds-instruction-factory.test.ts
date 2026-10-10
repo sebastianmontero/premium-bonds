@@ -12,7 +12,6 @@ import {
 import {
   findAtaAddress,
   findPrizePoolPda,
-  findPoolPstVaultPda,
   findHumaPoolAuthorityPda,
   createAssociatedTokenIdempotentInstruction,
   buildWithdrawFeesInstruction,
@@ -151,25 +150,9 @@ test("bonds-instruction-factory: auto-derives both poolUnderlyingToken and poolM
   );
 });
 
-test("bonds-instruction-factory: buildWithdrawFeesInstruction eliminates Anchor 2040 collision", async () => {
+test("bonds-instruction-factory: buildWithdrawFeesInstruction builds valid batch redemption instruction", async () => {
   const admin = TEST_ADDRESSES.ADMIN;
   const feeWallet = TEST_ADDRESSES.USER;
-  const mockHuma = createMockHumaAddresses();
-  const mockHumaWithoutPoolModeToken = {
-    ...mockHuma,
-    poolModeToken: undefined,
-  };
-
-  const poolPstVault = await findPoolPstVaultPda(1);
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(
-    mockHuma.poolState!,
-    mockHuma.program
-  );
-  const expectedHumaPoolModeToken = await findAtaAddress(
-    humaPoolAuthority,
-    mockHuma.modeMint!,
-    TOKEN_PROGRAM_ID
-  );
 
   const ix = await buildWithdrawFeesInstruction({
     admin: { address: admin } as unknown as Parameters<
@@ -177,39 +160,23 @@ test("bonds-instruction-factory: buildWithdrawFeesInstruction eliminates Anchor 
     >[0]["admin"],
     poolId: 1,
     amount: 1000n,
-    tokenMint: USDC_MINT,
     feeWallet,
     nextRedemptionId: 1n,
-    humaAddresses: mockHumaWithoutPoolModeToken,
+    accumulatingRedemptionBatchId: 0n,
   });
 
   assert.ok(ix, "WithdrawFees instruction must be created");
   assert.ok(ix.accounts, "Instruction accounts must be defined");
-
-  // Verify poolPstVault and humaPoolModeToken are distinct
-  assert.notEqual(
-    poolPstVault,
-    expectedHumaPoolModeToken,
-    "poolPstVault and humaPoolModeToken must not collide"
-  );
-
-  // Find account occurrences
-  const poolPstVaultAccounts = ix.accounts.filter(
-    (a) => a.address === poolPstVault
-  );
-  const humaPoolModeTokenAccounts = ix.accounts.filter(
-    (a) => a.address === expectedHumaPoolModeToken
-  );
-
   assert.equal(
-    poolPstVaultAccounts.length,
-    1,
-    "poolPstVault must appear exactly once in instruction accounts"
+    ix.accounts.length,
+    9,
+    "WithdrawFees instruction must contain 9 accounts"
   );
+  assert.equal(ix.accounts[0].address, admin, "Admin must be first account");
   assert.equal(
-    humaPoolModeTokenAccounts.length,
-    1,
-    "humaPoolModeToken must appear exactly once in instruction accounts"
+    ix.accounts[0].role,
+    AccountRole.WRITABLE_SIGNER,
+    "Admin must be writable signer"
   );
 });
 
@@ -238,27 +205,6 @@ test("bonds-instruction-factory: omitting required keys throws HumaConfiguration
       return true;
     }
   );
-
-  // ClaimRedemption without lenderState
-  await assert.rejects(
-    async () => {
-      await buildClaimRedemptionInstruction({
-        poolId: 1,
-        userAddress: user,
-        redemptionId: 0,
-        humaAddresses: { poolState: MOCK_HUMA_ADDRESSES.poolState },
-      });
-    },
-    (err: unknown) => {
-      assert.ok(
-        err instanceof HumaConfigurationError,
-        "Should throw HumaConfigurationError"
-      );
-      assert.equal(err.code, "CONFIG_MISSING_HUMA_ADDRESSES");
-      assert.ok(err.missingKeys.includes("lenderState"));
-      return true;
-    }
-  );
 });
 
 test("bonds-sdk: requireHumaAddresses rejects dummy sentinel addresses", () => {
@@ -281,18 +227,17 @@ test("bonds-sdk: requireHumaAddresses rejects dummy sentinel addresses", () => {
 
 test("bonds-instruction-factory: builds claim redemption instruction", async () => {
   const user = TEST_ADDRESSES.USER;
-  const mockHuma = createMockHumaAddresses();
 
   const ix = await buildClaimRedemptionInstruction({
     poolId: 1,
     userAddress: user,
     redemptionId: 0,
-    humaAddresses: mockHuma,
+    batchId: 0,
   });
 
   assert.ok(ix, "Claim redemption instruction must be created");
   assert.ok(ix.accounts, "Claim redemption accounts must be defined");
-  const EXPECTED_CLAIM_ACCOUNTS_COUNT = 18;
+  const EXPECTED_CLAIM_ACCOUNTS_COUNT = 11;
   assert.equal(
     ix.accounts.length,
     EXPECTED_CLAIM_ACCOUNTS_COUNT,
@@ -387,22 +332,21 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for third-
 
 test("bonds-instruction-factory: builds claim non-reinvested winnings instruction", async () => {
   const user = TEST_ADDRESSES.USER;
-  const mockHuma = createMockHumaAddresses();
 
   const ix = await buildClaimNonReinvestedWinningsInstruction({
     poolId: 1,
     userAddress: user,
     amount: 0,
     nextRedemptionId: 5,
-    humaAddresses: mockHuma,
+    accumulatingRedemptionBatchId: 0,
   });
 
   assert.ok(ix, "Claim non-reinvested winnings instruction must be created");
   assert.ok(ix.accounts, "Accounts array must be defined");
   assert.equal(
     ix.accounts.length,
-    20,
-    "Claim non-reinvested winnings instruction must contain 20 accounts"
+    8,
+    "Claim non-reinvested winnings instruction must contain 8 accounts"
   );
   assert.equal(ix.accounts[0].address, user, "User must be first account");
   assert.equal(
@@ -473,10 +417,10 @@ test("bonds-instruction-factory: builds sell bonds instruction with positional r
 
   assert.ok(ix, "Sell bonds instruction must be created");
   assert.ok(ix.accounts, "Accounts array must be defined");
-  // Base accounts (22) + 1 remaining account = 23
+  // Base accounts (9) + 1 remaining account = 10
   assert.equal(
     ix.accounts.length,
-    23,
+    10,
     "Full exit sell bonds instruction must include the last registry user as remaining account"
   );
   assert.equal(
@@ -551,16 +495,15 @@ test("bonds-sdk: findAtaAddress supports standard SPL and custom token programs"
 test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWithdrawal to feeWallet with 1 instruction", async () => {
   const crank = TEST_ADDRESSES.USER;
   const feeWallet = TEST_ADDRESSES.ADMIN;
-  const mockHuma = createMockHumaAddresses();
 
   const ixs = await buildClaimRedemptionInstructions({
     poolId: 1,
     caller: crank,
     beneficiary: crank,
     redemptionId: 4,
+    batchId: 0,
     redemptionType: RedemptionType.FeeWithdrawal,
     feeWallet,
-    humaAddresses: mockHuma,
   });
 
   assert.equal(
@@ -571,17 +514,17 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWith
   const claimIx = ixs[0];
   assert.equal(
     claimIx.accounts?.length,
-    18,
-    "Fee withdrawal claim instruction must contain 18 accounts"
+    11,
+    "Fee withdrawal claim instruction must contain 11 accounts"
   );
   assert.strictEqual(
     claimIx.accounts?.some((acc) => acc.address === SYSTEM_PROGRAM_ID),
     false,
     "Fee withdrawal claim instruction must not contain system_program"
   );
-  // beneficiaryTokenAccount is at account index 6
+  // beneficiaryTokenAccount is at account index 7
   assert.equal(
-    claimIx.accounts?.[6].address,
+    claimIx.accounts?.[7].address,
     feeWallet,
     "Claim instruction must route destination to pool.feeWallet"
   );
@@ -590,15 +533,14 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWith
 test("bonds-instruction-factory: buildClaimRedemptionInstructions prepends idempotent ATA creation for user redemptions", async () => {
   const crank = TEST_ADDRESSES.USER;
   const user = TEST_ADDRESSES.USER_2;
-  const mockHuma = createMockHumaAddresses();
 
   const ixs = await buildClaimRedemptionInstructions({
     poolId: 1,
     caller: crank,
     beneficiary: user,
     redemptionId: 1,
+    batchId: 0,
     redemptionType: RedemptionType.BondSale,
-    humaAddresses: mockHuma,
   });
 
   assert.equal(
@@ -623,7 +565,7 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions prepends idemp
 
   const expectedAta = createAtaIx.accounts?.[1].address;
   assert.equal(
-    claimIx.accounts?.[6].address,
+    claimIx.accounts?.[7].address,
     expectedAta,
     "Claim instruction must disburse funds into derived user ATA"
   );

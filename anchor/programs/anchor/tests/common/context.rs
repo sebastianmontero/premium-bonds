@@ -196,6 +196,7 @@ pub struct E2eContext {
     pub huma_pool_mode_token: Pubkey,
     pub huma_lender_state: Pubkey,
     pub pool_id: u32,
+    pub pool_vault: Pubkey,
     pub fee_wallet: Pubkey,
 }
 
@@ -318,6 +319,7 @@ pub fn setup_e2e() -> E2eContext {
         huma_pool_mode_token,
         huma_lender_state,
         pool_id: 1,
+        pool_vault: pool_vault_pda(1).0,
         fee_wallet,
     }
 }
@@ -493,6 +495,7 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
             huma_lender_state,
             user_usdc_account: alice_usdc,
             pool_id,
+            pool_vault: pool_vault_pda(pool_id).0,
             fee_wallet,
         },
         guardian,
@@ -528,6 +531,7 @@ pub fn warp_to_timestamp(svm: &mut LiteSVM, target_unix_timestamp: i64) {
     let mut updated_clock: solana_sdk::clock::Clock = svm.get_sysvar();
     updated_clock.unix_timestamp = target_unix_timestamp;
     svm.set_sysvar(&updated_clock);
+    svm.expire_blockhash();
 }
 
 pub fn warp_forward_seconds(svm: &mut LiteSVM, seconds: i64) {
@@ -600,7 +604,8 @@ where
 {
     let (pda, _) = pool_pda(pool_id);
     let mut account = svm.get_account(&pda).expect("Pool account must exist");
-    let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut account.data[8..]);
+    let pool_size = std::mem::size_of::<anchor::PrizePool>();
+    let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut account.data[8..8 + pool_size]);
     mutator(pool);
     svm.set_account(pda, account)
         .expect("Set pool account failed");
@@ -977,8 +982,6 @@ impl ClaimRedemptionFixture {
         .with_token_mint(self.token_mint)
         .with_pool_vault_account(self.pool_vault)
         .with_user_token_account(self.user_token_account)
-        .with_huma_pool_state(self.huma_pool_state)
-        .with_huma_lender_state(self.huma_lender_state)
     }
 
     pub fn send_claim(&mut self, caller_kp: &Keypair) -> TxResult {
@@ -1086,7 +1089,7 @@ impl ClaimRedemptionFixtureBuilder {
             self.redemption_id,
             owner,
             self.redemption_amount,
-            self.redemption_amount,
+            0,
         );
 
         let user_token_account =
@@ -1096,6 +1099,14 @@ impl ClaimRedemptionFixtureBuilder {
         if let Some((next_request_id, amount_settled)) = self.settled_huma {
             inject_lender_state(&mut svm, huma_lender_state, amount_settled);
             settle_huma_redemption(&mut svm, huma_pool_state, next_request_id);
+            inject_redemption_batch_with_state(
+                &mut svm,
+                self.pool_id,
+                0,
+                anchor::state::RedemptionBatchStatus::Settled,
+                self.redemption_amount,
+                amount_settled,
+            );
         } else {
             inject_dummy_huma_account(&mut svm, huma_lender_state);
         }

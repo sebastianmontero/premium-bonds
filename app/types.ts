@@ -50,6 +50,16 @@ export interface PoolInfo {
   humaPoolState?: string;
   /** Next sequential redemption request ID on-chain */
   nextRedemptionId?: number;
+  /** Current accumulating redemption batch ID */
+  accumulatingRedemptionBatchId?: number;
+  /** Next unallocated redemption batch ID */
+  nextRedemptionBatchId?: number;
+  /** In-flight submitted redemption batch ID (or null) */
+  submittedBatchId?: number | null;
+  /** Total micro-USDC pending in current accumulating batch */
+  totalAccumulatingRedemptions?: number;
+  /** Timestamp when pool was paused (or 0) */
+  pausedAt?: number;
 }
 
 export interface YieldBreakdown {
@@ -226,6 +236,7 @@ export interface PendingRedemption {
   status: PendingRedemptionStatus;
   requestedAt: string; // ISO date string
   type: "bond_sale" | "prize_claim" | "fee_withdrawal";
+  batchId?: string;
   pstSharesLocked?: string;
   humaRequestId?: string;
 }

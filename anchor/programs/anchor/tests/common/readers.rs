@@ -70,6 +70,19 @@ pub fn read_pending_redemption(
     anchor::PendingRedemption::try_deserialize(&mut &acct.data[..]).unwrap()
 }
 
+pub fn read_redemption_batch(
+    svm: &LiteSVM,
+    pool_id: u32,
+    batch_id: u64,
+) -> anchor::state::RedemptionBatch {
+    let (pda, _) = redemption_batch_pda(pool_id, batch_id);
+    let acct = svm
+        .get_account(&pda)
+        .expect("redemption_batch account should exist");
+    anchor::state::RedemptionBatch::try_deserialize(&mut &acct.data[..]).unwrap()
+}
+
+
 pub fn read_ticket_registry(svm: &LiteSVM, address: Pubkey) -> anchor::state::TicketRegistry {
     let acc = svm
         .get_account(&address)

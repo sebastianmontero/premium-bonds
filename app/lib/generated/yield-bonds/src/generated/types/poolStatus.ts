@@ -20,6 +20,7 @@ export enum PoolStatus {
   Active,
   Paused,
   Closed,
+  Impaired,
 }
 
 export type PoolStatusArgs = PoolStatus;

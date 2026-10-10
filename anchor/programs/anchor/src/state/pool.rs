@@ -10,6 +10,8 @@ pub enum PoolStatus {
     Paused,
     /// Closed permanently; only withdrawals and redemptions allowed.
     Closed,
+    /// Impaired; venue default workout mode with pro-rata haircut batches.
+    Impaired,
 }
 
 impl TryFrom<u8> for PoolStatus {
@@ -20,6 +22,7 @@ impl TryFrom<u8> for PoolStatus {
             0 => Ok(PoolStatus::Active),
             1 => Ok(PoolStatus::Paused),
             2 => Ok(PoolStatus::Closed),
+            3 => Ok(PoolStatus::Impaired),
             _ => Err(PremiumBondsError::InvalidPoolStatus),
         }
     }
@@ -81,72 +84,63 @@ impl PrizeTier {
 #[account(zero_copy(unsafe))]
 #[repr(C)]
 pub struct PrizePool {
-    /// Price of a single bond/ticket in underlying token base units.
+    // ── Financial Configurations (8 bytes each, offset 0..40) ──────────────
     pub bond_price: u64,
-    /// Duration of each stake/yield cycle in hours.
     pub stake_cycle_duration_hrs: i64,
-    /// Minimum yield required (in USDC lamports) to trigger a draw. If not met, the draw is skipped and yield rolls over.
     pub min_yield_threshold: u64,
-    /// Total principal deposited by all users in this pool.
-    pub total_deposited_principal: u64,
-    /// Unix timestamp when the current yield cycle is scheduled to end.
     pub current_cycle_end_at: i64,
-    /// Auto-incrementing counter for PendingRedemption PDA derivation.
-    pub next_redemption_id: u64,
-    /// Lifetime fees accrued from yield harvests (accounting-only, not yet withdrawn).
+    pub paused_at: i64,
+
+    // ── Primary Liabilities & Accounting (8 bytes each, offset 40..80) ─────
+    pub total_deposited_principal: u64,
     pub total_fees_accrued: u64,
-    /// Fees already withdrawn by admin via withdraw_fees instruction.
     pub total_fees_withdrawn: u64,
-    /// Total prizes currently allocated/committed.
     pub total_prizes_allocated: u64,
-    /// Total outstanding pending redemptions.
     pub total_pending_redemptions: u64,
 
-    /// Unique identifier for this prize pool.
-    pub pool_id: u32,
-    /// The ID of the draw cycle currently being processed or the last completed cycle.
-    pub current_draw_cycle_id: u32,
+    // ── Batch Redemption Pipeline State (8 bytes each, offset 80..120) ────
+    pub next_redemption_id: u64,
+    pub accumulating_redemption_batch_id: u64,
+    pub next_redemption_batch_id: u64,
+    pub submitted_batch_id: u64,
+    pub total_accumulating_redemptions: u64,
 
-    /// Protocol fee rate in basis points (e.g. 250 = 2.5%).
-    pub fee_basis_points: u16,
-    /// Maximum allowable yield basis points per single cycle (e.g. 500 = 5.0%, 0 = uncapped).
-    pub max_yield_basis_points: u16,
-    /// Timelock buffer in seconds before winner payouts can be cranked (default: 300s).
+    // ── IDs & Timers (4 bytes each, offset 120..132) ────────────────────────
+    pub pool_id: u32,
+    pub current_draw_cycle_id: u32,
     pub payout_timelock_seconds: u32,
 
-    /// Bump seed for the vault authority.
+    // ── Basis Points & Rates (2 bytes each, offset 132..136) ───────────────
+    pub fee_basis_points: u16,
+    pub max_yield_basis_points: u16,
+
+    // ── Flags, Status & Bumps (1 byte each + padding, offset 136..144) ─────
     pub vault_authority_bump: u8,
-    /// Administrative lifecycle status of the pool (u8 representation of PoolStatus).
     pub status: u8,
-    /// Flag indicating whether deposit/withdraw/sale actions are frozen for draw calculation (0 for false, 1 for true).
     pub is_frozen_for_draw: u8,
-    /// Schema version of the struct.
     pub version: u8,
-    /// Active prize tiers count in prize_tiers array.
     pub prize_tiers_count: u8,
-    /// Explicit padding to maintain 8-byte boundary alignment.
     pub _padding: [u8; 3],
 
-    /// The mint of the underlying USDC token used for purchasing bonds.
+    // ── Pinned Addresses (32 bytes each, offset 144..272) ──────────────────
     pub token_mint: Pubkey,
-    /// Pointer to the massive zero-copy TicketRegistry account.
     pub ticket_registry: Pubkey,
-    /// Public key of the token account that collects protocol fees.
     pub fee_wallet: Pubkey,
-    /// Pinned Huma pool state account to prevent arbitrary venue injection.
     pub huma_pool_state: Pubkey,
 
-    /// Configured prize tiers for this pool.
+    // ── Prize Tiers (80 bytes, offset 272..352) ────────────────────────────
     pub prize_tiers: [PrizeTier; 10],
-    /// Reserved space for future upgrades.
+
+    // ── Clean Post-Production Upgrade Buffer (128 bytes, offset 352..480) ──
     pub _reserved: [u8; 128],
 }
 
 // Compile-time static assertions for zero-copy layout safety
-const _: () = assert!(std::mem::size_of::<PrizePool>() == 440);
+const _: () = assert!(std::mem::size_of::<PrizePool>() == 480);
 const _: () = assert!(std::mem::align_of::<PrizePool>() == 8);
 
 use crate::error::PremiumBondsError;
+use crate::state::RedemptionBatch;
 use crate::utils::calculate_percentage_fee;
 
 /// Computes total winners across all prize tiers with checked arithmetic.
@@ -203,6 +197,42 @@ impl PrizePool {
         self.status = status as u8;
     }
 
+    #[inline]
+    pub fn pool_status(&self) -> Result<PoolStatus> {
+        Ok(PoolStatus::try_from(self.status)?)
+    }
+
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        self.status == PoolStatus::Active as u8
+    }
+
+    #[inline]
+    pub fn is_paused(&self) -> bool {
+        self.status == PoolStatus::Paused as u8
+    }
+
+    #[inline]
+    pub fn is_impaired(&self) -> bool {
+        self.status == PoolStatus::Impaired as u8
+    }
+
+    pub fn pause(&mut self, timestamp: i64) -> Result<()> {
+        let prev = self.pool_status()?;
+        require!(prev != PoolStatus::Closed, PremiumBondsError::PoolClosed);
+        self.status = PoolStatus::Paused as u8;
+        self.paused_at = timestamp;
+        Ok(())
+    }
+
+    pub fn unpause(&mut self) -> Result<()> {
+        let prev = self.pool_status()?;
+        require!(prev == PoolStatus::Paused, PremiumBondsError::PoolNotPaused);
+        self.status = PoolStatus::Active as u8;
+        self.paused_at = 0;
+        Ok(())
+    }
+
     /// Returns true if frozen for draw.
     pub fn is_frozen(&self) -> bool {
         self.is_frozen_for_draw != 0
@@ -232,7 +262,7 @@ impl PrizePool {
 
     /// Pauses the pool and advances the draw cycle in circuit breaker scenarios.
     pub fn pause_and_advance_cycle(&mut self, current_time: i64) -> Result<()> {
-        self.status = PoolStatus::Paused as u8;
+        self.pause(current_time)?;
         self.is_frozen_for_draw = 0;
         self.current_draw_cycle_id = self
             .current_draw_cycle_id
@@ -254,34 +284,6 @@ impl PrizePool {
         Ok(())
     }
 
-    /// Records a new pending redemption liability, incrementing next_redemption_id.
-    pub fn queue_pending_redemption(&mut self, amount: u64) -> Result<u64> {
-        let redemption_id = self.next_redemption_id;
-        self.next_redemption_id = self
-            .next_redemption_id
-            .checked_add(1)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        self.total_pending_redemptions = self
-            .total_pending_redemptions
-            .checked_add(amount)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        Ok(redemption_id)
-    }
-
-    /// Settles a completed pending redemption liability.
-    ///
-    /// Clears the nominal pending liability registered during `queue_pending_redemption`.
-    pub fn complete_pending_redemption(&mut self, amount: u64) -> Result<()> {
-        if amount == 0 {
-            return Ok(());
-        }
-        self.total_pending_redemptions = self
-            .total_pending_redemptions
-            .checked_sub(amount)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        Ok(())
-    }
-
     /// Atomically rolls back allocated prizes and accrued protocol fees from a voided or force-unlocked draw.
     /// Enforces that unwithdrawn fees cover the rolled back fee to prevent underflow in unwithdrawn_fees().
     pub fn rollback_draw_liabilities(
@@ -294,8 +296,6 @@ impl PrizePool {
         }
 
         // 1. Validate unwithdrawn fees cover the rolled-back fee
-        // Critical solvency guard: rolling back fees when already withdrawn would cause
-        // total_fees_accrued < total_fees_withdrawn, causing underflow in unwithdrawn_fees()
         if fees_to_reverse > 0 {
             let unwithdrawn = self.unwithdrawn_fees()?;
             require!(
@@ -333,43 +333,51 @@ impl PrizePool {
             .ok_or_else(|| error!(PremiumBondsError::MathOverflow))
     }
 
-    /// Computes total active book liabilities (principal + unwithdrawn fees + allocated prizes).
-    ///
-    /// NOTE: Allocated prizes represent future compounded principal bonds since most winnings
-    /// are automatically reinvested into new bonds.
-    ///
-    /// NOTE: `total_pending_redemptions` is intentionally excluded because corresponding PST shares
-    /// have already left `pool_pst_vault` during the redemption request phase, so `current_value`
-    /// is already reduced proportionally.
     pub fn calculate_book_value(&self) -> Result<u64> {
-        let fees_in_vault = self.unwithdrawn_fees()?;
+        let fees = self.unwithdrawn_fees()?;
         self.total_deposited_principal
-            .checked_add(fees_in_vault)
+            .checked_add(fees)
             .ok_or_else(|| error!(PremiumBondsError::MathOverflow))?
             .checked_add(self.total_prizes_allocated)
+            .ok_or_else(|| error!(PremiumBondsError::MathOverflow))?
+            .checked_add(self.total_accumulating_redemptions)
             .ok_or_else(|| error!(PremiumBondsError::MathOverflow))
     }
 
-    /// Enforces that the pool's PST asset valuation covers all protocol liabilities within dust tolerance.
-    /// Strictly subsumes macro venue parity (since current_value >= book_value mathematically guarantees
-    /// mode_assets >= pst_supply), while ensuring first sellers cannot drain assets and leave last sellers
-    /// or winning bondholders shortchanged.
-    pub fn assert_solvent(&self, current_asset_value: u64) -> Result<()> {
+    pub fn total_principal_liabilities(&self) -> Result<u64> {
+        self.total_deposited_principal
+            .checked_add(self.total_accumulating_redemptions)
+            .ok_or_else(|| error!(PremiumBondsError::MathOverflow))
+    }
+
+    pub fn calculate_solvency_tolerance(&self, book_value: u64) -> Result<u64> {
+        let dynamic = (book_value as u128)
+            .checked_mul(crate::constants::SOLVENCY_TOLERANCE_BPS as u128)
+            .ok_or(PremiumBondsError::MathOverflow)?
+            .checked_div(10_000)
+            .ok_or(PremiumBondsError::MathOverflow)? as u64;
+
+        Ok(dynamic
+            .max(crate::constants::MIN_SOLVENCY_TOLERANCE)
+            .min(crate::constants::MAX_SOLVENCY_TOLERANCE))
+    }
+
+    pub fn is_solvent(&self, current_asset_value: u64) -> Result<bool> {
         let book_value = self.calculate_book_value()?;
-        if current_asset_value < book_value {
-            let deficit = book_value.saturating_sub(current_asset_value);
-            require!(
-                deficit <= crate::constants::SOLVENCY_DUST_TOLERANCE,
-                PremiumBondsError::YieldVenueInsolvent
-            );
-        }
+        let tolerance = self.calculate_solvency_tolerance(book_value)?;
+        Ok(current_asset_value.saturating_add(tolerance) >= book_value)
+    }
+
+    pub fn assert_solvent(&self, current_asset_value: u64) -> Result<()> {
+        require!(
+            self.is_solvent(current_asset_value)?,
+            PremiumBondsError::YieldVenueInsolvent
+        );
         Ok(())
     }
 
     /// Reads the Huma pool snapshot, computes current pool PST vault valuation in USDC,
     /// and asserts full liabilities solvency against book liabilities.
-    ///
-    /// Returns the parsed `HumaPoolSnapshot` for subsequent share redemption calculations.
     pub fn assert_huma_solvency(
         &self,
         huma_pool_state: &AccountInfo,
@@ -380,6 +388,138 @@ impl PrizePool {
         let current_value = huma_snapshot.pst_shares_to_usdc(pool_pst_vault_amount, pst_supply)?;
         self.assert_solvent(current_value)?;
         Ok(huma_snapshot)
+    }
+
+    #[inline]
+    pub fn has_submitted_batch(&self) -> bool {
+        self.submitted_batch_id != crate::constants::NO_SUBMITTED_BATCH
+    }
+
+    #[inline]
+    pub fn submitted_batch_id(&self) -> Option<u64> {
+        if self.has_submitted_batch() {
+            Some(self.submitted_batch_id)
+        } else {
+            None
+        }
+    }
+
+    // ── Symmetric Domain Invariant Methods ─────────────────────────────────────
+    pub fn queue_bond_sale_redemption(
+        &mut self,
+        batch: &mut RedemptionBatch,
+        principal_amount: u64,
+    ) -> Result<u64> {
+        self.total_deposited_principal = self.total_deposited_principal
+            .checked_sub(principal_amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.queue_batch_redemption(batch, principal_amount)
+    }
+
+    pub fn queue_prize_redemption(
+        &mut self,
+        batch: &mut RedemptionBatch,
+        prize_amount: u64,
+    ) -> Result<u64> {
+        self.total_prizes_allocated = self.total_prizes_allocated
+            .checked_sub(prize_amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.queue_batch_redemption(batch, prize_amount)
+    }
+
+    pub fn queue_fee_redemption(
+        &mut self,
+        batch: &mut RedemptionBatch,
+        fee_amount: u64,
+    ) -> Result<u64> {
+        self.total_fees_withdrawn = self.total_fees_withdrawn
+            .checked_add(fee_amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.queue_batch_redemption(batch, fee_amount)
+    }
+
+    fn queue_batch_redemption(
+        &mut self,
+        batch: &mut RedemptionBatch,
+        amount: u64,
+    ) -> Result<u64> {
+        require!(batch.pool_id == self.pool_id, PremiumBondsError::MismatchedPoolId);
+        require!(
+            batch.batch_id == self.accumulating_redemption_batch_id,
+            PremiumBondsError::MismatchedBatchId
+        );
+        batch.accumulate(amount)?;
+        self.total_accumulating_redemptions = self.total_accumulating_redemptions
+            .checked_add(amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.total_pending_redemptions = self.total_pending_redemptions
+            .checked_add(amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        let redemption_id = self.next_redemption_id;
+        self.next_redemption_id = self.next_redemption_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(redemption_id)
+    }
+
+    pub fn complete_pending_redemption(&mut self, amount: u64) -> Result<()> {
+        self.total_pending_redemptions = self.total_pending_redemptions
+            .checked_sub(amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
+    }
+
+    pub fn calculate_batch_submission_shares(
+        &self,
+        principal_requested: u64,
+        huma_snapshot: &crate::huma::HumaPoolSnapshot,
+        vault_pst_amount: u64,
+        pst_supply: u64,
+    ) -> Result<u64> {
+        let raw_shares = if self.is_impaired() {
+            let total_liabilities = self.total_principal_liabilities()?;
+            ((principal_requested as u128)
+                .checked_mul(vault_pst_amount as u128)
+                .ok_or(PremiumBondsError::MathOverflow)?
+                .checked_div(total_liabilities as u128)
+                .ok_or(PremiumBondsError::MathOverflow)?) as u64
+        } else {
+            huma_snapshot.usdc_to_pst_shares(principal_requested, pst_supply)?
+        };
+        let pst_shares = raw_shares.min(vault_pst_amount);
+        require!(pst_shares > 0, PremiumBondsError::ZeroSharesRedeemed);
+        Ok(pst_shares)
+    }
+
+    pub fn advance_submitted_batch(&mut self, batch_id: u64, principal_requested: u64) -> Result<u64> {
+        require!(!self.has_submitted_batch(), PremiumBondsError::SubmittedBatchInFlight);
+        require!(batch_id == self.accumulating_redemption_batch_id, PremiumBondsError::MismatchedBatchId);
+        
+        self.total_accumulating_redemptions = self.total_accumulating_redemptions
+            .checked_sub(principal_requested)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.submitted_batch_id = batch_id;
+        self.accumulating_redemption_batch_id = self.next_redemption_batch_id;
+        let next_id = self.next_redemption_batch_id;
+        self.next_redemption_batch_id = self.next_redemption_batch_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(next_id)
+    }
+
+    pub fn clear_submitted_batch(&mut self, batch_id: u64) -> Result<()> {
+        require!(self.submitted_batch_id == batch_id, PremiumBondsError::MismatchedBatchId);
+        self.submitted_batch_id = crate::constants::NO_SUBMITTED_BATCH;
+        Ok(())
+    }
+
+    pub fn transition_to_impaired(&mut self) -> Result<()> {
+        require!(self.is_paused(), PremiumBondsError::PoolNotPaused);
+        self.total_fees_accrued = self.total_fees_withdrawn;
+        self.total_prizes_allocated = 0;
+        self.is_frozen_for_draw = 0;
+        self.status = PoolStatus::Impaired as u8;
+        Ok(())
     }
 
     /// Validates all pre-CPI guard checks for the `buy_bonds` instruction.
@@ -687,36 +827,41 @@ mod tests {
 
     fn default_pool(fee_basis_points: u16, stake_cycle_duration_hrs: i64) -> PrizePool {
         PrizePool {
-            vault_authority_bump: 0,
+            bond_price: 1_000_000,
+            stake_cycle_duration_hrs,
+            min_yield_threshold: 0,
+            current_cycle_end_at: 0,
+            paused_at: 0,
+            total_deposited_principal: 0,
+            total_fees_accrued: 0,
+            total_fees_withdrawn: 0,
+            total_prizes_allocated: 0,
+            total_pending_redemptions: 0,
+            next_redemption_id: 0,
+            accumulating_redemption_batch_id: 0,
+            next_redemption_batch_id: 1,
+            submitted_batch_id: crate::constants::NO_SUBMITTED_BATCH,
+            total_accumulating_redemptions: 0,
             pool_id: 1,
+            current_draw_cycle_id: 0,
+            payout_timelock_seconds: 300,
+            fee_basis_points,
+            max_yield_basis_points: 0,
+            vault_authority_bump: 0,
+            status: PoolStatus::Active as u8,
+            is_frozen_for_draw: 0,
+            version: PrizePool::CURRENT_VERSION,
+            prize_tiers_count: 0,
+            _padding: [0; 3],
             token_mint: Pubkey::default(),
             ticket_registry: Pubkey::default(),
             fee_wallet: Pubkey::default(),
             huma_pool_state: Pubkey::default(),
-            bond_price: 1_000_000,
-            stake_cycle_duration_hrs,
-            min_yield_threshold: 0,
-            fee_basis_points,
-            max_yield_basis_points: 0,
-            payout_timelock_seconds: 300,
-            status: PoolStatus::Active as u8,
-            total_deposited_principal: 0,
-            current_cycle_end_at: 0,
-            is_frozen_for_draw: 0,
-            current_draw_cycle_id: 0,
-            prize_tiers_count: 0,
-            _padding: [0; 3],
             prize_tiers: [PrizeTier {
                 num_winners: 0,
                 basis_points: 0,
                 _padding: [0; 2],
             }; 10],
-            next_redemption_id: 0,
-            total_fees_accrued: 0,
-            total_fees_withdrawn: 0,
-            total_prizes_allocated: 0,
-            total_pending_redemptions: 0,
-            version: PrizePool::CURRENT_VERSION,
             _reserved: [0; 128],
         }
     }
@@ -1286,36 +1431,41 @@ mod tests {
     #[test]
     fn test_set_prize_tiers_state_mutation() {
         let mut pool = PrizePool {
-            vault_authority_bump: 0,
+            bond_price: 1_000_000,
+            stake_cycle_duration_hrs: 24,
+            min_yield_threshold: 0,
+            current_cycle_end_at: 0,
+            paused_at: 0,
+            total_deposited_principal: 0,
+            total_fees_accrued: 0,
+            total_fees_withdrawn: 0,
+            total_prizes_allocated: 0,
+            total_pending_redemptions: 0,
+            next_redemption_id: 0,
+            accumulating_redemption_batch_id: 0,
+            next_redemption_batch_id: 1,
+            submitted_batch_id: crate::constants::NO_SUBMITTED_BATCH,
+            total_accumulating_redemptions: 0,
             pool_id: 1,
+            current_draw_cycle_id: 0,
+            payout_timelock_seconds: 300,
+            fee_basis_points: 100,
+            max_yield_basis_points: 0,
+            vault_authority_bump: 0,
+            status: PoolStatus::Active as u8,
+            is_frozen_for_draw: 0,
+            version: PrizePool::CURRENT_VERSION,
+            prize_tiers_count: 0,
+            _padding: [0; 3],
             token_mint: Pubkey::default(),
             ticket_registry: Pubkey::default(),
             fee_wallet: Pubkey::default(),
             huma_pool_state: Pubkey::default(),
-            bond_price: 1_000_000,
-            stake_cycle_duration_hrs: 24,
-            current_cycle_end_at: 0,
-            fee_basis_points: 100,
-            min_yield_threshold: 0,
-            max_yield_basis_points: 0,
-            payout_timelock_seconds: 300,
-            status: PoolStatus::Active as u8,
-            total_deposited_principal: 0,
-            is_frozen_for_draw: 0,
-            current_draw_cycle_id: 0,
-            prize_tiers_count: 0,
-            _padding: [0; 3],
             prize_tiers: [PrizeTier {
                 num_winners: 99,
                 basis_points: 99,
                 _padding: [0; 2],
             }; 10],
-            next_redemption_id: 0,
-            total_fees_accrued: 0,
-            total_fees_withdrawn: 0,
-            total_prizes_allocated: 0,
-            total_pending_redemptions: 0,
-            version: PrizePool::CURRENT_VERSION,
             _reserved: [0; 128],
         };
 
@@ -1393,7 +1543,7 @@ mod tests {
     #[test]
     fn test_pool_status_try_from_invalid() {
         assert!(matches!(
-            PoolStatus::try_from(3),
+            PoolStatus::try_from(4),
             Err(PremiumBondsError::InvalidPoolStatus)
         ));
         assert!(matches!(
@@ -1468,11 +1618,11 @@ mod tests {
         assert!(pool.assert_solvent(100_000).is_ok());
         assert!(pool.assert_solvent(105_000).is_ok());
 
-        // Deficit within dust tolerance (1,000)
-        assert!(pool.assert_solvent(99_000).is_ok()); // deficit = 1,000 <= 1,000
+        // Dynamic tolerance for 100_000 ($0.10) is MIN_SOLVENCY_TOLERANCE ($0.01 = 10_000)
+        assert!(pool.assert_solvent(90_000).is_ok()); // deficit = 10_000 <= 10_000
 
-        // Deficit exceeds dust tolerance (1,001)
-        let err = pool.assert_solvent(98_999).unwrap_err(); // deficit = 1,001 > 1,000
+        // Deficit exceeds dynamic tolerance (10_001)
+        let err = pool.assert_solvent(89_999).unwrap_err(); // deficit = 10_001 > 10_000
         assert_eq!(err, PremiumBondsError::YieldVenueInsolvent.into());
     }
 }

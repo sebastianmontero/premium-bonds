@@ -34,8 +34,6 @@ import {
   getI64Encoder,
   getStructDecoder,
   getStructEncoder,
-  getU128Decoder,
-  getU128Encoder,
   getU32Decoder,
   getU32Encoder,
   getU64Decoder,
@@ -66,56 +64,30 @@ export function getPendingRedemptionDiscriminatorBytes(): ReadonlyUint8Array {
 
 export type PendingRedemption = {
   discriminator: ReadonlyUint8Array;
-  /** The corresponding Huma request ID in the pool redemption queue. */
-  humaRequestId: bigint;
-  /** Unique sequential ID assigned from PrizePool.next_redemption_id. */
-  redemptionId: bigint;
-  /** USDC amount owed to the user once Huma settles. */
-  amount: bigint;
-  /** Number of $PST shares locked in the Huma redemption request. */
-  pstSharesLocked: bigint;
-  /** Unix timestamp when the redemption was requested. */
-  requestedAt: bigint;
-  /** The beneficiary who will receive the USDC on disburse. */
   user: Address;
-  /** The pool this redemption belongs to. */
+  batchId: bigint;
+  redemptionId: bigint;
+  amount: bigint;
+  requestedAt: bigint;
   poolId: number;
-  /** PDA bump seed. */
   bump: number;
-  /** Schema version of the struct. */
   version: number;
-  /** Origin/type of redemption (BondSale, PrizeClaim, FeeWithdrawal). */
   redemptionType: RedemptionType;
-  /** Explicit padding to ensure 8-byte alignment for reserved space (offset 87..88). */
   padding: ReadonlyUint8Array;
-  /** Reserved space for future upgrades (offset 88..152, 160 bytes total account space). */
   reserved: ReadonlyUint8Array;
 };
 
 export type PendingRedemptionArgs = {
-  /** The corresponding Huma request ID in the pool redemption queue. */
-  humaRequestId: number | bigint;
-  /** Unique sequential ID assigned from PrizePool.next_redemption_id. */
-  redemptionId: number | bigint;
-  /** USDC amount owed to the user once Huma settles. */
-  amount: number | bigint;
-  /** Number of $PST shares locked in the Huma redemption request. */
-  pstSharesLocked: number | bigint;
-  /** Unix timestamp when the redemption was requested. */
-  requestedAt: number | bigint;
-  /** The beneficiary who will receive the USDC on disburse. */
   user: Address;
-  /** The pool this redemption belongs to. */
+  batchId: number | bigint;
+  redemptionId: number | bigint;
+  amount: number | bigint;
+  requestedAt: number | bigint;
   poolId: number;
-  /** PDA bump seed. */
   bump: number;
-  /** Schema version of the struct. */
   version: number;
-  /** Origin/type of redemption (BondSale, PrizeClaim, FeeWithdrawal). */
   redemptionType: RedemptionTypeArgs;
-  /** Explicit padding to ensure 8-byte alignment for reserved space (offset 87..88). */
   padding: ReadonlyUint8Array;
-  /** Reserved space for future upgrades (offset 88..152, 160 bytes total account space). */
   reserved: ReadonlyUint8Array;
 };
 
@@ -124,12 +96,11 @@ export function getPendingRedemptionEncoder(): FixedSizeEncoder<PendingRedemptio
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["humaRequestId", getU128Encoder()],
+      ["user", getAddressEncoder()],
+      ["batchId", getU64Encoder()],
       ["redemptionId", getU64Encoder()],
       ["amount", getU64Encoder()],
-      ["pstSharesLocked", getU64Encoder()],
       ["requestedAt", getI64Encoder()],
-      ["user", getAddressEncoder()],
       ["poolId", getU32Encoder()],
       ["bump", getU8Encoder()],
       ["version", getU8Encoder()],
@@ -145,12 +116,11 @@ export function getPendingRedemptionEncoder(): FixedSizeEncoder<PendingRedemptio
 export function getPendingRedemptionDecoder(): FixedSizeDecoder<PendingRedemption> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["humaRequestId", getU128Decoder()],
+    ["user", getAddressDecoder()],
+    ["batchId", getU64Decoder()],
     ["redemptionId", getU64Decoder()],
     ["amount", getU64Decoder()],
-    ["pstSharesLocked", getU64Decoder()],
     ["requestedAt", getI64Decoder()],
-    ["user", getAddressDecoder()],
     ["poolId", getU32Decoder()],
     ["bump", getU8Decoder()],
     ["version", getU8Decoder()],
@@ -235,5 +205,5 @@ export async function fetchAllMaybePendingRedemption(
 }
 
 export function getPendingRedemptionSize(): number {
-  return 160;
+  return 144;
 }

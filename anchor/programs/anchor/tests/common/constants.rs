@@ -8,6 +8,7 @@ pub const POOL_VAULT_SEED: &[u8] = b"pool_vault";
 pub const POOL_PST_SEED: &[u8] = b"pool_pst";
 pub const HUMA_POOL_AUTHORITY_SEED: &[u8] = b"pool_authority";
 pub const PENDING_REDEMPTION_SEED: &[u8] = b"pending_redemption";
+pub const REDEMPTION_BATCH_SEED: &[u8] = b"redemption_batch";
 pub const DRAW_CYCLE_SEED: &[u8] = b"draw_cycle";
 pub const PAYOUT_SEED: &[u8] = b"payout";
 pub const USER_WINNINGS_SEED: &[u8] = b"user_winnings";

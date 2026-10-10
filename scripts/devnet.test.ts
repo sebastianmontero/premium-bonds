@@ -1092,7 +1092,7 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
           poolPstBalance: 10_000_000_000n,
         };
 
-        const deficitMicroUsdc = 1_000_000n; // 1 USDC deficit
+        const deficitMicroUsdc = 5_000_000n; // 5 USDC deficit (exceeds 1.008 USDC tolerance)
         const report = calculateDeficitSimulation({
           pool: mockPool,
           deficitMicroUsdc,
@@ -1101,12 +1101,12 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
 
         // bookValue = 10,000 + 80 = 10,080 USDC (10_080_000_000n)
         assert.strictEqual(report.bookValue, 10_080_000_000n);
-        // targetCurrentValue = 10_080_000_000 - 1_000_000 = 10_079_000_000n
-        assert.strictEqual(report.targetCurrentValue, 10_079_000_000n);
-        // requiredTotalAssets = (10_079_000_000 * 10_000_000_000) / 10_000_000_000 = 10_079_000_000n
-        assert.strictEqual(report.requiredTotalAssets, 10_079_000_000n);
-        // deltaReduction = 12_000_000_000 - 10_079_000_000 = 1_921_000_000n
-        assert.strictEqual(report.deltaReduction, 1_921_000_000n);
+        // targetCurrentValue = 10_080_000_000 - 5_000_000 = 10_075_000_000n
+        assert.strictEqual(report.targetCurrentValue, 10_075_000_000n);
+        // requiredTotalAssets = (10_075_000_000 * 10_000_000_000) / 10_000_000_000 = 10_075_000_000n
+        assert.strictEqual(report.requiredTotalAssets, 10_075_000_000n);
+        // deltaReduction = 12_000_000_000 - 10_075_000_000 = 1_925_000_000n
+        assert.strictEqual(report.deltaReduction, 1_925_000_000n);
         assert.strictEqual(report.isBelowDustTolerance, false);
       });
 

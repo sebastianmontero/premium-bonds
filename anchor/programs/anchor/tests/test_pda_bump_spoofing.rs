@@ -70,11 +70,10 @@ fn test_stored_bump_tampering_on_claim_redemption() {
         anchor::state::InitPendingRedemptionParams {
             pool_id,
             redemption_id,
+            batch_id: 0,
             bump: tampered_bump, // Tampered stored bump
             user: ctx.user.pubkey(),
             amount: 1_000_000,
-            pst_shares_locked: 1_000_000,
-            huma_request_id: 0,
             requested_at: 0,
             redemption_type: anchor::state::RedemptionType::BondSale,
         },

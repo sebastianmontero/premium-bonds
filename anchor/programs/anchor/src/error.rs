@@ -223,4 +223,53 @@ pub enum PremiumBondsError {
     /// The prepared registry cumulative ticket count does not match the harvest snapshot.
     #[msg("Ticket registry snapshot does not match draw cycle locked tickets.")]
     DrawSnapshotMismatch,
+    /// Redemption batch is empty.
+    #[msg("Redemption batch is empty.")]
+    EmptyRedemptionBatch,
+    /// Invalid redemption batch lifecycle status.
+    #[msg("Invalid redemption batch lifecycle status.")]
+    InvalidBatchStatus,
+    /// Redemption batch has not been settled yet.
+    #[msg("Redemption batch has not been settled yet.")]
+    RedemptionBatchNotSettled,
+    /// Huma redemption queue has not progressed past the submitted request.
+    #[msg("Huma redemption queue has not progressed past the submitted request.")]
+    HumaQueueNotSettled,
+    /// Mismatched redemption batch ID.
+    #[msg("Mismatched redemption batch ID.")]
+    MismatchedBatchId,
+    /// Mismatched pool ID on batch account.
+    #[msg("Mismatched pool ID on batch account.")]
+    MismatchedPoolId,
+    /// A redemption batch is already in-flight in Huma queue.
+    #[msg("A redemption batch is already in-flight in Huma queue.")]
+    SubmittedBatchInFlight,
+    /// Redemption batch has not been fully claimed yet.
+    #[msg("Redemption batch has not been fully claimed yet.")]
+    BatchNotFullyClaimed,
+    /// Batch submission derived zero PST shares.
+    #[msg("Batch submission derived zero PST shares.")]
+    ZeroSharesRedeemed,
+    /// Claim amount exceeds total requested principal in batch.
+    #[msg("Claim amount exceeds total requested principal in batch.")]
+    BatchOverclaimed,
+    /// Huma lender state account is invalid.
+    #[msg("Huma lender state account is invalid.")]
+    InvalidHumaLenderState,
+    /// Cannot transition a solvent pool to impaired mode.
+    #[msg("Cannot transition a solvent pool to impaired mode.")]
+    CannotImpairSolventPool,
+    /// Pool is in impaired mode.
+    #[msg("Pool is in impaired mode.")]
+    PoolImpaired,
+    /// 90-day impairment workout timelock is still active for non-admin callers.
+    #[msg("Impairment workout timelock is still active.")]
+    ImpairmentTimelockActive,
+    /// Recapitalize deposit amount must be greater than zero.
+    #[msg("Recapitalize deposit amount must be greater than zero.")]
+    InvalidRecapitalizeAmount,
+    /// Pool is not currently paused.
+    #[msg("Pool is not currently paused.")]
+    PoolNotPaused,
 }
+
