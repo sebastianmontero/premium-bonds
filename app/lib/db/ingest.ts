@@ -5,6 +5,7 @@ import {
   drawHistory,
   drawWinners,
   pendingRedemptions,
+  redemptionBatches,
   poolSnapshots,
   userPortfolioStats,
   indexerCursor,
@@ -199,6 +200,7 @@ export interface BuildPendingRedemptionRowParams {
   userAddress: string;
   redemptionType: "bond_sale" | "prize_claim" | "fee_withdrawal";
   amountUsdc: bigint | number;
+  batchId?: bigint | number | null;
   pstSharesLocked?: bigint | number | null;
   humaRequestId?: bigint | number | string | null;
   signature: string;
@@ -219,10 +221,9 @@ export function buildPendingRedemptionRow(
     userAddress: params.userAddress,
     redemptionType: params.redemptionType,
     amountUsdc: BigInt(params.amountUsdc),
+    batchId: BigInt(params.batchId ?? 0),
     pstSharesLocked:
       params.pstSharesLocked != null ? BigInt(params.pstSharesLocked) : null,
-    humaRequestId:
-      params.humaRequestId != null ? params.humaRequestId.toString() : null,
     status,
     requestSignature: params.signature,
     claimSignature:
@@ -380,7 +381,50 @@ export function foldPendingRedemptionRows(
       if (r.amountUsdc != null) existing.amountUsdc = r.amountUsdc;
       if (r.pstSharesLocked != null)
         existing.pstSharesLocked = r.pstSharesLocked;
+      if (r.batchId != null) existing.batchId = r.batchId;
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * Folds redemption batches targeting the same (poolId, batchId) in memory.
+ */
+export function foldRedemptionBatchRows(
+  rows: (typeof redemptionBatches.$inferInsert)[]
+): (typeof redemptionBatches.$inferInsert)[] {
+  const map = new Map<string, typeof redemptionBatches.$inferInsert>();
+  for (const r of rows) {
+    const key = `${r.poolId}:${r.batchId}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...r });
+    } else {
+      if (r.status === "Closed") {
+        existing.status = "Closed";
+      } else if (r.status === "Settled" && existing.status !== "Closed") {
+        existing.status = "Settled";
+      } else if (
+        r.status === "Submitted" &&
+        existing.status !== "Closed" &&
+        existing.status !== "Settled"
+      ) {
+        existing.status = "Submitted";
+      }
+      if (r.totalPrincipalRequested)
+        existing.totalPrincipalRequested = r.totalPrincipalRequested;
+      if (r.totalPstSharesLocked)
+        existing.totalPstSharesLocked = r.totalPstSharesLocked;
+      if (r.settledUsdcReceived)
+        existing.settledUsdcReceived = r.settledUsdcReceived;
+      if (r.claimedPrincipal) existing.claimedPrincipal = r.claimedPrincipal;
       if (r.humaRequestId != null) existing.humaRequestId = r.humaRequestId;
+      if (r.submittedAt) existing.submittedAt = r.submittedAt;
+      if (r.settledAt) existing.settledAt = r.settledAt;
+      if (r.closedAt) existing.closedAt = r.closedAt;
+      if (r.submitSignature) existing.submitSignature = r.submitSignature;
+      if (r.settleSignature) existing.settleSignature = r.settleSignature;
+      if (r.closeSignature) existing.closeSignature = r.closeSignature;
     }
   }
   return Array.from(map.values());
@@ -604,7 +648,46 @@ export async function upsertPendingRedemptionsTx(
           claimedAt: sql`COALESCE(EXCLUDED.claimed_at, ${pendingRedemptions.claimedAt})`,
           amountUsdc: sql`COALESCE(NULLIF(EXCLUDED.amount_usdc, 0), ${pendingRedemptions.amountUsdc})`,
           pstSharesLocked: sql`COALESCE(EXCLUDED.pst_shares_locked, ${pendingRedemptions.pstSharesLocked})`,
-          humaRequestId: sql`COALESCE(EXCLUDED.huma_request_id, ${pendingRedemptions.humaRequestId})`,
+          batchId: sql`COALESCE(EXCLUDED.batch_id, ${pendingRedemptions.batchId})`,
+        },
+      });
+  }
+}
+
+export async function upsertRedemptionBatchesTx(
+  tx: PgTx,
+  rows: (typeof redemptionBatches.$inferInsert)[]
+) {
+  if (rows.length === 0) return;
+  const folded = foldRedemptionBatchRows(rows);
+
+  for (const row of folded) {
+    await tx
+      .insert(redemptionBatches)
+      .values(row)
+      .onConflictDoUpdate({
+        target: [redemptionBatches.poolId, redemptionBatches.batchId],
+        set: {
+          status: sql`CASE
+            WHEN ${redemptionBatches.status} = 'Closed' THEN 'Closed'
+            WHEN EXCLUDED.status = 'Closed' THEN 'Closed'
+            WHEN ${redemptionBatches.status} = 'Settled' THEN 'Settled'
+            WHEN EXCLUDED.status = 'Settled' THEN 'Settled'
+            WHEN ${redemptionBatches.status} = 'Submitted' THEN 'Submitted'
+            ELSE EXCLUDED.status
+          END`,
+          totalPrincipalRequested: sql`COALESCE(NULLIF(EXCLUDED.total_principal_requested, 0), ${redemptionBatches.totalPrincipalRequested})`,
+          totalPstSharesLocked: sql`COALESCE(NULLIF(EXCLUDED.total_pst_shares_locked, 0), ${redemptionBatches.totalPstSharesLocked})`,
+          settledUsdcReceived: sql`COALESCE(NULLIF(EXCLUDED.settled_usdc_received, 0), ${redemptionBatches.settledUsdcReceived})`,
+          claimedPrincipal: sql`COALESCE(NULLIF(EXCLUDED.claimed_principal, 0), ${redemptionBatches.claimedPrincipal})`,
+          humaRequestId: sql`COALESCE(EXCLUDED.huma_request_id, ${redemptionBatches.humaRequestId})`,
+          submittedAt: sql`COALESCE(EXCLUDED.submitted_at, ${redemptionBatches.submittedAt})`,
+          settledAt: sql`COALESCE(EXCLUDED.settled_at, ${redemptionBatches.settledAt})`,
+          closedAt: sql`COALESCE(EXCLUDED.closed_at, ${redemptionBatches.closedAt})`,
+          submitSignature: sql`COALESCE(EXCLUDED.submit_signature, ${redemptionBatches.submitSignature})`,
+          settleSignature: sql`COALESCE(EXCLUDED.settle_signature, ${redemptionBatches.settleSignature})`,
+          closeSignature: sql`COALESCE(EXCLUDED.close_signature, ${redemptionBatches.closeSignature})`,
+          updatedAt: new Date(),
         },
       });
   }
@@ -688,6 +771,8 @@ export interface ReducedBatchEvents {
   winnerUpdateRows: WinnerUpdateRow[];
   drawRows: (typeof drawHistory.$inferInsert)[];
   redemptionRows: (typeof pendingRedemptions.$inferInsert)[];
+  batchRows: (typeof redemptionBatches.$inferInsert)[];
+  settledBatchUpdates: { poolId: number; batchId: bigint }[];
   snapshotRows: (typeof poolSnapshots.$inferInsert)[];
   userStatDeltas: UserStatDelta[];
   payoutRegistryClosedUpdates: { poolId: number; cycleId: number }[];
@@ -701,6 +786,8 @@ export function reduceBatchEvents(
   const winnerUpdateRows: WinnerUpdateRow[] = [];
   const drawRows: (typeof drawHistory.$inferInsert)[] = [];
   const redemptionRows: (typeof pendingRedemptions.$inferInsert)[] = [];
+  const batchRows: (typeof redemptionBatches.$inferInsert)[] = [];
+  const settledBatchUpdates: { poolId: number; batchId: bigint }[] = [];
   const snapshotRows: (typeof poolSnapshots.$inferInsert)[] = [];
   const userStatDeltas: UserStatDelta[] = [];
   const payoutRegistryClosedUpdates: { poolId: number; cycleId: number }[] = [];
@@ -780,12 +867,17 @@ export function reduceBatchEvents(
               userAddress: evt.data.user,
               redemptionType: "bond_sale",
               amountUsdc: evt.data.principal,
-              pstSharesLocked: evt.data.pstShares,
-              humaRequestId: evt.data.humaRequestId,
+              batchId: evt.data.batchId,
               signature: context.signature,
               blockTime: context.blockTime,
             })
           );
+          batchRows.push({
+            poolId: evt.data.poolId,
+            batchId: evt.data.batchId,
+            status: "Accumulating",
+            createdAt: context.blockTime,
+          });
           userStatDeltas.push(
             createUserStatDelta(
               {
@@ -896,12 +988,17 @@ export function reduceBatchEvents(
               userAddress: evt.data.user,
               redemptionType: "prize_claim",
               amountUsdc: evt.data.amount,
-              pstSharesLocked: evt.data.pstShares,
-              humaRequestId: evt.data.humaRequestId,
+              batchId: evt.data.batchId,
               signature: context.signature,
               blockTime: context.blockTime,
             })
           );
+          batchRows.push({
+            poolId: evt.data.poolId,
+            batchId: evt.data.batchId,
+            status: "Accumulating",
+            createdAt: context.blockTime,
+          });
           // Dead Code Elimination: WinningsClaimed is an async redemption request.
           // The win was already recorded in WinningsReinvested, and the claimed USDC delta will be
           // recorded in RedemptionClaimed upon settlement. Pushing a 0-delta object to userStatDeltas
@@ -936,8 +1033,7 @@ export function reduceBatchEvents(
                     ]
                   : "bond_sale",
               amountUsdc: evt.data.amount,
-              pstSharesLocked: evt.data.pstSharesLocked,
-              humaRequestId: evt.data.humaRequestId,
+              batchId: evt.data.batchId,
               signature: context.signature,
               blockTime: context.blockTime,
               status: "claimed",
@@ -1148,12 +1244,82 @@ export function reduceBatchEvents(
               userAddress: evt.data.feeWallet,
               redemptionType: "fee_withdrawal",
               amountUsdc: evt.data.amount,
-              pstSharesLocked: evt.data.pstShares,
-              humaRequestId: evt.data.humaRequestId,
+              batchId: evt.data.batchId,
               signature: context.signature,
               blockTime: context.blockTime,
             })
           );
+          batchRows.push({
+            poolId: evt.data.poolId,
+            batchId: evt.data.batchId,
+            status: "Accumulating",
+            createdAt: context.blockTime,
+          });
+          break;
+
+        case "RedemptionBatchSubmitted":
+          batchRows.push({
+            poolId: evt.data.poolId,
+            batchId: evt.data.batchId,
+            status: "Submitted",
+            humaRequestId: evt.data.humaRequestId.toString(),
+            totalPrincipalRequested: evt.data.totalPrincipalRequested,
+            totalPstSharesLocked: evt.data.pstSharesLocked,
+            createdAt: context.blockTime,
+            submittedAt: context.blockTime,
+            submitSignature: context.signature,
+          });
+          break;
+
+        case "RedemptionBatchSettled":
+          batchRows.push({
+            poolId: evt.data.poolId,
+            batchId: evt.data.batchId,
+            status: "Settled",
+            humaRequestId: evt.data.humaRequestId.toString(),
+            totalPrincipalRequested: evt.data.totalPrincipalRequested,
+            settledUsdcReceived: evt.data.settledUsdcReceived,
+            createdAt: context.blockTime,
+            settledAt: context.blockTime,
+            settleSignature: context.signature,
+          });
+          settledBatchUpdates.push({
+            poolId: evt.data.poolId,
+            batchId: evt.data.batchId,
+          });
+          break;
+
+        case "RedemptionBatchClosed":
+          batchRows.push({
+            poolId: evt.data.poolId,
+            batchId: evt.data.batchId,
+            status: "Closed",
+            createdAt: context.blockTime,
+            closedAt: context.blockTime,
+            closeSignature: context.signature,
+          });
+          break;
+
+        case "PoolImpairedModeEnabled":
+          snapshotRows.push({
+            poolId: evt.data.poolId,
+            cycleId: 0,
+            snapshotTime: context.blockTime,
+            totalDepositedPrincipal: evt.data.totalDepositedPrincipal,
+            totalFeesAccrued: 0n,
+            totalFeesWithdrawn: 0n,
+          });
+          break;
+
+        case "PoolRecapitalized":
+          snapshotRows.push({
+            poolId: evt.data.poolId,
+            cycleId: 0,
+            snapshotTime: context.blockTime,
+            totalDepositedPrincipal: 0n,
+            totalFeesAccrued: 0n,
+            totalFeesWithdrawn: 0n,
+          });
           break;
       }
     });
@@ -1165,6 +1331,8 @@ export function reduceBatchEvents(
     winnerUpdateRows,
     drawRows,
     redemptionRows,
+    batchRows,
+    settledBatchUpdates,
     snapshotRows,
     userStatDeltas,
     payoutRegistryClosedUpdates,
@@ -1184,6 +1352,8 @@ export async function ingestTransactionBatch(
     winnerUpdateRows,
     drawRows,
     redemptionRows,
+    batchRows,
+    settledBatchUpdates,
     snapshotRows,
     userStatDeltas,
     payoutRegistryClosedUpdates,
@@ -1234,9 +1404,30 @@ export async function ingestTransactionBatch(
       }
     }
 
-    // 4. Upsert Pending Redemptions
+    // 4a. Upsert Redemption Batches
+    if (batchRows.length > 0) {
+      await upsertRedemptionBatchesTx(tx, batchRows);
+    }
+
+    // 4b. Upsert Pending Redemptions
     if (redemptionRows.length > 0) {
       await upsertPendingRedemptionsTx(tx, redemptionRows);
+    }
+
+    // 4c. Cascade Settled Redemption Batches to 'ready' on pending redemptions
+    if (settledBatchUpdates.length > 0) {
+      for (const s of settledBatchUpdates) {
+        await tx
+          .update(pendingRedemptions)
+          .set({ status: "ready" })
+          .where(
+            and(
+              eq(pendingRedemptions.poolId, s.poolId),
+              eq(pendingRedemptions.batchId, s.batchId),
+              eq(pendingRedemptions.status, "settling")
+            )
+          );
+      }
     }
 
     // 5. Upsert Pool Snapshots

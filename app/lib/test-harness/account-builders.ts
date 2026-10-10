@@ -16,9 +16,16 @@ import {
   getPendingRedemptionEncoder,
   PENDING_REDEMPTION_DISCRIMINATOR,
 } from "../generated/yield-bonds/src/generated/accounts/pendingRedemption";
+import {
+  RedemptionBatch,
+  RedemptionBatchArgs,
+  getRedemptionBatchEncoder,
+  REDEMPTION_BATCH_DISCRIMINATOR,
+} from "../generated/yield-bonds/src/generated/accounts/redemptionBatch";
 import { PoolStatus } from "../generated/yield-bonds/src/generated/types/poolStatus";
 import { DrawStatus } from "../generated/yield-bonds/src/generated/types/drawStatus";
 import { RedemptionType } from "../generated/yield-bonds/src/generated/types/redemptionType";
+import { RedemptionBatchStatus } from "../generated/yield-bonds/src/generated/types/redemptionBatchStatus";
 import {
   serializeTicketRegistry,
   SerializeTicketRegistryOptions,
@@ -45,9 +52,11 @@ export {
   TICKET_REGISTRY_DISCRIMINATOR,
   PAYOUT_REGISTRY_DISCRIMINATOR,
   PENDING_REDEMPTION_DISCRIMINATOR,
+  REDEMPTION_BATCH_DISCRIMINATOR,
   PoolStatus,
   DrawStatus,
   RedemptionType,
+  RedemptionBatchStatus,
 };
 
 export type {
@@ -56,6 +65,8 @@ export type {
   DrawCycle,
   DrawCycleArgs,
   PendingRedemptionArgs,
+  RedemptionBatch,
+  RedemptionBatchArgs,
   PayoutRegistry,
   TicketRegistry,
   ExtendedPayoutRegistry,
@@ -376,4 +387,88 @@ export function buildMockPendingRedemptionEncoded(
       ...overrides,
     })
   );
+}
+
+export function buildMockRedemptionBatch(
+  overrides: Partial<RedemptionBatch> = {}
+): RedemptionBatch {
+  return {
+    discriminator: REDEMPTION_BATCH_DISCRIMINATOR,
+    humaRequestId: 0n,
+    batchId: 0n,
+    totalPrincipalRequested: 0n,
+    totalPstSharesLocked: 0n,
+    settledUsdcReceived: 0n,
+    claimedPrincipal: 0n,
+    createdAt: 1700000000n,
+    submittedAt: 0n,
+    settledAt: 0n,
+    poolId: 1,
+    status: RedemptionBatchStatus.Accumulating,
+    bump: 255,
+    padding: new Uint8Array(4),
+    reserved: new Uint8Array(64),
+    ...overrides,
+  };
+}
+
+export function buildMockRedemptionBatchEncoded(
+  overrides: Partial<RedemptionBatchArgs> = {}
+): Uint8Array {
+  const encoder = getRedemptionBatchEncoder();
+  return new Uint8Array(
+    encoder.encode({
+      humaRequestId: 0n,
+      batchId: 0n,
+      totalPrincipalRequested: 0n,
+      totalPstSharesLocked: 0n,
+      settledUsdcReceived: 0n,
+      claimedPrincipal: 0n,
+      createdAt: 1700000000n,
+      submittedAt: 0n,
+      settledAt: 0n,
+      poolId: 1,
+      status: RedemptionBatchStatus.Accumulating,
+      bump: 255,
+      padding: new Uint8Array(4),
+      reserved: new Uint8Array(64),
+      ...overrides,
+    })
+  );
+}
+
+export function createHumaPoolStateBytes(
+  options: {
+    numModes?: number;
+    totalAssets?: bigint;
+    numConfigKeys?: number;
+    nextRequestId?: bigint;
+    lastRequestId?: bigint;
+  } = {}
+): Uint8Array {
+  const numModes = options.numModes ?? 1;
+  const numConfigKeys = options.numConfigKeys ?? 0;
+  const modeConfigKeysOffset = 30 + numModes * 216;
+  const redemptionOffset = modeConfigKeysOffset + 4 + numConfigKeys * 32;
+  const totalLength = redemptionOffset + 32;
+
+  const buffer = new Uint8Array(totalLength);
+  const view = new DataView(buffer.buffer);
+
+  view.setUint32(26, numModes, true);
+  const totalAssets = options.totalAssets ?? 10_000_000n;
+  view.setBigUint64(30, totalAssets & 0xffffffffffffffffn, true);
+  view.setBigUint64(38, totalAssets >> 64n, true);
+
+  view.setUint32(modeConfigKeysOffset, numConfigKeys, true);
+
+  const nextReq = options.nextRequestId ?? 0n;
+  const lastReq = options.lastRequestId ?? 0n;
+
+  view.setBigUint64(redemptionOffset, nextReq & 0xffffffffffffffffn, true);
+  view.setBigUint64(redemptionOffset + 8, nextReq >> 64n, true);
+  view.setBigUint64(redemptionOffset + 16, lastReq & 0xffffffffffffffffn, true);
+  view.setBigUint64(redemptionOffset + 24, lastReq >> 64n, true);
+
+  return buffer;
 }

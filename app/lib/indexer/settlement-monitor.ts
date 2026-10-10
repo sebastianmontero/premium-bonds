@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { pendingRedemptions } from "../db/schema";
-import { eq, and, lt, isNotNull } from "drizzle-orm";
+import { pendingRedemptions, redemptionBatches } from "../db/schema";
+import { eq, and, isNotNull } from "drizzle-orm";
 import {
   broadcastAggregatedInvalidations,
   type RealtimeBroadcastItem,
@@ -102,39 +102,84 @@ export class SettlementMonitorService {
   }
 
   /**
-   * Transitions redemptions in PostgreSQL where pool_id = poolId, status = 'settling', and huma_request_id < nextRequestId.
+   * Transitions submitted redemption batches where huma_request_id < nextRequestId to 'Settled',
+   * and cascades all underlying pending redemptions to 'ready'.
    */
   async settleEligibleRedemptions(
     poolId: number,
     nextRequestId: bigint
   ): Promise<number> {
-    const updated = await db
-      .update(pendingRedemptions)
-      .set({ status: "ready" })
+    const submittedBatches = await db
+      .select({
+        batchId: redemptionBatches.batchId,
+        humaRequestId: redemptionBatches.humaRequestId,
+      })
+      .from(redemptionBatches)
       .where(
         and(
-          eq(pendingRedemptions.poolId, poolId),
-          eq(pendingRedemptions.status, "settling"),
-          isNotNull(pendingRedemptions.humaRequestId),
-          lt(pendingRedemptions.humaRequestId, nextRequestId.toString())
+          eq(redemptionBatches.poolId, poolId),
+          eq(redemptionBatches.status, "Submitted"),
+          isNotNull(redemptionBatches.humaRequestId)
         )
-      )
-      .returning({ userAddress: pendingRedemptions.userAddress });
-
-    if (updated.length > 0) {
-      const distinctUsers = Array.from(
-        new Set(updated.map((u) => u.userAddress))
       );
-      const invalidations: RealtimeBroadcastItem[] = distinctUsers.map(
-        (userAddress) => ({
-          scopes: ["redemptions", "user"],
+
+    let totalUpdatedCount = 0;
+    const allUpdatedUsers = new Set<string>();
+
+    for (const batch of submittedBatches) {
+      if (!batch.humaRequestId) continue;
+      const batchHumaId = BigInt(batch.humaRequestId);
+      if (batchHumaId >= nextRequestId) continue;
+
+      await db
+        .update(redemptionBatches)
+        .set({
+          status: "Settled",
+          settledAt: Math.floor(Date.now() / 1000),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(redemptionBatches.poolId, poolId),
+            eq(redemptionBatches.batchId, batch.batchId)
+          )
+        );
+
+      const updated = await db
+        .update(pendingRedemptions)
+        .set({ status: "ready" })
+        .where(
+          and(
+            eq(pendingRedemptions.poolId, poolId),
+            eq(pendingRedemptions.batchId, batch.batchId),
+            eq(pendingRedemptions.status, "settling")
+          )
+        )
+        .returning({ userAddress: pendingRedemptions.userAddress });
+
+      totalUpdatedCount += updated.length;
+      for (const u of updated) {
+        allUpdatedUsers.add(u.userAddress);
+      }
+    }
+
+    if (totalUpdatedCount > 0) {
+      const invalidations: RealtimeBroadcastItem[] = [
+        {
+          scopes: ["pool", "redemptions"],
+          poolId,
+          reason: "settlement:batch_ready",
+        },
+        ...Array.from(allUpdatedUsers).map((userAddress) => ({
+          scopes: ["redemptions", "user"] as const,
           poolId,
           userAddress,
           reason: "settlement:huma_ready",
-        })
-      );
+        })),
+      ];
       await broadcastAggregatedInvalidations(invalidations);
     }
-    return updated.length;
+
+    return totalUpdatedCount;
   }
 }

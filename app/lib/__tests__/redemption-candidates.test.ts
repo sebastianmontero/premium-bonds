@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import {
   fetchPendingRedemptionCandidates,
   fetchHumaQueueNextRequestId,
+  findRedemptionBatchPda,
   compareBigInt,
   PROGRAM_ID,
 } from "../bonds-sdk";
 import {
   MockRpcBuilder,
   buildMockPendingRedemptionEncoded,
+  buildMockRedemptionBatchEncoded,
+  RedemptionBatchStatus,
   TEST_ADDRESSES,
   MOCK_HUMA_ADDRESSES,
 } from "../test-harness";
@@ -49,259 +52,291 @@ function createHumaPoolStateBytes(
   return buffer;
 }
 
-describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
+describe("fetchPendingRedemptionCandidates & Batch Invariants", () => {
   const poolId = 1;
   const humaPoolStateAddr = MOCK_HUMA_ADDRESSES.poolState;
 
-  describe("1. Pre-fetched nextRequestId Invariants", () => {
-    it("silently returns [] immediately with zero RPC calls when pre-fetched nextRequestId is 0n", async () => {
-      const warnings: string[] = [];
-      const origWarn = console.warn;
-      console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
-
-      try {
-        const rpc = new MockRpcBuilder().build();
-        const candidates = await fetchPendingRedemptionCandidates({
-          rpc,
-          poolId,
-          nextRequestId: 0n,
-        });
-
-        assert.deepStrictEqual(candidates, []);
-        assert.strictEqual(
-          warnings.length,
-          0,
-          "No warnings should be emitted on nextRequestId === 0n"
-        );
-      } finally {
-        console.warn = origWarn;
-      }
-    });
-
-    it("skips getAccountInfo and only invokes getProgramAccounts when nextRequestId > 0n is passed", async () => {
+  describe("1. Fast-path settledBatchIds Invariants", () => {
+    it("filters candidates strictly in-memory using array settledBatchIds without querying batch accounts", async () => {
       const red1 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 10n,
-        batchId: 2n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
+      const red2 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 20n,
+        batchId: 1n,
         user: TEST_ADDRESSES.USER,
       });
 
+      // RPC does NOT have batch accounts configured, so if it queried them it would find nulls
       const rpc = new MockRpcBuilder()
         .withProgramAccounts(PROGRAM_ID, [
-          {
-            pubkey: TEST_ADDRESSES.USER,
-            account: { data: red1 },
-          },
+          { pubkey: TEST_ADDRESSES.USER, account: { data: red1 } },
+          { pubkey: TEST_ADDRESSES.USER_2, account: { data: red2 } },
         ])
         .build();
 
       const candidates = await fetchPendingRedemptionCandidates({
         rpc,
         poolId,
-        nextRequestId: 5n,
+        settledBatchIds: [0n],
       });
 
       assert.strictEqual(candidates.length, 1);
       assert.strictEqual(candidates[0].redemptionId, 10n);
-      assert.strictEqual(candidates[0].humaRequestId, 2n);
+      assert.strictEqual(candidates[0].batchId, 0n);
+      assert.strictEqual(candidates[0].pubkey, TEST_ADDRESSES.USER);
     });
-  });
 
-  describe("2. Address & Missing Account Handling", () => {
-    it("returns [] immediately without RPC calls when humaPoolState is unconfigured", async () => {
-      const rpc = new MockRpcBuilder().build();
+    it("filters candidates correctly when settledBatchIds is passed as a Set<bigint>", async () => {
+      const red1 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 10n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
+      const red2 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 20n,
+        batchId: 2n,
+        user: TEST_ADDRESSES.USER_2,
+      });
+
+      const rpc = new MockRpcBuilder()
+        .withProgramAccounts(PROGRAM_ID, [
+          { pubkey: TEST_ADDRESSES.USER, account: { data: red1 } },
+          { pubkey: TEST_ADDRESSES.USER_2, account: { data: red2 } },
+        ])
+        .build();
+
       const candidates = await fetchPendingRedemptionCandidates({
         rpc,
         poolId,
-        humaPoolState: "",
+        settledBatchIds: new Set([2n]),
+      });
+
+      assert.strictEqual(candidates.length, 1);
+      assert.strictEqual(candidates[0].redemptionId, 20n);
+      assert.strictEqual(candidates[0].batchId, 2n);
+    });
+
+    it("returns empty array if no pending redemptions match settledBatchIds", async () => {
+      const red1 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 10n,
+        batchId: 5n,
+        user: TEST_ADDRESSES.USER,
+      });
+
+      const rpc = new MockRpcBuilder()
+        .withProgramAccounts(PROGRAM_ID, [
+          { pubkey: TEST_ADDRESSES.USER, account: { data: red1 } },
+        ])
+        .build();
+
+      const candidates = await fetchPendingRedemptionCandidates({
+        rpc,
+        poolId,
+        settledBatchIds: [1n, 2n],
+      });
+
+      assert.deepStrictEqual(candidates, []);
+    });
+  });
+
+  describe("2. On-Chain RedemptionBatch Resolution Invariants", () => {
+    it("fetches batch accounts and returns candidates only for batches with status === Settled", async () => {
+      const redBatch0 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 1n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
+      const redBatch1 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 2n,
+        batchId: 1n,
+        user: TEST_ADDRESSES.USER_2,
+      });
+      const redBatch2 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 3n,
+        batchId: 2n,
+        user: TEST_ADDRESSES.ADMIN,
+      });
+
+      const batch0Pda = await findRedemptionBatchPda(1, 0n);
+      const batch1Pda = await findRedemptionBatchPda(1, 1n);
+      const batch2Pda = await findRedemptionBatchPda(1, 2n);
+
+      const batch0Data = buildMockRedemptionBatchEncoded({
+        poolId: 1,
+        batchId: 0n,
+        status: RedemptionBatchStatus.Settled,
+      });
+      const batch1Data = buildMockRedemptionBatchEncoded({
+        poolId: 1,
+        batchId: 1n,
+        status: RedemptionBatchStatus.Accumulating,
+      });
+      const batch2Data = buildMockRedemptionBatchEncoded({
+        poolId: 1,
+        batchId: 2n,
+        status: RedemptionBatchStatus.Submitted,
+      });
+
+      const rpc = new MockRpcBuilder()
+        .withProgramAccounts(PROGRAM_ID, [
+          { pubkey: TEST_ADDRESSES.USER, account: { data: redBatch0 } },
+          { pubkey: TEST_ADDRESSES.USER_2, account: { data: redBatch1 } },
+          { pubkey: TEST_ADDRESSES.ADMIN, account: { data: redBatch2 } },
+        ])
+        .withAccount(batch0Pda, batch0Data)
+        .withAccount(batch1Pda, batch1Data)
+        .withAccount(batch2Pda, batch2Data)
+        .build();
+
+      const candidates = await fetchPendingRedemptionCandidates({
+        rpc,
+        poolId,
+      });
+
+      assert.strictEqual(candidates.length, 1);
+      assert.strictEqual(candidates[0].redemptionId, 1n);
+      assert.strictEqual(candidates[0].batchId, 0n);
+    });
+
+    it("falls back to getAccountInfo when getMultipleAccounts is unavailable", async () => {
+      const red = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 5n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
+
+      const batch0Pda = await findRedemptionBatchPda(1, 0n);
+      const batch0Data = buildMockRedemptionBatchEncoded({
+        poolId: 1,
+        batchId: 0n,
+        status: RedemptionBatchStatus.Settled,
+      });
+
+      const baseRpc = new MockRpcBuilder()
+        .withProgramAccounts(PROGRAM_ID, [
+          { pubkey: TEST_ADDRESSES.USER, account: { data: red } },
+        ])
+        .withAccount(batch0Pda, batch0Data)
+        .build();
+
+      // RPC without getMultipleAccounts method
+      const rpcWithoutGMA = {
+        getProgramAccounts: baseRpc.getProgramAccounts,
+        getAccountInfo: baseRpc.getAccountInfo,
+      };
+
+      const candidates = await fetchPendingRedemptionCandidates({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rpc: rpcWithoutGMA as any,
+        poolId,
+      });
+
+      assert.strictEqual(candidates.length, 1);
+      assert.strictEqual(candidates[0].redemptionId, 5n);
+    });
+  });
+
+  describe("3. Fault Tolerance & Corrupt Account Handling", () => {
+    it("handles missing batch account (null) safely without throwing, excluding candidate", async () => {
+      const red = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 1n,
+        batchId: 99n,
+        user: TEST_ADDRESSES.USER,
+      });
+
+      // No batch account added for batch 99n
+      const rpc = new MockRpcBuilder()
+        .withProgramAccounts(PROGRAM_ID, [
+          { pubkey: TEST_ADDRESSES.USER, account: { data: red } },
+        ])
+        .build();
+
+      const candidates = await fetchPendingRedemptionCandidates({
+        rpc,
+        poolId,
       });
 
       assert.deepStrictEqual(candidates, []);
     });
 
-    it("logs warning and returns [] when Huma pool state account does not exist (null value)", async () => {
-      const warnings: string[] = [];
-      const origWarn = console.warn;
-      console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    it("handles corrupt batch account data safely without throwing, excluding candidate", async () => {
+      const red = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 1n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
 
-      try {
-        const rpc = new MockRpcBuilder()
-          .withAccount(humaPoolStateAddr, null)
-          .build();
+      const batch0Pda = await findRedemptionBatchPda(1, 0n);
 
-        const candidates = await fetchPendingRedemptionCandidates({
-          rpc,
-          poolId,
-          humaPoolState: humaPoolStateAddr,
-        });
-
-        assert.deepStrictEqual(candidates, []);
-        assert.strictEqual(warnings.length, 1);
-        assert.match(warnings[0], /Huma pool state account not found/);
-      } finally {
-        console.warn = origWarn;
-      }
-    });
-  });
-
-  describe("3. Data Integrity & Truncation", () => {
-    it("logs warning and returns [] when Huma pool state data fails base64 decoding", async () => {
-      const warnings: string[] = [];
-      const origWarn = console.warn;
-      console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
-
-      try {
-        const rpc = {
-          getAccountInfo: () => ({
-            send: async () => ({
-              value: {
-                executable: false,
-                lamports: 1_000_000n,
-                owner: TEST_ADDRESSES.USER,
-                space: 10n,
-                data: ["!!!invalid-base64!!!", "base64"],
-              },
-            }),
-          }),
-        };
-
-        const candidates = await fetchPendingRedemptionCandidates({
-          rpc,
-          poolId,
-          humaPoolState: humaPoolStateAddr,
-        });
-
-        assert.deepStrictEqual(candidates, []);
-        assert.strictEqual(warnings.length, 1);
-        assert.match(warnings[0], /Failed to decode Huma pool state data/);
-      } finally {
-        console.warn = origWarn;
-      }
-    });
-
-    it("logs warning and returns [] when Huma pool state is truncated (< 30 bytes)", async () => {
-      const warnings: string[] = [];
-      const origWarn = console.warn;
-      console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
-
-      try {
-        const rpc = new MockRpcBuilder()
-          .withAccount(humaPoolStateAddr, new Uint8Array(20))
-          .build();
-
-        const candidates = await fetchPendingRedemptionCandidates({
-          rpc,
-          poolId,
-          humaPoolState: humaPoolStateAddr,
-        });
-
-        assert.deepStrictEqual(candidates, []);
-        assert.strictEqual(warnings.length, 1);
-        assert.match(warnings[0], /Truncated Huma pool state account data/);
-      } finally {
-        console.warn = origWarn;
-      }
-    });
-
-    it("logs warning and returns [] when Huma pool state is truncated before redemption queue (30..281 bytes)", async () => {
-      const warnings: string[] = [];
-      const origWarn = console.warn;
-      console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
-
-      try {
-        // Buffer has numModes = 1 (modeConfigKeysOffset = 246, redemptionOffset = 250, required = 282 bytes)
-        // Providing 100 bytes is between 30 and 281 bytes
-        const truncatedBytes = new Uint8Array(100);
-        const view = new DataView(truncatedBytes.buffer);
-        view.setUint32(26, 1, true); // numModes = 1
-
-        const rpc = new MockRpcBuilder()
-          .withAccount(humaPoolStateAddr, truncatedBytes)
-          .build();
-
-        const candidates = await fetchPendingRedemptionCandidates({
-          rpc,
-          poolId,
-          humaPoolState: humaPoolStateAddr,
-        });
-
-        assert.deepStrictEqual(candidates, []);
-        assert.strictEqual(warnings.length, 1);
-        assert.match(warnings[0], /Truncated Huma pool state account data/);
-      } finally {
-        console.warn = origWarn;
-      }
-    });
-  });
-
-  describe("4. Idle Queue Invariant (Primary Bug Fix)", () => {
-    it("silently returns [] without warning or getProgramAccounts when nextRequestId is 0n on-chain", async () => {
-      const warnings: string[] = [];
-      const origWarn = console.warn;
-      console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
-
-      try {
-        const healthyIdleState = createHumaPoolStateBytes({
-          numModes: 1,
-          nextRequestId: 0n,
-          lastRequestId: 0n,
-        });
-
-        const rpc = new MockRpcBuilder()
-          .withAccount(humaPoolStateAddr, healthyIdleState)
-          .build();
-
-        const candidates = await fetchPendingRedemptionCandidates({
-          rpc,
-          poolId,
-          humaPoolState: humaPoolStateAddr,
-        });
-
-        assert.deepStrictEqual(candidates, []);
-        assert.strictEqual(
-          warnings.length,
-          0,
-          "No false-alarm warning when nextRequestId is legitimately 0n"
-        );
-      } finally {
-        console.warn = origWarn;
-      }
-    });
-  });
-
-  describe("5. RPC Error Propagation (Non-Swallowing)", () => {
-    it("propagates transport errors from getAccountInfo so callers can detect network failures", async () => {
       const rpc = new MockRpcBuilder()
-        .withAccountError(
-          humaPoolStateAddr,
-          new Error("HTTP 429 Too Many Requests")
-        )
+        .withProgramAccounts(PROGRAM_ID, [
+          { pubkey: TEST_ADDRESSES.USER, account: { data: red } },
+        ])
+        .withAccount(batch0Pda, new Uint8Array(10)) // corrupted short byte length
         .build();
 
-      await assert.rejects(
-        async () => {
-          await fetchPendingRedemptionCandidates({
-            rpc,
-            poolId,
-            humaPoolState: humaPoolStateAddr,
-          });
-        },
-        {
-          name: "Error",
-          message: "HTTP 429 Too Many Requests",
-        }
-      );
+      const candidates = await fetchPendingRedemptionCandidates({
+        rpc,
+        poolId,
+      });
+
+      assert.deepStrictEqual(candidates, []);
     });
 
-    it("propagates transport errors from getProgramAccounts so callers can detect network failures", async () => {
-      const healthyActiveState = createHumaPoolStateBytes({
-        numModes: 1,
-        nextRequestId: 5n,
-        lastRequestId: 10n,
+    it("gracefully ignores corrupted or unparsable account bytes in getProgramAccounts", async () => {
+      const redValid = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 1n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
+
+      const batch0Pda = await findRedemptionBatchPda(1, 0n);
+      const batch0Data = buildMockRedemptionBatchEncoded({
+        poolId: 1,
+        batchId: 0n,
+        status: RedemptionBatchStatus.Settled,
       });
 
       const rpc = new MockRpcBuilder()
-        .withAccount(humaPoolStateAddr, healthyActiveState)
+        .withProgramAccounts(PROGRAM_ID, [
+          {
+            pubkey: TEST_ADDRESSES.ADMIN,
+            account: { data: new Uint8Array(10) }, // corrupted short bytes
+          },
+          {
+            pubkey: TEST_ADDRESSES.USER,
+            account: { data: redValid },
+          },
+        ])
+        .withAccount(batch0Pda, batch0Data)
+        .build();
+
+      const candidates = await fetchPendingRedemptionCandidates({
+        rpc,
+        poolId,
+      });
+
+      assert.strictEqual(candidates.length, 1);
+      assert.strictEqual(candidates[0].redemptionId, 1n);
+    });
+
+    it("propagates transport errors from getProgramAccounts so callers can detect failures", async () => {
+      const rpc = new MockRpcBuilder()
         .withProgramAccountsError(
           PROGRAM_ID,
           new Error("504 Gateway Timeout on GPA")
@@ -313,7 +348,6 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
           await fetchPendingRedemptionCandidates({
             rpc,
             poolId,
-            humaPoolState: humaPoolStateAddr,
           });
         },
         {
@@ -324,253 +358,165 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
     });
   });
 
-  describe("6. Candidate Filtering Invariants", () => {
-    it("includes redemptions where humaRequestId < nextRequestId", async () => {
-      const redSettled = buildMockPendingRedemptionEncoded({
-        poolId: 1,
-        redemptionId: 1n,
-        batchId: 2n,
-        user: TEST_ADDRESSES.USER,
-      });
-
-      const rpc = new MockRpcBuilder()
-        .withProgramAccounts(PROGRAM_ID, [
-          {
-            pubkey: TEST_ADDRESSES.USER,
-            account: { data: redSettled },
-          },
-        ])
-        .build();
-
-      const candidates = await fetchPendingRedemptionCandidates({
-        rpc,
-        poolId,
-        nextRequestId: 3n,
-      });
-
-      assert.strictEqual(candidates.length, 1);
-      assert.strictEqual(candidates[0].redemptionId, 1n);
-      assert.strictEqual(candidates[0].humaRequestId, 2n);
-    });
-
-    it("excludes redemptions where humaRequestId >= nextRequestId (unsettled)", async () => {
-      const redSettled = buildMockPendingRedemptionEncoded({
-        poolId: 1,
-        redemptionId: 1n,
-        batchId: 2n,
-        user: TEST_ADDRESSES.USER,
-      });
-      const redUnsettledExact = buildMockPendingRedemptionEncoded({
-        poolId: 1,
-        redemptionId: 2n,
-        batchId: 5n,
-        user: TEST_ADDRESSES.USER,
-      });
-      const redUnsettledFuture = buildMockPendingRedemptionEncoded({
-        poolId: 1,
-        redemptionId: 3n,
-        batchId: 6n,
-        user: TEST_ADDRESSES.USER,
-      });
-
-      const rpc = new MockRpcBuilder()
-        .withProgramAccounts(PROGRAM_ID, [
-          {
-            pubkey: TEST_ADDRESSES.USER,
-            account: { data: redSettled },
-          },
-          {
-            pubkey: TEST_ADDRESSES.USER_2,
-            account: { data: redUnsettledExact },
-          },
-          {
-            pubkey: TEST_ADDRESSES.ADMIN,
-            account: { data: redUnsettledFuture },
-          },
-        ])
-        .build();
-
-      const candidates = await fetchPendingRedemptionCandidates({
-        rpc,
-        poolId,
-        nextRequestId: 5n,
-      });
-
-      assert.strictEqual(candidates.length, 1);
-      assert.strictEqual(candidates[0].redemptionId, 1n);
-      assert.strictEqual(candidates[0].humaRequestId, 2n);
-    });
-
+  describe("4. Multi-Pool & User Isolation", () => {
     it("excludes redemptions belonging to other pool IDs", async () => {
       const redPool1 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 1n,
-        batchId: 2n,
+        batchId: 0n,
         user: TEST_ADDRESSES.USER,
       });
       const redPool2 = buildMockPendingRedemptionEncoded({
         poolId: 2,
         redemptionId: 2n,
-        batchId: 2n,
+        batchId: 0n,
         user: TEST_ADDRESSES.USER,
+      });
+
+      const batch0Pda = await findRedemptionBatchPda(1, 0n);
+      const batch0Data = buildMockRedemptionBatchEncoded({
+        poolId: 1,
+        batchId: 0n,
+        status: RedemptionBatchStatus.Settled,
       });
 
       const rpc = new MockRpcBuilder()
         .withProgramAccounts(PROGRAM_ID, [
-          {
-            pubkey: TEST_ADDRESSES.USER,
-            account: { data: redPool1 },
-          },
-          {
-            pubkey: TEST_ADDRESSES.USER_2,
-            account: { data: redPool2 },
-          },
+          { pubkey: TEST_ADDRESSES.USER, account: { data: redPool1 } },
+          { pubkey: TEST_ADDRESSES.USER_2, account: { data: redPool2 } },
         ])
+        .withAccount(batch0Pda, batch0Data)
         .build();
 
       const candidates = await fetchPendingRedemptionCandidates({
         rpc,
         poolId: 1,
-        nextRequestId: 5n,
       });
 
       assert.strictEqual(candidates.length, 1);
       assert.strictEqual(candidates[0].redemptionId, 1n);
     });
 
-    it("gracefully ignores corrupted or unparsable account bytes in getProgramAccounts", async () => {
-      const redValid = buildMockPendingRedemptionEncoded({
+    it("filters by user when user parameter is supplied", async () => {
+      const redUser1 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 1n,
-        batchId: 2n,
+        batchId: 0n,
         user: TEST_ADDRESSES.USER,
+      });
+      const redUser2 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 2n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER_2,
       });
 
       const rpc = new MockRpcBuilder()
         .withProgramAccounts(PROGRAM_ID, [
-          {
-            pubkey: TEST_ADDRESSES.ADMIN,
-            account: { data: new Uint8Array(10) }, // too short / unparsable
-          },
-          {
-            pubkey: TEST_ADDRESSES.USER,
-            account: { data: redValid },
-          },
+          { pubkey: TEST_ADDRESSES.USER, account: { data: redUser1 } },
+          { pubkey: TEST_ADDRESSES.USER_2, account: { data: redUser2 } },
         ])
         .build();
 
       const candidates = await fetchPendingRedemptionCandidates({
         rpc,
-        poolId,
-        nextRequestId: 5n,
+        poolId: 1,
+        user: TEST_ADDRESSES.USER_2,
+        settledBatchIds: [0n],
       });
 
       assert.strictEqual(candidates.length, 1);
-      assert.strictEqual(candidates[0].redemptionId, 1n);
+      assert.strictEqual(candidates[0].redemptionId, 2n);
+      assert.strictEqual(candidates[0].user, TEST_ADDRESSES.USER_2);
     });
   });
 
-  describe("7. Sorting Invariants", () => {
-    it("sorts candidates ascending by humaRequestId", async () => {
-      const redReq3 = buildMockPendingRedemptionEncoded({
+  describe("5. Sorting & Limit Invariants", () => {
+    it("sorts candidates ascending by batchId, then by redemptionId", async () => {
+      const redBatch2Id5 = buildMockPendingRedemptionEncoded({
         poolId: 1,
-        redemptionId: 1n,
-        batchId: 3n,
+        redemptionId: 5n,
+        batchId: 2n,
         user: TEST_ADDRESSES.USER,
       });
-      const redReq1 = buildMockPendingRedemptionEncoded({
+      const redBatch1Id20 = buildMockPendingRedemptionEncoded({
         poolId: 1,
-        redemptionId: 2n,
+        redemptionId: 20n,
         batchId: 1n,
         user: TEST_ADDRESSES.USER,
       });
-      const redReq2 = buildMockPendingRedemptionEncoded({
-        poolId: 1,
-        redemptionId: 3n,
-        batchId: 2n,
-        user: TEST_ADDRESSES.USER,
-      });
-
-      const rpc = new MockRpcBuilder()
-        .withProgramAccounts(PROGRAM_ID, [
-          {
-            pubkey: TEST_ADDRESSES.USER,
-            account: { data: redReq3 },
-          },
-          {
-            pubkey: TEST_ADDRESSES.USER_2,
-            account: { data: redReq1 },
-          },
-          {
-            pubkey: TEST_ADDRESSES.ADMIN,
-            account: { data: redReq2 },
-          },
-        ])
-        .build();
-
-      const candidates = await fetchPendingRedemptionCandidates({
-        rpc,
-        poolId,
-        nextRequestId: 10n,
-      });
-
-      assert.strictEqual(candidates.length, 3);
-      assert.strictEqual(candidates[0].humaRequestId, 1n);
-      assert.strictEqual(candidates[1].humaRequestId, 2n);
-      assert.strictEqual(candidates[2].humaRequestId, 3n);
-    });
-
-    it("breaks humaRequestId ties by sorting redemptionId ascending", async () => {
-      const redId20 = buildMockPendingRedemptionEncoded({
-        poolId: 1,
-        redemptionId: 20n,
-        batchId: 2n,
-        user: TEST_ADDRESSES.USER,
-      });
-      const redId10 = buildMockPendingRedemptionEncoded({
+      const redBatch1Id10 = buildMockPendingRedemptionEncoded({
         poolId: 1,
         redemptionId: 10n,
-        batchId: 2n,
-        user: TEST_ADDRESSES.USER,
-      });
-      const redId30 = buildMockPendingRedemptionEncoded({
-        poolId: 1,
-        redemptionId: 30n,
-        batchId: 2n,
+        batchId: 1n,
         user: TEST_ADDRESSES.USER,
       });
 
       const rpc = new MockRpcBuilder()
         .withProgramAccounts(PROGRAM_ID, [
-          {
-            pubkey: TEST_ADDRESSES.USER,
-            account: { data: redId20 },
-          },
-          {
-            pubkey: TEST_ADDRESSES.USER_2,
-            account: { data: redId10 },
-          },
-          {
-            pubkey: TEST_ADDRESSES.ADMIN,
-            account: { data: redId30 },
-          },
+          { pubkey: TEST_ADDRESSES.USER, account: { data: redBatch2Id5 } },
+          { pubkey: TEST_ADDRESSES.USER_2, account: { data: redBatch1Id20 } },
+          { pubkey: TEST_ADDRESSES.ADMIN, account: { data: redBatch1Id10 } },
         ])
         .build();
 
       const candidates = await fetchPendingRedemptionCandidates({
         rpc,
-        poolId,
-        nextRequestId: 5n,
+        poolId: 1,
+        settledBatchIds: [1n, 2n],
       });
 
       assert.strictEqual(candidates.length, 3);
+      assert.strictEqual(candidates[0].batchId, 1n);
       assert.strictEqual(candidates[0].redemptionId, 10n);
+      assert.strictEqual(candidates[1].batchId, 1n);
       assert.strictEqual(candidates[1].redemptionId, 20n);
-      assert.strictEqual(candidates[2].redemptionId, 30n);
+      assert.strictEqual(candidates[2].batchId, 2n);
+      assert.strictEqual(candidates[2].redemptionId, 5n);
+    });
+
+    it("respects limit parameter and caps returned candidates", async () => {
+      const red1 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 1n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
+      const red2 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 2n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
+      const red3 = buildMockPendingRedemptionEncoded({
+        poolId: 1,
+        redemptionId: 3n,
+        batchId: 0n,
+        user: TEST_ADDRESSES.USER,
+      });
+
+      const rpc = new MockRpcBuilder()
+        .withProgramAccounts(PROGRAM_ID, [
+          { pubkey: TEST_ADDRESSES.USER, account: { data: red1 } },
+          { pubkey: TEST_ADDRESSES.USER_2, account: { data: red2 } },
+          { pubkey: TEST_ADDRESSES.ADMIN, account: { data: red3 } },
+        ])
+        .build();
+
+      const candidates = await fetchPendingRedemptionCandidates({
+        rpc,
+        poolId: 1,
+        settledBatchIds: [0n],
+        limit: 2,
+      });
+
+      assert.strictEqual(candidates.length, 2);
+      assert.strictEqual(candidates[0].redemptionId, 1n);
+      assert.strictEqual(candidates[1].redemptionId, 2n);
     });
   });
 
-  describe("8. Helper Unit Tests", () => {
+  describe("6. Helper Unit Tests", () => {
     it("compareBigInt correctly orders negative, equal, and positive bigint relations", () => {
       assert.strictEqual(compareBigInt(1n, 2n), -1);
       assert.strictEqual(compareBigInt(2n, 1n), 1);
@@ -596,6 +542,30 @@ describe("fetchPendingRedemptionCandidates & Huma Queue Invariants", () => {
         humaPoolStateAddr
       );
       assert.strictEqual(nextReqId, 42n);
+    });
+
+    it("fetchHumaQueueNextRequestId returns null on missing account", async () => {
+      const rpc = new MockRpcBuilder()
+        .withAccount(humaPoolStateAddr, null)
+        .build();
+
+      const nextReqId = await fetchHumaQueueNextRequestId(
+        rpc,
+        humaPoolStateAddr
+      );
+      assert.strictEqual(nextReqId, null);
+    });
+
+    it("fetchHumaQueueNextRequestId returns null on truncated account", async () => {
+      const rpc = new MockRpcBuilder()
+        .withAccount(humaPoolStateAddr, new Uint8Array(20))
+        .build();
+
+      const nextReqId = await fetchHumaQueueNextRequestId(
+        rpc,
+        humaPoolStateAddr
+      );
+      assert.strictEqual(nextReqId, null);
     });
   });
 });

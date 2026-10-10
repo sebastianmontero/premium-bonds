@@ -154,6 +154,7 @@ export interface BondsPurchasedEvent {
 export interface BondsSoldEvent {
   user: Address;
   poolId: number;
+  batchId: bigint;
   bonds: number;
   principal: bigint;
   redemptionId: bigint;
@@ -181,6 +182,7 @@ export interface WinningsReinvestedEvent {
 export interface WinningsClaimedEvent {
   user: Address;
   poolId: number;
+  batchId: bigint;
   amount: bigint;
   redemptionId: bigint;
   pstShares?: bigint;
@@ -192,6 +194,7 @@ export interface RedemptionClaimedEvent {
   caller: Address;
   user: Address;
   poolId: number;
+  batchId: bigint;
   amount: bigint;
   redemptionId: bigint;
   redemptionType: RedemptionType;
@@ -414,10 +417,57 @@ export interface FeesWithdrawnEvent {
   poolId: number;
   admin: Address;
   feeWallet: Address;
+  batchId: bigint;
   amount: bigint;
-  pstShares: bigint;
+  pstShares?: bigint;
   redemptionId: bigint;
   humaRequestId?: bigint;
+  timestamp?: bigint;
+}
+
+export interface RedemptionBatchSubmittedEvent {
+  poolId: number;
+  batchId: bigint;
+  humaRequestId: bigint;
+  totalPrincipalRequested: bigint;
+  pstSharesLocked: bigint;
+  nextBatchId: bigint;
+  timestamp?: bigint;
+}
+
+export interface RedemptionBatchSettledEvent {
+  poolId: number;
+  batchId: bigint;
+  humaRequestId: bigint;
+  totalPrincipalRequested: bigint;
+  settledUsdcReceived: bigint;
+  timestamp?: bigint;
+}
+
+export interface RedemptionBatchClosedEvent {
+  poolId: number;
+  batchId: bigint;
+  caller: Address;
+  rentReclaimed: bigint;
+  unclaimedPrincipalSwept: bigint;
+  unclaimedUsdcSwept: bigint;
+  timestamp?: bigint;
+}
+
+export interface PoolImpairedModeEnabledEvent {
+  poolId: number;
+  authority: Address;
+  totalDepositedPrincipal: bigint;
+  totalAccumulatingRedemptions: bigint;
+  timestamp?: bigint;
+}
+
+export interface PoolRecapitalizedEvent {
+  poolId: number;
+  sponsor: Address;
+  amount: bigint;
+  pstSharesMinted: bigint;
+  isUnpaused: boolean;
   timestamp?: bigint;
 }
 
@@ -451,7 +501,12 @@ export type ParsedProgramEvent =
   | { type: "RegistryResized"; data: RegistryResizedEvent }
   | { type: "RandomnessRebound"; data: RandomnessReboundEvent }
   | { type: "FeesWithdrawn"; data: FeesWithdrawnEvent }
-  | { type: "PayoutRegistryClosed"; data: PayoutRegistryClosedEvent };
+  | { type: "PayoutRegistryClosed"; data: PayoutRegistryClosedEvent }
+  | { type: "RedemptionBatchSubmitted"; data: RedemptionBatchSubmittedEvent }
+  | { type: "RedemptionBatchSettled"; data: RedemptionBatchSettledEvent }
+  | { type: "RedemptionBatchClosed"; data: RedemptionBatchClosedEvent }
+  | { type: "PoolImpairedModeEnabled"; data: PoolImpairedModeEnabledEvent }
+  | { type: "PoolRecapitalized"; data: PoolRecapitalizedEvent };
 
 export type ProgramEvent = ParsedProgramEvent & {
   signature: string;
@@ -562,6 +617,13 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
       return createMetadata(evt.data.poolId, ["pool", "redemptions"]);
     case "PayoutRegistryClosed":
       return createMetadata(evt.data.poolId, ["draws", "pool", "activity"]);
+    case "RedemptionBatchSubmitted":
+    case "RedemptionBatchSettled":
+    case "RedemptionBatchClosed":
+      return createMetadata(evt.data.poolId, ["pool", "redemptions"]);
+    case "PoolImpairedModeEnabled":
+    case "PoolRecapitalized":
+      return createMetadata(evt.data.poolId, ["pool"]);
   }
 }
 
@@ -598,6 +660,11 @@ const DISCRIMINATOR_MAP: Record<string, ParsedProgramEvent["type"]> = {
   ea0f007794f12815: "FeesWithdrawn",
   b0870012acfe8782: "DrawPreparationProgress",
   f4d899334f650909: "PayoutRegistryClosed",
+  ad7b9cfcf3ca6f4b: "RedemptionBatchSubmitted",
+  c0850b7b69cdf6b3: "RedemptionBatchSettled",
+  be57eb2b8666a260: "RedemptionBatchClosed",
+  "9ec4936ccc20e983": "PoolImpairedModeEnabled",
+  "08930bfe806b196b": "PoolRecapitalized",
 };
 
 // ─── Borsh Decoders ──────────────────────────────────────────────────────────
@@ -638,16 +705,13 @@ function decodeEventData(
       case "BondsSold": {
         const user = reader.readPubkey();
         const poolId = reader.readU32();
+        const batchId = reader.readU64();
         const bonds = reader.readU32();
         const principal = reader.readU64();
         const redemptionId = reader.readU64();
-        let pstShares: bigint | undefined;
-        let humaRequestId: bigint | undefined;
         let newTotalDepositedPrincipal: bigint | undefined;
         let userRemainingBonds: number | undefined;
         let timestamp: bigint | undefined;
-        if (reader.remaining >= 8) pstShares = reader.readU64();
-        if (reader.remaining >= 16) humaRequestId = reader.readU128();
         if (reader.remaining >= 8)
           newTotalDepositedPrincipal = reader.readU64();
         if (reader.remaining >= 4) userRemainingBonds = reader.readU32();
@@ -655,11 +719,10 @@ function decodeEventData(
         return {
           user,
           poolId,
+          batchId,
           bonds,
           principal,
           redemptionId,
-          pstShares,
-          humaRequestId,
           newTotalDepositedPrincipal,
           userRemainingBonds,
           timestamp,
@@ -700,21 +763,17 @@ function decodeEventData(
       case "WinningsClaimed": {
         const user = reader.readPubkey();
         const poolId = reader.readU32();
+        const batchId = reader.readU64();
         const amount = reader.readU64();
         const redemptionId = reader.readU64();
-        let pstShares: bigint | undefined;
-        let humaRequestId: bigint | undefined;
         let timestamp: bigint | undefined;
-        if (reader.remaining >= 8) pstShares = reader.readU64();
-        if (reader.remaining >= 16) humaRequestId = reader.readU128();
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
           user,
           poolId,
+          batchId,
           amount,
           redemptionId,
-          pstShares,
-          humaRequestId,
           timestamp,
         } as WinningsClaimedEvent;
       }
@@ -722,26 +781,22 @@ function decodeEventData(
         const caller = reader.readPubkey();
         const user = reader.readPubkey();
         const poolId = reader.readU32();
+        const batchId = reader.readU64();
         const amount = reader.readU64();
         const redemptionId = reader.readU64();
         const redemptionType = reader.readU8() as RedemptionType;
-        let pstSharesLocked: bigint | undefined;
-        let humaRequestId: bigint | undefined;
         let requestedAt: bigint | undefined;
         let timestamp: bigint | undefined;
-        if (reader.remaining >= 8) pstSharesLocked = reader.readU64();
-        if (reader.remaining >= 16) humaRequestId = reader.readU128();
         if (reader.remaining >= 8) requestedAt = reader.readI64();
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
           caller,
           user,
           poolId,
+          batchId,
           amount,
           redemptionId,
           redemptionType,
-          pstSharesLocked,
-          humaRequestId,
           requestedAt,
           timestamp,
         } as RedemptionClaimedEvent;
@@ -1049,23 +1104,107 @@ function decodeEventData(
         const poolId = reader.readU32();
         const admin = reader.readPubkey();
         const feeWallet = reader.readPubkey();
+        const batchId = reader.readU64();
         const amount = reader.readU64();
-        const pstShares = reader.readU64();
         const redemptionId = reader.readU64();
-        let humaRequestId: bigint | undefined;
         let timestamp: bigint | undefined;
-        if (reader.remaining >= 16) humaRequestId = reader.readU128();
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
           poolId,
           admin,
           feeWallet,
+          batchId,
           amount,
-          pstShares,
           redemptionId,
-          humaRequestId,
           timestamp,
         } as FeesWithdrawnEvent;
+      }
+      case "RedemptionBatchSubmitted": {
+        const poolId = reader.readU32();
+        const batchId = reader.readU64();
+        const humaRequestId = reader.readU128();
+        const totalPrincipalRequested = reader.readU64();
+        const pstSharesLocked = reader.readU64();
+        const nextBatchId = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          batchId,
+          humaRequestId,
+          totalPrincipalRequested,
+          pstSharesLocked,
+          nextBatchId,
+          timestamp,
+        } as RedemptionBatchSubmittedEvent;
+      }
+      case "RedemptionBatchSettled": {
+        const poolId = reader.readU32();
+        const batchId = reader.readU64();
+        const humaRequestId = reader.readU128();
+        const totalPrincipalRequested = reader.readU64();
+        const settledUsdcReceived = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          batchId,
+          humaRequestId,
+          totalPrincipalRequested,
+          settledUsdcReceived,
+          timestamp,
+        } as RedemptionBatchSettledEvent;
+      }
+      case "RedemptionBatchClosed": {
+        const poolId = reader.readU32();
+        const batchId = reader.readU64();
+        const caller = reader.readPubkey();
+        const rentReclaimed = reader.readU64();
+        const unclaimedPrincipalSwept = reader.readU64();
+        const unclaimedUsdcSwept = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          batchId,
+          caller,
+          rentReclaimed,
+          unclaimedPrincipalSwept,
+          unclaimedUsdcSwept,
+          timestamp,
+        } as RedemptionBatchClosedEvent;
+      }
+      case "PoolImpairedModeEnabled": {
+        const poolId = reader.readU32();
+        const authority = reader.readPubkey();
+        const totalDepositedPrincipal = reader.readU64();
+        const totalAccumulatingRedemptions = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          authority,
+          totalDepositedPrincipal,
+          totalAccumulatingRedemptions,
+          timestamp,
+        } as PoolImpairedModeEnabledEvent;
+      }
+      case "PoolRecapitalized": {
+        const poolId = reader.readU32();
+        const sponsor = reader.readPubkey();
+        const amount = reader.readU64();
+        const pstSharesMinted = reader.readU64();
+        const isUnpaused = reader.readBool();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          sponsor,
+          amount,
+          pstSharesMinted,
+          isUnpaused,
+          timestamp,
+        } as PoolRecapitalizedEvent;
       }
       default:
         return null;

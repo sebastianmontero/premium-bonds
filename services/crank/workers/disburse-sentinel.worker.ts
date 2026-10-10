@@ -4,8 +4,6 @@ import {
   fetchPendingRedemptionCandidates,
   PendingRedemptionCandidate,
   RedemptionType,
-  resolveHumaAddresses,
-  CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS,
 } from "../../../app/lib/bonds-sdk";
 import {
   REDEMPTION_CANDIDATE_QUARANTINE_MS,
@@ -101,29 +99,6 @@ export class DisburseSentinelWorker implements ICrankTask {
       };
     }
 
-    const humaAddresses = resolveHumaAddresses(
-      {
-        lenderState:
-          context.config?.poolHumaLenderStates?.[snapshot.poolId] ??
-          context.config?.humaLenderState,
-        config: context.config?.humaConfig,
-        poolConfig: context.config?.humaPoolConfig,
-        modeConfig: context.config?.humaModeConfig,
-        poolUnderlyingToken: context.config?.humaPoolUnderlyingToken,
-      },
-      snapshot.pool.humaPoolState
-    );
-
-    const missing = CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS.filter(
-      (k) => !humaAddresses[k]
-    );
-    if (missing.length > 0) {
-      return {
-        shouldExecute: false,
-        reason: `Auto-disburse skipped for Pool #${snapshot.poolId}: missing required Huma address(es) [${missing.join(", ")}]`,
-      };
-    }
-
     // Check / fetch candidates
     const poolId = snapshot.poolId;
     let candidates = this.getCachedCandidates(poolId);
@@ -134,7 +109,6 @@ export class DisburseSentinelWorker implements ICrankTask {
         candidates = await fetchPendingRedemptionCandidates({
           rpc,
           poolId,
-          humaPoolState: snapshot.pool.humaPoolState,
         });
         this.candidateCache.set(poolId, {
           candidates,
@@ -156,15 +130,8 @@ export class DisburseSentinelWorker implements ICrankTask {
     }
 
     // Filter out quarantined candidates
-    const now = Date.now();
-    for (const [key, expiresAt] of this.quarantinedCandidates.entries()) {
-      if (now >= expiresAt) {
-        this.quarantinedCandidates.delete(key);
-      }
-    }
-
     const eligibleCandidates = candidates.filter(
-      (c) => !this.quarantinedCandidates.has(`${poolId}:${c.redemptionId}`)
+      (c) => !this.isCandidateQuarantined(poolId, c.redemptionId)
     );
 
     if (eligibleCandidates.length === 0) {
@@ -227,6 +194,7 @@ export class DisburseSentinelWorker implements ICrankTask {
           `[DisburseSentinelWorker] [Pool #${poolId}] Quarantining redemption candidate #${candidate.redemptionId} for ${REDEMPTION_CANDIDATE_QUARANTINE_MS / 1000}s due to venue liquidity deficit.`
         );
         this.forceSingleCandidate.delete(poolId);
+        this.lastEvaluatedBatch.delete(poolId);
         this.invalidateCandidateCache(poolId);
 
         // Track streak for alerts
@@ -245,14 +213,17 @@ export class DisburseSentinelWorker implements ICrankTask {
           );
         }
       } else {
+        this.lastEvaluatedBatch.delete(poolId);
         this.invalidateCandidateCache(poolId);
       }
     } else {
+      this.lastEvaluatedBatch.delete(poolId);
       this.invalidateCandidateCache(poolId);
     }
   }
 
   onError(poolId: number): void {
+    this.lastEvaluatedBatch.delete(poolId);
     this.invalidateCandidateCache(poolId);
   }
 
@@ -293,7 +264,7 @@ export class DisburseSentinelWorker implements ICrankTask {
         beneficiary: candidate.user,
         poolId: snapshot.poolId,
         redemptionId: candidate.redemptionId,
-        batchId: candidate.batchId ?? 0n,
+        batchId: candidate.batchId,
         tokenMint,
         redemptionType: candidate.redemptionType,
         feeWallet: snapshot.pool.feeWallet

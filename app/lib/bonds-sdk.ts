@@ -75,7 +75,9 @@ export { MOCK_HUMA_PROGRAM_ADDRESS };
 
 import {
   RedemptionType,
+  RedemptionBatchStatus,
   DrawStatus,
+  DrawSkipReason,
   PoolStatus,
 } from "./generated/yield-bonds/src/generated";
 import { DEFAULT_APY, DEFAULT_APY_BPS, bpsToRate } from "./formatters";
@@ -95,7 +97,7 @@ export {
   DrawStatus,
   DrawSkipReason,
   PoolStatus,
-} from "./generated/yield-bonds/src/generated";
+};
 
 import type {
   PoolStatusName,
@@ -1045,20 +1047,20 @@ export function compareBigInt(a: bigint, b: bigint): number {
 }
 
 export interface PendingRedemptionCandidate {
-  redemptionId: bigint;
-  user: Address;
-  batchId?: bigint;
-  humaRequestId?: bigint;
-  redemptionType?: RedemptionType;
-  amount?: bigint;
+  readonly redemptionId: bigint;
+  readonly user: Address;
+  readonly batchId: bigint;
+  readonly redemptionType: RedemptionType;
+  readonly amount: bigint;
+  readonly pubkey?: Address;
 }
 
 export interface FetchPendingRedemptionCandidatesParams {
   rpc: SolanaRpc;
   poolId: number;
-  humaPoolState?: Address | string;
-  nextRequestId?: bigint;
-  settledBatchId?: bigint;
+  user?: Address;
+  limit?: number;
+  settledBatchIds?: readonly bigint[] | Set<bigint>;
 }
 
 export async function fetchHumaQueueNextRequestId(
@@ -1100,30 +1102,15 @@ export async function fetchPendingRedemptionCandidates(
 ): Promise<PendingRedemptionCandidate[]> {
   const { rpc, poolId } = params;
 
-  let nextRequestId: bigint;
-
-  if (params.nextRequestId !== undefined) {
-    nextRequestId = params.nextRequestId;
-  } else {
-    const humaPoolAddr =
-      parseOptionalAddress(params.humaPoolState) ?? HUMA_POOL_STATE;
-    if (!humaPoolAddr) {
-      return [];
+  let settledBatchSet: Set<bigint> | null = null;
+  if (params.settledBatchIds !== undefined) {
+    settledBatchSet = new Set<bigint>();
+    for (const id of params.settledBatchIds) {
+      settledBatchSet.add(BigInt(id));
     }
-
-    const fetchedNextId = await fetchHumaQueueNextRequestId(rpc, humaPoolAddr);
-    if (fetchedNextId === null) {
-      return [];
-    }
-    nextRequestId = fetchedNextId;
   }
 
-  if (nextRequestId === 0n) {
-    // 0n is the 0-indexed initial queue state; no redemption requests can satisfy humaRequestId < 0n.
-    return [];
-  }
-
-  const filters = getPendingRedemptionFilters({ poolId });
+  const filters = getPendingRedemptionFilters({ poolId, user: params.user });
   const res = await rpc
     .getProgramAccounts(PROGRAM_ID, {
       encoding: "base64",
@@ -1132,38 +1119,111 @@ export async function fetchPendingRedemptionCandidates(
     .send();
 
   const accounts = Array.isArray(res) ? res : [];
-  const candidates: PendingRedemptionCandidate[] = [];
+  const parsedCandidates: {
+    parsed: PendingRedemption;
+    user: Address;
+    pubkey?: Address;
+  }[] = [];
+  const candidateBatchIds = new Set<bigint>();
 
   for (const acc of accounts) {
     const dataBytes = decodeAccountBase64Data(acc.account);
     if (!dataBytes) continue;
     try {
       const parsed = parsePendingRedemption(dataBytes);
-      if (
-        parsed.poolId === poolId &&
-        (params.settledBatchId !== undefined
-          ? parsed.batchId === params.settledBatchId
-          : parsed.batchId < nextRequestId)
-      ) {
-        candidates.push({
-          redemptionId: parsed.redemptionId,
+      if (parsed.poolId === poolId) {
+        if (params.user && parsed.user !== params.user) continue;
+        parsedCandidates.push({
+          parsed,
           user: address(parsed.user),
-          batchId: parsed.batchId,
-          humaRequestId: parsed.batchId,
-          redemptionType: parsed.redemptionType,
-          amount: parsed.amount,
+          pubkey: acc.pubkey ? address(acc.pubkey) : undefined,
         });
+        candidateBatchIds.add(parsed.batchId);
       }
     } catch {
       continue;
     }
   }
 
+  if (!settledBatchSet) {
+    settledBatchSet = new Set<bigint>();
+    if (candidateBatchIds.size > 0) {
+      const batchIdsArray = Array.from(candidateBatchIds);
+      const batchPdas = await Promise.all(
+        batchIdsArray.map((bid) => findRedemptionBatchPda(poolId, bid))
+      );
+
+      let batchAccounts: Array<{
+        data?: [string, string] | string | Uint8Array | null;
+      } | null> = [];
+      try {
+        if (typeof rpc.getMultipleAccounts === "function") {
+          const batchRes = await rpc
+            .getMultipleAccounts(batchPdas, { encoding: "base64" })
+            .send();
+          batchAccounts = batchRes?.value ?? [];
+        } else {
+          throw new Error("getMultipleAccounts not available");
+        }
+      } catch {
+        batchAccounts = await Promise.all(
+          batchPdas.map(async (pda) => {
+            try {
+              const single = await rpc
+                .getAccountInfo(pda, { encoding: "base64" })
+                .send();
+              return single?.value;
+            } catch {
+              return null;
+            }
+          })
+        );
+      }
+
+      for (let i = 0; i < batchIdsArray.length; i++) {
+        const raw = batchAccounts[i];
+        if (!raw) continue;
+        const bytes = decodeAccountBase64Data(raw);
+        if (!bytes) continue;
+        try {
+          const batch = parseRedemptionBatch(bytes);
+          if (batch.status === RedemptionBatchStatus.Settled) {
+            settledBatchSet.add(batchIdsArray[i]);
+          }
+        } catch {
+          // ignore unparsable batch
+        }
+      }
+    }
+  }
+
+  const candidates: PendingRedemptionCandidate[] = [];
+  for (const { parsed, user, pubkey } of parsedCandidates) {
+    if (settledBatchSet.has(parsed.batchId)) {
+      candidates.push({
+        redemptionId: parsed.redemptionId,
+        user,
+        batchId: parsed.batchId,
+        redemptionType: parsed.redemptionType,
+        amount: parsed.amount,
+        pubkey,
+      });
+    }
+  }
+
   candidates.sort(
     (a, b) =>
-      compareBigInt(a.batchId ?? 0n, b.batchId ?? 0n) ||
+      compareBigInt(a.batchId, b.batchId) ||
       compareBigInt(a.redemptionId, b.redemptionId)
   );
+
+  if (
+    params.limit !== undefined &&
+    params.limit >= 0 &&
+    candidates.length > params.limit
+  ) {
+    return candidates.slice(0, params.limit);
+  }
 
   return candidates;
 }
@@ -1828,6 +1888,12 @@ import {
   getClaimRedemptionInstructionAsync,
   getCrankClosePayoutRegistryInstructionAsync,
   getCrankClosePayoutRegistryInstructionDataEncoder,
+  getCrankSubmitRedemptionBatchInstructionAsync,
+  getSettleRedemptionBatchInstructionAsync,
+  getCrankCloseRedemptionBatchInstructionAsync,
+  getCloseExpiredRedemptionInstruction,
+  getEnableImpairedModeInstructionAsync,
+  getRecapitalizePoolInstructionAsync,
 } from "./generated/yield-bonds/src/generated/instructions";
 
 import {
@@ -1867,6 +1933,12 @@ export {
   getClaimRedemptionInstructionAsync,
   getCrankClosePayoutRegistryInstructionAsync,
   getCrankClosePayoutRegistryInstructionDataEncoder,
+  getCrankSubmitRedemptionBatchInstructionAsync,
+  getSettleRedemptionBatchInstructionAsync,
+  getCrankCloseRedemptionBatchInstructionAsync,
+  getCloseExpiredRedemptionInstruction,
+  getEnableImpairedModeInstructionAsync,
+  getRecapitalizePoolInstructionAsync,
   getSimulateYieldInstructionDataEncoder,
   getSimulateDeficitInstructionDataEncoder,
   getSetTotalAssetsInstructionDataEncoder,
@@ -2427,12 +2499,33 @@ export async function buildCrankRebindExpiredRandomnessInstruction(params: {
   });
 }
 
-export const CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS = [
-  "poolState",
+export const SUBMIT_REDEMPTION_BATCH_REQUIRED_HUMA_KEYS = [
   "config",
   "poolConfig",
+  "poolState",
+  "modeConfig",
+  "modeMint",
+  "redemptionRequest",
+  "lenderState",
+  "poolModeToken",
+] as const;
+
+export const SETTLE_REDEMPTION_BATCH_REQUIRED_HUMA_KEYS = [
+  "config",
+  "poolConfig",
+  "poolState",
   "modeConfig",
   "lenderState",
+  "poolUnderlyingToken",
+] as const;
+
+export const RECAPITALIZE_REQUIRED_HUMA_KEYS = [
+  "config",
+  "poolConfig",
+  "poolState",
+  "modeConfig",
+  "modeMint",
+  "poolUnderlyingToken",
 ] as const;
 
 export interface BuildClaimRedemptionParams {
@@ -2543,6 +2636,273 @@ export async function buildClaimRedemptionInstructions(
   instructions.push(claimIx);
 
   return instructions;
+}
+
+export function canCloseRedemptionBatch(
+  batch: RedemptionBatch,
+  currentTimestamp: bigint | number
+): boolean {
+  if (batch.status !== RedemptionBatchStatus.Settled) {
+    return false;
+  }
+  const isFullyClaimed =
+    batch.claimedPrincipal >= batch.totalPrincipalRequested;
+  const isExpired =
+    BigInt(currentTimestamp) >= batch.settledAt + BATCH_CLAIM_EXPIRY_SECONDS;
+  return isFullyClaimed || isExpired;
+}
+
+export interface SubmitRedemptionBatchParams {
+  crank: Address | KeyPairSigner | TransactionSigner;
+  poolId: number;
+  batchId: bigint | number;
+  nextBatchId: bigint | number;
+  humaAddresses?: Partial<HumaPoolAddresses>;
+  humaProgram?: Address;
+  pstTokenProgram?: Address;
+}
+
+export async function buildCrankSubmitRedemptionBatchInstruction(
+  params: SubmitRedemptionBatchParams
+): Promise<Instruction> {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+  const batch = await findRedemptionBatchPda(params.poolId, params.batchId);
+  const nextBatch = await findRedemptionBatchPda(
+    params.poolId,
+    params.nextBatchId
+  );
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const huma = resolveAndRequireHumaAddresses(
+    params.humaAddresses,
+    SUBMIT_REDEMPTION_BATCH_REQUIRED_HUMA_KEYS,
+    "crankSubmitRedemptionBatch"
+  );
+  const humaProgram = params.humaProgram ?? HUMA_PROGRAM_ID;
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(
+    huma.poolState,
+    humaProgram
+  );
+  const eventAuthority = await findEventAuthorityPda();
+
+  const ix = await getCrankSubmitRedemptionBatchInstructionAsync({
+    crank: params.crank as TransactionSigner,
+    globalConfig,
+    pool,
+    batch,
+    nextBatch,
+    poolPstVault,
+    humaProgram,
+    humaConfig: huma.config,
+    humaPoolConfig: huma.poolConfig,
+    humaPoolState: huma.poolState,
+    humaModeConfig: huma.modeConfig,
+    humaModeMint: huma.modeMint,
+    humaRedemptionRequest: huma.redemptionRequest,
+    humaLenderState: huma.lenderState,
+    humaPoolAuthority,
+    humaPoolModeToken: huma.poolModeToken,
+    pstTokenProgram: params.pstTokenProgram ?? TOKEN_PROGRAM_ID,
+    eventAuthority,
+  });
+
+  return elevateSignerRole(ix, params.crank);
+}
+
+export interface SettleRedemptionBatchParams {
+  caller: Address | KeyPairSigner | TransactionSigner;
+  poolId: number;
+  batchId: bigint | number;
+  tokenMint: Address;
+  humaAddresses?: Partial<HumaPoolAddresses>;
+  humaProgram?: Address;
+  tokenProgram?: Address;
+}
+
+export async function buildSettleRedemptionBatchInstruction(
+  params: SettleRedemptionBatchParams
+): Promise<Instruction> {
+  const pool = await findPrizePoolPda(params.poolId);
+  const batch = await findRedemptionBatchPda(params.poolId, params.batchId);
+  const poolVaultAccount = await findPoolVaultPda(params.poolId);
+  const huma = resolveAndRequireHumaAddresses(
+    params.humaAddresses,
+    SETTLE_REDEMPTION_BATCH_REQUIRED_HUMA_KEYS,
+    "settleRedemptionBatch"
+  );
+  const humaProgram = params.humaProgram ?? HUMA_PROGRAM_ID;
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(
+    huma.poolState,
+    humaProgram
+  );
+  const eventAuthority = await findEventAuthorityPda();
+
+  const ix = await getSettleRedemptionBatchInstructionAsync({
+    caller: params.caller as TransactionSigner,
+    pool,
+    batch,
+    tokenMint: params.tokenMint,
+    poolVaultAccount,
+    humaProgram,
+    humaConfig: huma.config,
+    humaPoolConfig: huma.poolConfig,
+    humaPoolState: huma.poolState,
+    humaModeConfig: huma.modeConfig,
+    humaLenderState: huma.lenderState,
+    humaPoolAuthority,
+    humaPoolUnderlyingToken: huma.poolUnderlyingToken,
+    tokenProgram: params.tokenProgram ?? TOKEN_PROGRAM_ID,
+    eventAuthority,
+  });
+
+  return elevateSignerRole(ix, params.caller);
+}
+
+export interface CloseRedemptionBatchParams {
+  crank: Address | KeyPairSigner | TransactionSigner;
+  poolId: number;
+  batchId: bigint | number;
+  tokenMint: Address;
+  feeWallet: Address;
+  tokenProgram?: Address;
+}
+
+export async function buildCrankCloseRedemptionBatchInstruction(
+  params: CloseRedemptionBatchParams
+): Promise<Instruction> {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+  const batch = await findRedemptionBatchPda(params.poolId, params.batchId);
+  const poolVaultAccount = await findPoolVaultPda(params.poolId);
+  const eventAuthority = await findEventAuthorityPda();
+
+  const ix = await getCrankCloseRedemptionBatchInstructionAsync({
+    crank: params.crank as TransactionSigner,
+    globalConfig,
+    pool,
+    batch,
+    tokenMint: params.tokenMint,
+    poolVaultAccount,
+    feeWallet: params.feeWallet,
+    tokenProgram: params.tokenProgram ?? TOKEN_PROGRAM_ID,
+    eventAuthority,
+  });
+
+  return elevateSignerRole(ix, params.crank);
+}
+
+export interface CloseExpiredRedemptionParams {
+  beneficiary: Address | KeyPairSigner | TransactionSigner;
+  poolId: number;
+  redemptionId: bigint | number;
+}
+
+export async function buildCloseExpiredRedemptionInstruction(
+  params: CloseExpiredRedemptionParams
+): Promise<Instruction> {
+  const pendingRedemption = await findPendingRedemptionPda(
+    params.poolId,
+    BigInt(params.redemptionId)
+  );
+
+  const ix = getCloseExpiredRedemptionInstruction({
+    beneficiary: params.beneficiary as TransactionSigner,
+    pendingRedemption,
+  });
+
+  return elevateSignerRole(ix, params.beneficiary);
+}
+
+export interface EnableImpairedModeParams {
+  caller: Address | KeyPairSigner | TransactionSigner;
+  poolId: number;
+  pstMint: Address;
+  humaPoolState: Address;
+  pstTokenProgram?: Address;
+}
+
+export async function buildEnableImpairedModeInstruction(
+  params: EnableImpairedModeParams
+): Promise<Instruction> {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const eventAuthority = await findEventAuthorityPda();
+
+  const ix = await getEnableImpairedModeInstructionAsync({
+    caller: params.caller as TransactionSigner,
+    globalConfig,
+    pool,
+    poolPstVault,
+    pstMint: params.pstMint,
+    humaPoolState: params.humaPoolState,
+    pstTokenProgram: params.pstTokenProgram ?? TOKEN_PROGRAM_ID,
+    eventAuthority,
+  });
+
+  return elevateSignerRole(ix, params.caller);
+}
+
+export interface RecapitalizePoolParams {
+  sponsor: Address | KeyPairSigner | TransactionSigner;
+  poolId: number;
+  amount: bigint | number;
+  tokenMint: Address;
+  sponsorTokenAccount?: Address;
+  humaAddresses?: Partial<HumaPoolAddresses>;
+  humaProgram?: Address;
+  tokenProgram?: Address;
+  pstTokenProgram?: Address;
+}
+
+export async function buildRecapitalizePoolInstruction(
+  params: RecapitalizePoolParams
+): Promise<Instruction> {
+  const pool = await findPrizePoolPda(params.poolId);
+  const poolVaultAccount = await findPoolVaultPda(params.poolId);
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const tokenProgram = params.tokenProgram ?? TOKEN_PROGRAM_ID;
+  const sponsorAddress =
+    typeof params.sponsor === "string"
+      ? params.sponsor
+      : params.sponsor.address;
+  const sponsorTokenAccount =
+    params.sponsorTokenAccount ??
+    (await findAtaAddress(sponsorAddress, params.tokenMint, tokenProgram));
+  const huma = resolveAndRequireHumaAddresses(
+    params.humaAddresses,
+    RECAPITALIZE_REQUIRED_HUMA_KEYS,
+    "recapitalizePool"
+  );
+  const humaProgram = params.humaProgram ?? HUMA_PROGRAM_ID;
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(
+    huma.poolState,
+    humaProgram
+  );
+  const eventAuthority = await findEventAuthorityPda();
+
+  const ix = await getRecapitalizePoolInstructionAsync({
+    sponsor: params.sponsor as TransactionSigner,
+    pool,
+    sponsorTokenAccount,
+    tokenMint: params.tokenMint,
+    poolVaultAccount,
+    poolPstVault,
+    humaProgram,
+    humaConfig: huma.config,
+    humaPoolConfig: huma.poolConfig,
+    humaPoolState: huma.poolState,
+    humaModeConfig: huma.modeConfig,
+    humaModeMint: huma.modeMint,
+    humaPoolAuthority,
+    humaPoolUnderlyingToken: huma.poolUnderlyingToken,
+    tokenProgram,
+    pstTokenProgram: params.pstTokenProgram ?? tokenProgram,
+    eventAuthority,
+    amount: BigInt(params.amount),
+  });
+
+  return elevateSignerRole(ix, params.sponsor);
 }
 
 export async function buildPackedReinvestWinningsInstructions(params: {

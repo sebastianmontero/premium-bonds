@@ -29,6 +29,12 @@ import {
   elevateSignerRole,
   buildClaimRedemptionInstruction as sdkBuildClaimRedemptionInstruction,
   buildClaimRedemptionInstructions as sdkBuildClaimRedemptionInstructions,
+  buildCrankSubmitRedemptionBatchInstruction,
+  buildSettleRedemptionBatchInstruction,
+  buildCrankCloseRedemptionBatchInstruction,
+  buildCloseExpiredRedemptionInstruction,
+  buildEnableImpairedModeInstruction,
+  buildRecapitalizePoolInstruction,
   RedemptionType,
   USDC_MINT,
   TOKEN_PROGRAM_ID,
@@ -49,6 +55,12 @@ export {
   resolveHumaAddresses,
   requireHumaAddresses,
   resolveAndRequireHumaAddresses,
+  buildCrankSubmitRedemptionBatchInstruction,
+  buildSettleRedemptionBatchInstruction,
+  buildCrankCloseRedemptionBatchInstruction,
+  buildCloseExpiredRedemptionInstruction,
+  buildEnableImpairedModeInstruction,
+  buildRecapitalizePoolInstruction,
 };
 
 export const BUY_BONDS_REQUIRED_HUMA_KEYS = [
@@ -60,16 +72,6 @@ export const BUY_BONDS_REQUIRED_HUMA_KEYS = [
 ] as const;
 
 export const SELL_BONDS_REQUIRED_HUMA_KEYS = [
-  "poolState",
-  "config",
-  "poolConfig",
-  "modeConfig",
-  "modeMint",
-  "redemptionRequest",
-  "lenderState",
-] as const;
-
-export const CLAIM_NON_REINVESTED_REQUIRED_HUMA_KEYS = [
   "poolState",
   "config",
   "poolConfig",
@@ -241,7 +243,7 @@ export interface ClaimRedemptionFactoryParams {
   userAddress?: Address;
   beneficiary?: Address;
   redemptionId: number | bigint;
-  batchId?: number | bigint;
+  batchId: number | bigint;
   beneficiaryTokenAccount?: Address;
   userTokenAccount?: Address;
   redemptionType?: RedemptionType;
@@ -263,7 +265,7 @@ export async function buildClaimRedemptionInstruction(
     beneficiary,
     poolId: params.poolId,
     redemptionId: params.redemptionId,
-    batchId: params.batchId ?? 0n,
+    batchId: params.batchId,
     tokenMint: USDC_MINT,
     redemptionType: params.redemptionType,
     feeWallet: params.feeWallet,
@@ -286,7 +288,7 @@ export async function buildClaimRedemptionInstructions(
     beneficiary,
     poolId: params.poolId,
     redemptionId: params.redemptionId,
-    batchId: params.batchId ?? 0n,
+    batchId: params.batchId,
     tokenMint: USDC_MINT,
     redemptionType: params.redemptionType,
     feeWallet: params.feeWallet,

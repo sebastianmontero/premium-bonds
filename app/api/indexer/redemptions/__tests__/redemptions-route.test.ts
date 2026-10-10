@@ -19,6 +19,7 @@ describe("GET /api/indexer/redemptions Route Handler", () => {
       userAddress: validUser,
       redemptionType: "bond_sale",
       amountUsdc: "50000000",
+      batchId: "1",
       pstSharesLocked: "50",
       humaRequestId: "req-12345",
       status: "ready",

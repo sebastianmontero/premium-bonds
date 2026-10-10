@@ -113,8 +113,9 @@ export interface PendingRedemptionDto {
   userAddress: string;
   redemptionType: string;
   amountUsdc: string;
+  batchId: string;
   pstSharesLocked: string | null;
-  humaRequestId: string | null;
+  humaRequestId?: string | null;
   status: string;
   requestSignature: string;
   claimSignature: string | null;
@@ -131,9 +132,10 @@ export function toPendingRedemptionDto(
     userAddress: row.userAddress,
     redemptionType: row.redemptionType,
     amountUsdc: row.amountUsdc.toString(),
+    batchId: row.batchId.toString(),
     pstSharesLocked:
       row.pstSharesLocked != null ? row.pstSharesLocked.toString() : null,
-    humaRequestId: row.humaRequestId != null ? row.humaRequestId : null,
+    humaRequestId: row.batchId.toString(),
     status: row.status,
     requestSignature: row.requestSignature,
     claimSignature: row.claimSignature,
@@ -160,8 +162,9 @@ export function mapDtoToPendingRedemption(
     status: dto.status,
     requestedAt: new Date(dto.requestedAt * 1000).toISOString(),
     type: (dto.redemptionType as PendingRedemption["type"]) || "bond_sale",
+    batchId: dto.batchId,
     pstSharesLocked: dto.pstSharesLocked ?? undefined,
-    humaRequestId: dto.humaRequestId ?? undefined,
+    humaRequestId: dto.humaRequestId ?? dto.batchId,
   };
 }
 

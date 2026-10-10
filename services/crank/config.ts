@@ -139,6 +139,7 @@ export interface CrankConfig {
   telegramChatId?: string;
   pagerDutyRoutingKey?: string;
   pstMint?: Address;
+  humaProgram?: Address;
   humaConfig?: Address;
   humaPoolConfig?: Address;
   humaPoolState?: Address;
@@ -146,6 +147,8 @@ export interface CrankConfig {
   humaLenderState?: Address;
   poolHumaLenderStates?: Record<number, Address>;
   humaPoolUnderlyingToken?: Address;
+  humaRedemptionRequest?: Address;
+  humaPoolModeToken?: Address;
   dryRun: boolean;
   allowNonJobsSigner?: boolean;
   registryExpansion?: RegistryExpansionConfig;
@@ -195,6 +198,18 @@ export function loadConfig(overrides?: CrankConfigOverrides): CrankConfig {
     overrides?.humaPoolUnderlyingToken ||
     parseOptionalAddress(process.env.HUMA_POOL_UNDERLYING_TOKEN) ||
     parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN);
+  const humaRedemptionRequest =
+    overrides?.humaRedemptionRequest ||
+    parseOptionalAddress(process.env.HUMA_REDEMPTION_REQUEST) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST);
+  const humaPoolModeToken =
+    overrides?.humaPoolModeToken ||
+    parseOptionalAddress(process.env.HUMA_POOL_MODE_TOKEN) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN);
+  const humaProgram =
+    overrides?.humaProgram ||
+    parseOptionalAddress(process.env.HUMA_PROGRAM_ID) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_PROGRAM_ID);
 
   const network = resolveNetwork(process.env.NEXT_PUBLIC_ENVIRONMENT, rpcUrl);
   const devKeypair = path.resolve(
@@ -263,6 +278,9 @@ export function loadConfig(overrides?: CrankConfigOverrides): CrankConfig {
     humaLenderState,
     poolHumaLenderStates,
     humaPoolUnderlyingToken,
+    humaRedemptionRequest,
+    humaPoolModeToken,
+    humaProgram,
     dryRun: overrides?.dryRun ?? process.env.DRY_RUN === "true",
     allowNonJobsSigner:
       overrides?.allowNonJobsSigner ??

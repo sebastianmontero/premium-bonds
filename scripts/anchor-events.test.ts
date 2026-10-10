@@ -140,8 +140,8 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
   });
 
   it("should decode BondsSold log event accurately", async () => {
-    // Payload: Pubkey(32) + u32 pool_id(4) + u32 bonds(4) + u64 principal(8) + u64 redemption_id(8) = 56 bytes
-    const fields = new Uint8Array(56);
+    // Payload: Pubkey(32) + u32 pool_id(4) + u64 batch_id(8) + u32 bonds(4) + u64 principal(8) + u64 redemption_id(8) = 64 bytes
+    const fields = new Uint8Array(64);
     fields.set(dummyPubkeyBytes, 0);
     const view = new DataView(
       fields.buffer,
@@ -149,9 +149,10 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
       fields.byteLength
     );
     view.setUint32(32, 1, true); // pool_id
-    view.setUint32(36, 5, true); // bonds
-    view.setBigUint64(40, 25_000_000n, true); // principal
-    view.setBigUint64(48, 999n, true); // redemption_id
+    view.setBigUint64(36, 42n, true); // batch_id
+    view.setUint32(44, 5, true); // bonds
+    view.setBigUint64(48, 25_000_000n, true); // principal
+    view.setBigUint64(56, 999n, true); // redemption_id
 
     const logMessage = buildLogPayload("BondsSold", fields);
 
@@ -175,6 +176,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.strictEqual(res.events[0].type, "BondsSold");
     assert.strictEqual(res.events[0].data.user, dummyPubkeyStr);
     assert.strictEqual(res.events[0].data.poolId, 1);
+    assert.strictEqual(res.events[0].data.batchId, 42n);
     assert.strictEqual(res.events[0].data.bonds, 5);
     assert.strictEqual(res.events[0].data.principal, 25_000_000n);
     assert.strictEqual(res.events[0].data.redemptionId, 999n);

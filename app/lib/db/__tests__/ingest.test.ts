@@ -110,6 +110,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         data: {
           user: userAddr,
           poolId: 1,
+          batchId: 1n,
           bonds: 5,
           principal: 25000000n,
           redemptionId: 100n,
@@ -158,6 +159,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         data: {
           user: userAddr,
           poolId: 1,
+          batchId: 1n,
           amount: 15000000n,
           redemptionId: 101n,
         },
@@ -182,6 +184,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           caller: userAddr,
           user: userAddr,
           poolId: 1,
+          batchId: 1n,
           amount: 25000000n,
           redemptionId: 100n,
           redemptionType: 0,
@@ -354,7 +357,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
   });
 
   describe("foldPendingRedemptionRows & DTO Mappers", () => {
-    it("should correctly fold rows with pstSharesLocked and humaRequestId including 0n", () => {
+    it("should correctly fold rows with pstSharesLocked and batchId", () => {
       const rows = [
         {
           poolId: 1,
@@ -362,8 +365,8 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           userAddress: "user1",
           redemptionType: "bond_sale",
           amountUsdc: 1_000_000n,
+          batchId: 1n,
           pstSharesLocked: 0n,
-          humaRequestId: "0",
           status: "settling",
           requestSignature: "sig1",
           requestedAt: 1700000000,
@@ -374,8 +377,8 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           userAddress: "user1",
           redemptionType: "bond_sale",
           amountUsdc: 1_000_000n,
+          batchId: 1n,
           pstSharesLocked: 500_000n,
-          humaRequestId: "1180591620717411303424",
           status: "ready",
           requestSignature: "sig1",
           requestedAt: 1700000000,
@@ -386,7 +389,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(folded.length, 1);
       assert.strictEqual(folded[0].status, "ready");
       assert.strictEqual(folded[0].pstSharesLocked, 500_000n);
-      assert.strictEqual(folded[0].humaRequestId, "1180591620717411303424");
+      assert.strictEqual(folded[0].batchId, 1n);
     });
 
     it("should validate isPendingRedemptionStatus type guard correctly", () => {
@@ -403,6 +406,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         userAddress: "user1",
         redemptionType: "bond_sale",
         amountUsdc: "1000000",
+        batchId: "1",
         pstSharesLocked: "500000",
         humaRequestId: "1180591620717411303424",
         status: "ready",
@@ -418,6 +422,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(readyModel?.amount, 1000000);
       assert.strictEqual(readyModel?.status, "ready");
       assert.strictEqual(readyModel?.type, "bond_sale");
+      assert.strictEqual(readyModel?.batchId, "1");
       assert.strictEqual(readyModel?.pstSharesLocked, "500000");
       assert.strictEqual(readyModel?.humaRequestId, "1180591620717411303424");
 
@@ -439,6 +444,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         userAddress: "user1",
         redemptionType: "bond_sale",
         amountUsdc: "1000000",
+        batchId: "1",
         pstSharesLocked: "500000",
         humaRequestId: "1180591620717411303424",
         status: "claimed",
@@ -1446,6 +1452,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           caller: crankPubkey,
           user: beneficiaryPubkey,
           poolId: 1,
+          batchId: 1n,
           amount: 50_000_000n,
           redemptionId: 100n,
           redemptionType: 0,
@@ -1702,6 +1709,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
               data: {
                 poolId: 1,
                 user: userAddr,
+                batchId: 1n,
                 amount: 5_000_000n,
                 pstShares: 5_000_000n,
                 redemptionId: 10n,

@@ -34,6 +34,7 @@ import { RebindRandomnessWorker } from "../workers/rebind-randomness.worker";
 import { AtomicRevealWorker } from "../workers/atomic-reveal.worker";
 import { ReinvestWinningsWorker } from "../workers/reinvest-winnings.worker";
 import { CapacitySentinelWorker } from "../workers/capacity-sentinel.worker";
+import { BatchSentinelWorker } from "../workers/batch-sentinel.worker";
 import { DisburseSentinelWorker } from "../workers/disburse-sentinel.worker";
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 5_000;
@@ -137,6 +138,7 @@ export class AdaptiveCrankScheduler {
       new AtomicRevealWorker(this.vrfProvider),
       new ReinvestWinningsWorker(),
       new CapacitySentinelWorker(this.alertNotifier, config.registryExpansion),
+      new BatchSentinelWorker(config),
       new DisburseSentinelWorker(),
     ];
   }

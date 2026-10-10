@@ -77,6 +77,21 @@ export const ANCHOR_EVENT_DISCRIMINATORS: Record<string, Uint8Array> = {
   FeesWithdrawn: new Uint8Array([
     0xea, 0x0f, 0x00, 0x77, 0x94, 0xf1, 0x28, 0x15,
   ]),
+  RedemptionBatchSubmitted: new Uint8Array([
+    0xad, 0x7b, 0x9c, 0xfc, 0xf3, 0xca, 0x6f, 0x4b,
+  ]),
+  RedemptionBatchSettled: new Uint8Array([
+    0xc0, 0x85, 0x0b, 0x7b, 0x69, 0xcd, 0xf6, 0xb3,
+  ]),
+  RedemptionBatchClosed: new Uint8Array([
+    0xbe, 0x57, 0xeb, 0x2b, 0x86, 0x66, 0xa2, 0x60,
+  ]),
+  PoolImpairedModeEnabled: new Uint8Array([
+    0x9e, 0xc4, 0x93, 0x6c, 0xcc, 0x20, 0xe9, 0x83,
+  ]),
+  PoolRecapitalized: new Uint8Array([
+    0x08, 0x93, 0x0b, 0xfe, 0x80, 0x6b, 0x19, 0x6b,
+  ]),
 };
 
 function pubkeyToBytes(pubkey: string): Uint8Array {
@@ -134,22 +149,21 @@ export function serializeAnchorEvent(
       break;
     }
     case "BondsSold": {
-      // Pubkey(32) + u32(4) + u32(4) + u64(8) + u64(8) + u64(8) + u128(16) + u64(8) + u32(4) + i64(8) = 100 bytes
-      fields = new Uint8Array(100);
+      // Pubkey(32) + u32(4) + u64(8) + u32(4) + u64(8) + u64(8) + u64(8) + u32(4) + i64(8) = 84 bytes
+      fields = new Uint8Array(84);
       const view = new DataView(fields.buffer);
       fields.set(
         pubkeyToBytes(data.user || "11111111111111111111111111111111"),
         0
       );
       view.setUint32(32, Number(data.poolId || 1), true);
-      view.setUint32(36, Number(data.bonds || 0), true);
-      view.setBigUint64(40, BigInt(data.principal || 0), true);
-      view.setBigUint64(48, BigInt(data.redemptionId || 0), true);
-      view.setBigUint64(56, BigInt(data.pstShares || 0), true);
-      writeU128(view, 64, data.humaRequestId || 0);
-      view.setBigUint64(80, BigInt(data.newTotalDepositedPrincipal || 0), true);
-      view.setUint32(88, Number(data.userRemainingBonds || 0), true);
-      view.setBigInt64(92, BigInt(data.timestamp || 0), true);
+      view.setBigUint64(36, BigInt(data.batchId || 0), true);
+      view.setUint32(44, Number(data.bonds || 0), true);
+      view.setBigUint64(48, BigInt(data.principal || 0), true);
+      view.setBigUint64(56, BigInt(data.redemptionId || 0), true);
+      view.setBigUint64(64, BigInt(data.newTotalDepositedPrincipal || 0), true);
+      view.setUint32(72, Number(data.userRemainingBonds || 0), true);
+      view.setBigInt64(76, BigInt(data.timestamp || 0), true);
       break;
     }
     case "WinningsReinvested": {
@@ -176,24 +190,23 @@ export function serializeAnchorEvent(
       break;
     }
     case "WinningsClaimed": {
-      // Pubkey(32) + u32(4) + u64(8) + u64(8) + u64(8) + u128(16) + i64(8) = 84 bytes
-      fields = new Uint8Array(84);
+      // Pubkey(32) + u32(4) + u64(8) + u64(8) + u64(8) + i64(8) = 68 bytes
+      fields = new Uint8Array(68);
       const view = new DataView(fields.buffer);
       fields.set(
         pubkeyToBytes(data.user || "11111111111111111111111111111111"),
         0
       );
       view.setUint32(32, Number(data.poolId || 1), true);
-      view.setBigUint64(36, BigInt(data.amount || 0), true);
-      view.setBigUint64(44, BigInt(data.redemptionId || 0), true);
-      view.setBigUint64(52, BigInt(data.pstShares || 0), true);
-      writeU128(view, 60, data.humaRequestId || 0);
-      view.setBigInt64(76, BigInt(data.timestamp || 0), true);
+      view.setBigUint64(36, BigInt(data.batchId || 0), true);
+      view.setBigUint64(44, BigInt(data.amount || 0), true);
+      view.setBigUint64(52, BigInt(data.redemptionId || 0), true);
+      view.setBigInt64(60, BigInt(data.timestamp || 0), true);
       break;
     }
     case "FeesWithdrawn": {
-      // u32(4) + Pubkey(32) + Pubkey(32) + u64(8) + u64(8) + u64(8) + u128(16) + i64(8) = 116 bytes
-      fields = new Uint8Array(116);
+      // u32(4) + Pubkey(32) + Pubkey(32) + u64(8) + u64(8) + u64(8) + i64(8) = 96 bytes
+      fields = new Uint8Array(96);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       fields.set(
@@ -204,16 +217,15 @@ export function serializeAnchorEvent(
         pubkeyToBytes(data.feeWallet || "11111111111111111111111111111111"),
         36
       );
-      view.setBigUint64(68, BigInt(data.amount || 0), true);
-      view.setBigUint64(76, BigInt(data.pstShares || 0), true);
+      view.setBigUint64(68, BigInt(data.batchId || 0), true);
+      view.setBigUint64(76, BigInt(data.amount || 0), true);
       view.setBigUint64(84, BigInt(data.redemptionId || 0), true);
-      writeU128(view, 92, data.humaRequestId || 0);
-      view.setBigInt64(108, BigInt(data.timestamp || 0), true);
+      view.setBigInt64(92, BigInt(data.timestamp || 0), true);
       break;
     }
     case "RedemptionClaimed": {
-      // Pubkey(32) + Pubkey(32) + u32(4) + u64(8) + u64(8) + u8(1) + u64(8) + u128(16) + i64(8) + i64(8) = 125 bytes
-      fields = new Uint8Array(125);
+      // Pubkey(32) + Pubkey(32) + u32(4) + u64(8) + u64(8) + u64(8) + u8(1) + i64(8) + i64(8) = 109 bytes
+      fields = new Uint8Array(109);
       const view = new DataView(fields.buffer);
       fields.set(
         pubkeyToBytes(
@@ -226,13 +238,86 @@ export function serializeAnchorEvent(
         32
       );
       view.setUint32(64, Number(data.poolId || 1), true);
-      view.setBigUint64(68, BigInt(data.amount || 0), true);
-      view.setBigUint64(76, BigInt(data.redemptionId || 0), true);
-      view.setUint8(84, Number(data.redemptionType ?? 0));
-      view.setBigUint64(85, BigInt(data.pstSharesLocked || 0), true);
-      writeU128(view, 93, data.humaRequestId || 0);
-      view.setBigInt64(109, BigInt(data.requestedAt || 0), true);
-      view.setBigInt64(117, BigInt(data.timestamp || 0), true);
+      view.setBigUint64(68, BigInt(data.batchId || 0), true);
+      view.setBigUint64(76, BigInt(data.amount || 0), true);
+      view.setBigUint64(84, BigInt(data.redemptionId || 0), true);
+      view.setUint8(92, Number(data.redemptionType ?? 0));
+      view.setBigInt64(93, BigInt(data.requestedAt || 0), true);
+      view.setBigInt64(101, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "RedemptionBatchSubmitted": {
+      // u32(4) + u64(8) + u128(16) + u64(8) + u64(8) + u64(8) + i64(8) = 56 bytes
+      fields = new Uint8Array(56);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setBigUint64(4, BigInt(data.batchId || 0), true);
+      writeU128(view, 12, data.humaRequestId || 0);
+      view.setBigUint64(28, BigInt(data.totalPrincipalRequested || 0), true);
+      view.setBigUint64(36, BigInt(data.pstSharesLocked || 0), true);
+      view.setBigUint64(44, BigInt(data.nextBatchId || 0), true);
+      view.setBigInt64(52, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "RedemptionBatchSettled": {
+      // u32(4) + u64(8) + u128(16) + u64(8) + u64(8) + i64(8) = 48 bytes
+      fields = new Uint8Array(48);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setBigUint64(4, BigInt(data.batchId || 0), true);
+      writeU128(view, 12, data.humaRequestId || 0);
+      view.setBigUint64(28, BigInt(data.totalPrincipalRequested || 0), true);
+      view.setBigUint64(36, BigInt(data.settledUsdcReceived || 0), true);
+      view.setBigInt64(44, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "RedemptionBatchClosed": {
+      // u32(4) + u64(8) + Pubkey(32) + u64(8) + u64(8) + u64(8) + i64(8) = 76 bytes
+      fields = new Uint8Array(76);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setBigUint64(4, BigInt(data.batchId || 0), true);
+      fields.set(
+        pubkeyToBytes(data.caller || "11111111111111111111111111111111"),
+        12
+      );
+      view.setBigUint64(44, BigInt(data.rentReclaimed || 0), true);
+      view.setBigUint64(52, BigInt(data.unclaimedPrincipalSwept || 0), true);
+      view.setBigUint64(60, BigInt(data.unclaimedUsdcSwept || 0), true);
+      view.setBigInt64(68, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "PoolImpairedModeEnabled": {
+      // u32(4) + Pubkey(32) + u64(8) + u64(8) + i64(8) = 60 bytes
+      fields = new Uint8Array(60);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      fields.set(
+        pubkeyToBytes(data.authority || "11111111111111111111111111111111"),
+        4
+      );
+      view.setBigUint64(36, BigInt(data.totalDepositedPrincipal || 0), true);
+      view.setBigUint64(
+        44,
+        BigInt(data.totalAccumulatingRedemptions || 0),
+        true
+      );
+      view.setBigInt64(52, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "PoolRecapitalized": {
+      // u32(4) + Pubkey(32) + u64(8) + u64(8) + bool(1) + i64(8) = 61 bytes
+      fields = new Uint8Array(61);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      fields.set(
+        pubkeyToBytes(data.sponsor || "11111111111111111111111111111111"),
+        4
+      );
+      view.setBigUint64(36, BigInt(data.amount || 0), true);
+      view.setBigUint64(44, BigInt(data.pstSharesMinted || 0), true);
+      view.setUint8(52, data.isUnpaused ? 1 : 0);
+      view.setBigInt64(53, BigInt(data.timestamp || 0), true);
       break;
     }
     case "YieldHarvested": {

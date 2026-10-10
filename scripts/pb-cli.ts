@@ -105,6 +105,7 @@ export type PreconditionErrorCode =
   | "PAYOUTS_ALREADY_STARTED"
   | "PAYOUT_REGISTRY_ALREADY_VOIDED"
   | "PAYOUT_REGISTRY_NOT_FOUND"
+  | "BATCH_NOT_CLOSEABLE"
   | "NO_DRAW_CYCLES";
 
 export class CliPreconditionError extends CliUserError {
@@ -346,11 +347,19 @@ import {
   calculateAvailableFees,
   buildClaimRedemptionInstruction,
   buildClaimRedemptionInstructions,
+  buildCrankSubmitRedemptionBatchInstruction,
+  buildSettleRedemptionBatchInstruction,
+  buildCrankCloseRedemptionBatchInstruction,
+  findRedemptionBatchPda,
+  parseRedemptionBatch,
+  RedemptionBatchStatus,
+  canCloseRedemptionBatch,
   buildAtomicRevealAndPickWinnersInstructions,
   HumaPoolAddresses,
   findAtaAddress,
   decodeAccountBase64Data,
   parseOptionalAddress,
+  fetchPendingRedemptionCandidates,
 } from "../app/lib/bonds-sdk";
 import { createVrfProvider } from "../services/crank/vrf/randomness-provider";
 import {
@@ -578,6 +587,103 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       "npm run pb-cli close-payout-registry -- --pool 1 --cycle 0",
       "npm run pb-cli close-payout-registry -- --pool 1 --all-eligible",
       "npm run pb-cli close-payout-registry -- --pool 1 --dry-run",
+    ],
+  },
+  "submit-batch": {
+    command: "submit-batch",
+    category: "Crank & Operations",
+    summary: "Submit accumulating redemption batch to Huma queue",
+    description:
+      "Submits accumulating redemption batch to Huma queue to begin asynchronous liquidity withdrawal.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--pool <number>",
+        description: "Target Prize Pool ID (default: 1)",
+      },
+      {
+        flag: "--dry-run",
+        description:
+          "Simulate transaction execution without submitting on-chain",
+      },
+    ],
+    examples: [
+      "npm run pb-cli submit-batch -- --pool 1",
+      "npm run pb-cli submit-batch -- --pool 1 --dry-run",
+    ],
+  },
+  "settle-batch": {
+    command: "settle-batch",
+    category: "Crank & Operations",
+    summary: "Settle submitted redemption batch from Huma queue",
+    description:
+      "Settles submitted redemption batch from Huma queue, disbursing USDC into pool vault and marking redemptions ready.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--pool <number>",
+        description: "Target Prize Pool ID (default: 1)",
+      },
+      {
+        flag: "--batch-id <number>",
+        description: "Batch ID to settle (defaults to current in-flight batch)",
+      },
+      {
+        flag: "--dry-run",
+        description:
+          "Simulate transaction execution without submitting on-chain",
+      },
+    ],
+    examples: [
+      "npm run pb-cli settle-batch -- --pool 1",
+      "npm run pb-cli settle-batch -- --pool 1 --batch-id 0",
+    ],
+  },
+  "close-batch": {
+    command: "close-batch",
+    category: "Crank & Operations",
+    summary: "Close fully-claimed or 180-day expired redemption batch",
+    description:
+      "Closes a fully-claimed or 180-day expired redemption batch, reclaiming rent SOL to caller and sweeping residual funds to fee wallet.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--pool <number>",
+        description: "Target Prize Pool ID (default: 1)",
+      },
+      {
+        flag: "--batch-id <number>",
+        description: "Batch ID to close",
+      },
+      {
+        flag: "--dry-run",
+        description:
+          "Simulate transaction execution without submitting on-chain",
+      },
+    ],
+    examples: ["npm run pb-cli close-batch -- --pool 1 --batch-id 0"],
+  },
+  "query-batch": {
+    command: "query-batch",
+    category: "Query",
+    summary: "Query on-chain redemption batch status and accounting",
+    description:
+      "Fetches and displays on-chain redemption batch status, requested principal, and settlement details.",
+    requiresSigner: false,
+    options: [
+      {
+        flag: "--pool <number>",
+        description: "Target Prize Pool ID (default: 1)",
+      },
+      {
+        flag: "--batch-id <number>",
+        description:
+          "Batch ID to query (defaults to current accumulating batch)",
+      },
+    ],
+    examples: [
+      "npm run pb-cli query-batch -- --pool 1",
+      "npm run pb-cli query-batch -- --pool 1 --batch-id 0",
     ],
   },
 
@@ -1346,9 +1452,12 @@ function showHelp() {
 
   for (const cat of categories) {
     helpTxt += `${cat} Commands:\n`;
-    const cmds = Object.values(COMMAND_REGISTRY).filter(
-      (c) => c.category === cat
-    );
+    const seenCommands = new Set<string>();
+    const cmds = Object.values(COMMAND_REGISTRY).filter((c) => {
+      if (c.category !== cat || seenCommands.has(c.command)) return false;
+      seenCommands.add(c.command);
+      return true;
+    });
     for (const c of cmds) {
       const positional = c.positionalArgs ? ` ${c.positionalArgs}` : "";
       const cmdStr = `${c.command}${positional}`;
@@ -2129,6 +2238,15 @@ export interface ClaimRedemptionSummary {
   signatures: string[];
 }
 
+interface ClaimTarget {
+  readonly pubkey: Address;
+  readonly redemptionId: bigint;
+  readonly user: Address;
+  readonly batchId: bigint;
+  readonly amount: bigint;
+  readonly redemptionType?: RedemptionType;
+}
+
 export async function executeClaimRedemption({
   poolId = 1,
   redemptionId,
@@ -2168,59 +2286,9 @@ export async function executeClaimRedemption({
     );
   }
 
-  const humaPoolAuth = await findHumaPoolAuthorityPda(
-    address(poolState.humaPoolState)
-  );
-  const humaPoolUnderlyingToken = address(
-    stateAddresses.humaPoolUnderlying ||
-      stateAddresses.humaPoolUnderlyingToken ||
-      stateAddresses.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
-      (await findAtaAddress(humaPoolAuth, poolState.tokenMint))
-  );
-  const resolveAddr = (v?: string) => (v ? address(v) : undefined);
-  const humaAddresses: HumaPoolAddresses = {
-    poolState: address(poolState.humaPoolState),
-    config: resolveAddr(
-      stateAddresses.humaConfig || stateAddresses.NEXT_PUBLIC_HUMA_CONFIG
-    ),
-    poolConfig: resolveAddr(
-      stateAddresses.humaPoolConfig ||
-        stateAddresses.NEXT_PUBLIC_HUMA_POOL_CONFIG
-    ),
-    modeConfig: resolveAddr(
-      stateAddresses.humaModeConfig ||
-        stateAddresses.NEXT_PUBLIC_HUMA_MODE_CONFIG
-    ),
-    lenderState: resolveAddr(
-      stateAddresses.humaLenderState ||
-        stateAddresses.NEXT_PUBLIC_HUMA_LENDER_STATE
-    ),
-    poolUnderlyingToken: humaPoolUnderlyingToken,
-  };
-
-  let humaNextRequestId: bigint | null = null;
-  try {
-    const humaAcc = await rpc
-      .getAccountInfo(address(poolState.humaPoolState), { encoding: "base64" })
-      .send();
-    if (humaAcc?.value?.data?.[0]) {
-      const rawBytes = new Uint8Array(
-        base64Encoder.encode(humaAcc.value.data[0])
-      );
-      const humaState = parseMockHumaPoolState(rawBytes);
-      humaNextRequestId = humaState.nextRequestId;
-    }
-  } catch {
-    // If unable to query Huma pool state, proceed with humaNextRequestId = null
-  }
-
-  let candidates: {
-    pubkey: Address;
-    state: ReturnType<typeof parsePendingRedemption>;
-  }[] = [];
+  let candidates: ClaimTarget[] = [];
   let totalFound = 0;
   let settledCount = 0;
-  let skippedUnsettled = 0;
 
   if (validated.redemptionId !== undefined) {
     const redemptionPda = await findPendingRedemptionPda(
@@ -2244,19 +2312,41 @@ export async function executeClaimRedemption({
       );
     }
 
-    if (
-      humaNextRequestId !== null &&
-      state.humaRequestId >= humaNextRequestId
-    ) {
+    const batchPda = await findRedemptionBatchPda(
+      validated.poolId,
+      state.batchId
+    );
+    const batchAcc = await rpc
+      .getAccountInfo(batchPda, { encoding: "base64" })
+      .send();
+    if (!batchAcc?.value) {
       throw new Error(
-        `Pending redemption ID ${state.redemptionId} (Huma Request ID: ${state.humaRequestId}) has not yet been settled by Huma (current queue nextRequestId: ${humaNextRequestId}). Cannot claim an unsettled redemption.`
+        `Redemption batch #${state.batchId} for redemption ID ${state.redemptionId} not found on-chain.`
+      );
+    }
+    const batchBytes = new Uint8Array(
+      base64Encoder.encode(batchAcc.value.data[0])
+    );
+    const batchState = parseRedemptionBatch(batchBytes);
+
+    if (batchState.status !== RedemptionBatchStatus.Settled) {
+      throw new Error(
+        `Pending redemption ID ${state.redemptionId} belongs to Batch #${state.batchId} which has not yet settled (current batch status: ${batchState.status}). Cannot claim an unsettled redemption.`
       );
     }
 
-    candidates = [{ pubkey: redemptionPda, state }];
+    candidates = [
+      {
+        pubkey: redemptionPda,
+        redemptionId: state.redemptionId,
+        user: address(state.user),
+        batchId: state.batchId,
+        amount: state.amount,
+        redemptionType: state.redemptionType,
+      },
+    ];
     totalFound = 1;
     settledCount = 1;
-    skippedUnsettled = 0;
   } else {
     console.log(
       `Fetching Pending Redemptions for Pool ${validated.poolId}${
@@ -2265,52 +2355,27 @@ export async function executeClaimRedemption({
           : ""
       }...`
     );
-    const filters = getPendingRedemptionFilters({
+    const settledCandidates = await fetchPendingRedemptionCandidates({
+      rpc,
       poolId: validated.poolId,
       user: validated.userAddress,
-    });
-    const accounts = await rpc
-      .getProgramAccounts(PROGRAM_ID, {
-        filters,
-        encoding: "base64",
-      })
-      .send();
-
-    const parsedRedemptions = accounts.map((acc) => {
-      const bytes = new Uint8Array(base64Encoder.encode(acc.account.data[0]));
-      const state = parsePendingRedemption(bytes);
-      return { pubkey: acc.pubkey, state };
+      limit: validated.limit,
     });
 
-    parsedRedemptions.sort((a, b) => {
-      if (a.state.redemptionId < b.state.redemptionId) return -1;
-      if (a.state.redemptionId > b.state.redemptionId) return 1;
-      return 0;
-    });
-
-    totalFound = parsedRedemptions.length;
-    let settledCandidates = parsedRedemptions;
-    if (humaNextRequestId !== null) {
-      settledCandidates = parsedRedemptions.filter(
-        (r) => r.state.humaRequestId < humaNextRequestId!
-      );
-      skippedUnsettled = parsedRedemptions.length - settledCandidates.length;
-      if (skippedUnsettled > 0) {
-        console.log(
-          `Notice: Skipped ${skippedUnsettled} unsettled redemption(s) (Huma nextRequestId: ${humaNextRequestId}).`
-        );
-      }
-    }
-    settledCount = settledCandidates.length;
-
-    if (
-      validated.limit !== undefined &&
-      settledCandidates.length > validated.limit
-    ) {
-      candidates = settledCandidates.slice(0, validated.limit);
-    } else {
-      candidates = settledCandidates;
-    }
+    candidates = await Promise.all(
+      settledCandidates.map(async (c) => ({
+        pubkey:
+          c.pubkey ??
+          (await findPendingRedemptionPda(validated.poolId, c.redemptionId)),
+        redemptionId: c.redemptionId,
+        user: c.user,
+        batchId: c.batchId,
+        amount: c.amount,
+        redemptionType: c.redemptionType,
+      }))
+    );
+    settledCount = candidates.length;
+    totalFound = settledCount;
   }
 
   const signatures: string[] = [];
@@ -2327,14 +2392,13 @@ export async function executeClaimRedemption({
       `Processing ${candidates.length} claimable redemption(s) for pool ${validated.poolId}...`
     );
     for (const candidate of candidates) {
-      const { state, pubkey } = candidate;
       console.log(
-        `\n[Redemption ID ${state.redemptionId}] Beneficiary: ${state.user}, Amount: ${formatAmount(state.amount)} USDC, Huma Request ID: ${state.humaRequestId}`
+        `\n[Redemption ID ${candidate.redemptionId}] Beneficiary: ${candidate.user}, Amount: ${formatAmount(candidate.amount)} USDC, Batch ID: ${candidate.batchId}`
       );
 
       if (dryRun) {
         console.log(
-          `  [DRY RUN] Would execute claim_redemption for redemption ID ${state.redemptionId} (${pubkey})`
+          `  [DRY RUN] Would execute claim_redemption for redemption ID ${candidate.redemptionId} (${candidate.pubkey})`
         );
         claimedCount++;
         continue;
@@ -2343,12 +2407,12 @@ export async function executeClaimRedemption({
       try {
         const claimIxs = await buildClaimRedemptionInstructions({
           crank: signer,
-          beneficiary: state.user,
+          beneficiary: candidate.user,
           poolId: validated.poolId,
-          redemptionId: state.redemptionId,
+          redemptionId: candidate.redemptionId,
+          batchId: candidate.batchId,
           tokenMint: poolState.tokenMint,
-          humaAddresses,
-          redemptionType: state.redemptionType,
+          redemptionType: candidate.redemptionType,
           feeWallet: poolState.feeWallet,
         });
 
@@ -2357,19 +2421,20 @@ export async function executeClaimRedemption({
         signatures.push(sig);
         claimedCount++;
         console.log(
-          `  ✓ Successfully claimed redemption ID ${state.redemptionId}. Signature: ${sig}`
+          `  ✓ Successfully claimed redemption ID ${candidate.redemptionId}. Signature: ${sig}`
         );
       } catch (err: any) {
         failedCount++;
         lastError = err instanceof Error ? err : new Error(String(err));
         console.error(
-          `  ✗ Failed to claim redemption ID ${state.redemptionId}: ${lastError.message}`
+          `  ✗ Failed to claim redemption ID ${candidate.redemptionId}: ${lastError.message}`
         );
-        printErrorDetails(err, `Claim Redemption ID ${state.redemptionId}`);
+        printErrorDetails(err, `Claim Redemption ID ${candidate.redemptionId}`);
       }
     }
   }
 
+  const skippedUnsettled = Math.max(0, totalFound - settledCount);
   console.log(`
 Claim Summary (Pool ${validated.poolId}):
   Total Found:          ${totalFound}
@@ -2614,6 +2679,296 @@ export async function executeClosePayoutRegistry({
   console.log(
     `Successfully closed Payout Registry #${targetCycleId}. Reclaimed ${lamportsReclaimed} lamports (~${(Number(lamportsReclaimed) / 1e9).toFixed(5)} SOL) to ${signer.address}. Tx: ${sig}`
   );
+}
+
+// ─── Batch Redemption Action Handlers ─────────────────────────────────────────
+
+export async function executeSubmitBatch({
+  poolId = 1,
+  dryRun = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: {
+  poolId?: number;
+  dryRun?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}) {
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const stateAddresses = loadAddresses(isDevnet);
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc?.value) throw new Error(`PrizePool ${poolId} not found.`);
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  const batchPda = await findRedemptionBatchPda(
+    poolId,
+    poolState.accumulatingRedemptionBatchId
+  );
+  const batchAcc = await rpc
+    .getAccountInfo(batchPda, { encoding: "base64" })
+    .send();
+  if (!batchAcc?.value)
+    throw new Error(
+      `Accumulating batch ${poolState.accumulatingRedemptionBatchId} not found.`
+    );
+  const batchState = parseRedemptionBatch(
+    new Uint8Array(base64Encoder.encode(batchAcc.value.data[0]))
+  );
+
+  console.log(`Submitting Batch #${batchState.batchId} for Pool ${poolId}...`);
+  console.log(
+    `  Principal: ${formatAmount(batchState.totalPrincipalRequested)} USDC`
+  );
+  console.log(`  Next Batch ID: ${poolState.nextRedemptionBatchId}`);
+
+  if (dryRun) {
+    console.log(
+      `  [DRY RUN] Would execute crank_submit_redemption_batch for Batch #${batchState.batchId}`
+    );
+    return;
+  }
+
+  const humaAddresses = extractCliHumaAddresses(
+    stateAddresses,
+    poolState.humaPoolState
+  );
+
+  const ix = await buildCrankSubmitRedemptionBatchInstruction({
+    crank: signer,
+    poolId,
+    batchId: batchState.batchId,
+    nextBatchId: poolState.nextRedemptionBatchId,
+    humaAddresses,
+  });
+
+  const cuLimitIx = createSetComputeUnitLimitInstruction(400_000);
+  const sig = await sendTx(rpc, [cuLimitIx, ix], signer);
+  console.log(
+    `  ✓ Successfully submitted batch #${batchState.batchId}. Signature: ${sig}`
+  );
+}
+
+export async function executeSettleBatch({
+  poolId = 1,
+  batchId,
+  dryRun = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: {
+  poolId?: number;
+  batchId?: bigint | number;
+  dryRun?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}) {
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const stateAddresses = loadAddresses(isDevnet);
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc?.value) throw new Error(`PrizePool ${poolId} not found.`);
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  const targetBatchId =
+    batchId !== undefined ? batchId : poolState.submittedBatchId;
+  if (targetBatchId === null || targetBatchId === undefined) {
+    throw new Error(
+      `No submitted batch currently in-flight for Pool ${poolId}. Specify --batch-id explicitly.`
+    );
+  }
+
+  const batchPda = await findRedemptionBatchPda(poolId, targetBatchId);
+  const batchAcc = await rpc
+    .getAccountInfo(batchPda, { encoding: "base64" })
+    .send();
+  if (!batchAcc?.value) throw new Error(`Batch #${targetBatchId} not found.`);
+  const batchState = parseRedemptionBatch(
+    new Uint8Array(base64Encoder.encode(batchAcc.value.data[0]))
+  );
+
+  console.log(`Settling Batch #${batchState.batchId} for Pool ${poolId}...`);
+  console.log(`  Huma Request ID: ${batchState.humaRequestId}`);
+  console.log(
+    `  Principal: ${formatAmount(batchState.totalPrincipalRequested)} USDC`
+  );
+
+  if (dryRun) {
+    console.log(
+      `  [DRY RUN] Would execute settle_redemption_batch for Batch #${batchState.batchId}`
+    );
+    return;
+  }
+
+  const humaPoolAuth = await findHumaPoolAuthorityPda(
+    address(poolState.humaPoolState)
+  );
+  const humaPoolUnderlyingToken = address(
+    stateAddresses.humaPoolUnderlying ||
+      stateAddresses.humaPoolUnderlyingToken ||
+      stateAddresses.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
+      (await findAtaAddress(humaPoolAuth, poolState.tokenMint))
+  );
+
+  const humaAddresses = extractCliHumaAddresses(
+    stateAddresses,
+    poolState.humaPoolState
+  );
+  humaAddresses.poolUnderlyingToken = humaPoolUnderlyingToken;
+
+  const ix = await buildSettleRedemptionBatchInstruction({
+    caller: signer,
+    poolId,
+    batchId: targetBatchId,
+    tokenMint: poolState.tokenMint,
+    humaAddresses,
+  });
+
+  const cuLimitIx = createSetComputeUnitLimitInstruction(400_000);
+  const sig = await sendTx(rpc, [cuLimitIx, ix], signer);
+  console.log(
+    `  ✓ Successfully settled batch #${targetBatchId}. Signature: ${sig}`
+  );
+}
+
+export async function executeCloseBatch({
+  poolId = 1,
+  batchId,
+  dryRun = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: {
+  poolId?: number;
+  batchId?: bigint | number;
+  dryRun?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc?.value) throw new Error(`PrizePool ${poolId} not found.`);
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  if (batchId === undefined) {
+    throw new Error(`--batch-id is required to close a batch.`);
+  }
+
+  const batchPda = await findRedemptionBatchPda(poolId, batchId);
+  const batchAcc = await rpc
+    .getAccountInfo(batchPda, { encoding: "base64" })
+    .send();
+  if (!batchAcc?.value) throw new Error(`Batch #${batchId} not found.`);
+  const batchState = parseRedemptionBatch(
+    new Uint8Array(base64Encoder.encode(batchAcc.value.data[0]))
+  );
+
+  console.log(`Closing Batch #${batchId} for Pool ${poolId}...`);
+  console.log(`  Status: ${batchState.status}`);
+  console.log(
+    `  Claimed: ${formatAmount(batchState.claimedPrincipal)} / ${formatAmount(batchState.totalPrincipalRequested)} USDC`
+  );
+
+  const currentTimestamp = Math.floor(Date.now() / 1000);
+  if (!canCloseRedemptionBatch(batchState, currentTimestamp)) {
+    throw new CliPreconditionError(
+      "BATCH_NOT_CLOSEABLE",
+      `Batch #${batchId} cannot be closed yet. Status: ${batchState.status}, Claimed: ${batchState.claimedPrincipal}/${batchState.totalPrincipalRequested}. Must be Settled and either fully claimed or 180 days expired.`
+    );
+  }
+
+  if (dryRun) {
+    console.log(
+      `  [DRY RUN] Would execute crank_close_redemption_batch for Batch #${batchId}`
+    );
+    return;
+  }
+
+  const ix = await buildCrankCloseRedemptionBatchInstruction({
+    crank: signer,
+    poolId,
+    batchId,
+    tokenMint: poolState.tokenMint,
+    feeWallet: poolState.feeWallet,
+  });
+
+  const cuLimitIx = createSetComputeUnitLimitInstruction(200_000);
+  const sig = await sendTx(rpc, [cuLimitIx, ix], signer);
+  console.log(`  ✓ Successfully closed batch #${batchId}. Signature: ${sig}`);
+}
+
+export async function executeQueryBatch({
+  poolId = 1,
+  batchId,
+  rpcUrl = "http://127.0.0.1:8899",
+}: {
+  poolId?: number;
+  batchId?: bigint | number;
+  rpcUrl?: string;
+}) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc?.value) throw new Error(`PrizePool ${poolId} not found.`);
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  const targetBatchId =
+    batchId !== undefined ? batchId : poolState.accumulatingRedemptionBatchId;
+  const batchPda = await findRedemptionBatchPda(poolId, targetBatchId);
+  const batchAcc = await rpc
+    .getAccountInfo(batchPda, { encoding: "base64" })
+    .send();
+  if (!batchAcc?.value) {
+    console.log(
+      `Redemption Batch #${targetBatchId} for Pool ${poolId} does not exist at ${batchPda}.`
+    );
+    return;
+  }
+  const batch = parseRedemptionBatch(
+    new Uint8Array(base64Encoder.encode(batchAcc.value.data[0]))
+  );
+
+  const statusStr =
+    RedemptionBatchStatus[batch.status as keyof typeof RedemptionBatchStatus] ??
+    String(batch.status);
+
+  console.log(`Redemption Batch #${batch.batchId} (Pool #${poolId}):
+  PDA: ${batchPda}
+  Status: ${statusStr}
+  Huma Request ID: ${batch.humaRequestId}
+  Total Principal Requested: ${formatAmount(batch.totalPrincipalRequested)} USDC
+  Total PST Shares Locked: ${batch.totalPstSharesLocked}
+  Settled USDC Received: ${formatAmount(batch.settledUsdcReceived)} USDC
+  Claimed Principal: ${formatAmount(batch.claimedPrincipal)} USDC
+  Created At: ${new Date(Number(batch.createdAt) * 1000).toISOString()}
+  Submitted At: ${batch.submittedAt > 0n ? new Date(Number(batch.submittedAt) * 1000).toISOString() : "(not submitted)"}
+  Settled At: ${batch.settledAt > 0n ? new Date(Number(batch.settledAt) * 1000).toISOString() : "(not settled)"}
+`);
 }
 
 // ─── Admin Action Handlers ───────────────────────────────────────────────────
@@ -4666,6 +5021,68 @@ async function main() {
         dryRun,
         rpcUrl,
         signer: signer!,
+      });
+      break;
+    }
+
+    case "submit-batch": {
+      const dryRun = options["--dry-run"] === "true";
+      await executeSubmitBatch({
+        poolId,
+        dryRun,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "settle-batch": {
+      const batchId =
+        options["--batch-id"] !== undefined
+          ? BigInt(options["--batch-id"])
+          : positionals.length > 0 && !isNaN(parseInt(positionals[0], 10))
+            ? BigInt(positionals[0])
+            : undefined;
+      const dryRun = options["--dry-run"] === "true";
+      await executeSettleBatch({
+        poolId,
+        batchId,
+        dryRun,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "close-batch": {
+      const batchId =
+        options["--batch-id"] !== undefined
+          ? BigInt(options["--batch-id"])
+          : positionals.length > 0 && !isNaN(parseInt(positionals[0], 10))
+            ? BigInt(positionals[0])
+            : undefined;
+      const dryRun = options["--dry-run"] === "true";
+      await executeCloseBatch({
+        poolId,
+        batchId,
+        dryRun,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "query-batch": {
+      const batchId =
+        options["--batch-id"] !== undefined
+          ? BigInt(options["--batch-id"])
+          : positionals.length > 0 && !isNaN(parseInt(positionals[0], 10))
+            ? BigInt(positionals[0])
+            : undefined;
+      await executeQueryBatch({
+        poolId,
+        batchId,
+        rpcUrl,
       });
       break;
     }

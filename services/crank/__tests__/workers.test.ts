@@ -8,6 +8,7 @@ import { AtomicRevealWorker } from "../workers/atomic-reveal.worker";
 import { ReinvestWinningsWorker } from "../workers/reinvest-winnings.worker";
 import { CapacitySentinelWorker } from "../workers/capacity-sentinel.worker";
 import { DisburseSentinelWorker } from "../workers/disburse-sentinel.worker";
+import { BatchSentinelWorker } from "../workers/batch-sentinel.worker";
 import { MockVrfProvider, IVrfProvider } from "../vrf/randomness-provider";
 import {
   RedemptionType,
@@ -26,6 +27,9 @@ import {
   buildMockPrizePool,
   buildMockTicketRegistry,
   buildMockPayoutRegistry,
+  buildMockRedemptionBatchEncoded,
+  createHumaPoolStateBytes,
+  RedemptionBatchStatus,
   TEST_ADDRESSES,
   createMockHumaAddresses,
 } from "@/app/lib/test-harness";
@@ -83,6 +87,9 @@ function createMockContext(
       humaPoolConfig: mockHuma.poolConfig,
       humaModeConfig: mockHuma.modeConfig,
       pstMint: mockHuma.modeMint,
+      humaRedemptionRequest: mockHuma.redemptionRequest,
+      humaPoolModeToken: mockHuma.poolModeToken,
+      humaProgram: mockHuma.program,
       dryRun: true,
       ...configOverrides,
     },
@@ -994,26 +1001,34 @@ describe("Strategy Workers Unit Tests", () => {
       {
         redemptionId: 1n,
         user: mockAddress,
+        batchId: 0n,
         humaRequestId: 1n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
       {
         redemptionId: 2n,
         user: mockAddress,
+        batchId: 0n,
         humaRequestId: 2n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
       {
         redemptionId: 3n,
         user: mockAddress,
+        batchId: 0n,
         humaRequestId: 3n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
       {
         redemptionId: 4n,
         user: mockAddress,
+        batchId: 0n,
         humaRequestId: 4n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
     ];
 
@@ -1034,20 +1049,26 @@ describe("Strategy Workers Unit Tests", () => {
       {
         redemptionId: 1n,
         user: mockAddress,
+        batchId: 0n,
         humaRequestId: 1n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
       {
         redemptionId: 2n,
         user: user2,
+        batchId: 0n,
         humaRequestId: 2n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
       {
         redemptionId: 3n,
         user: user3,
+        batchId: 0n,
         humaRequestId: 3n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
     ];
 
@@ -1065,44 +1086,9 @@ describe("Strategy Workers Unit Tests", () => {
     sentinel.invalidateCandidateCache();
   });
 
-  it("DisburseSentinelWorker should short circuit before RPC candidate fetch if humaLenderState is unconfigured or SYSTEM_PROGRAM_ID", async () => {
+  it("DisburseSentinelWorker should build valid claim instructions for batch", async () => {
     const signer = await generateKeyPairSigner();
-    const ctx = createMockContext(signer, {
-      humaLenderState: undefined,
-      poolHumaLenderStates: {},
-    });
-    const sentinel = new DisburseSentinelWorker();
-
-    const snapshot = {
-      poolId: toPoolId(1),
-      poolAddress: mockAddress,
-      pool: buildMockPrizePool({
-        tokenMint: mockAddress,
-        totalPendingRedemptions: 5n,
-      }),
-      ticketRegistryAddress: mockAddress,
-      ticketRegistry: buildMockTicketRegistry(),
-      currentSlot: 500n,
-      currentTimestamp: toUnixTimestamp(1000),
-      state: "IDLE" as const,
-      nextDrawAt: toUnixTimestamp(2000),
-    };
-
-    const outcome = await sentinel.evaluate(snapshot, ctx);
-    assert.strictEqual(outcome.shouldExecute, false);
-    assert.match(
-      outcome.reason,
-      /missing required Huma address\(es\).*lenderState/
-    );
-  });
-
-  it("DisburseSentinelWorker should select pool-specific humaLenderState from poolHumaLenderStates if configured", async () => {
-    const signer = await generateKeyPairSigner();
-    const poolSpecificLender = (await generateKeyPairSigner()).address;
-    const ctx = createMockContext(signer, {
-      humaLenderState: TEST_ADDRESSES.USER_2,
-      poolHumaLenderStates: { 1: poolSpecificLender },
-    });
+    const ctx = createMockContext(signer);
     const sentinel = new DisburseSentinelWorker();
 
     const snapshot = {
@@ -1124,8 +1110,10 @@ describe("Strategy Workers Unit Tests", () => {
       {
         redemptionId: 1n,
         user: mockAddress,
+        batchId: 1n,
         humaRequestId: 1n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
     ];
 
@@ -1175,6 +1163,7 @@ describe("Strategy Workers Unit Tests", () => {
         user: mockAddress,
         batchId: 0n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
     ];
 
@@ -1220,14 +1209,18 @@ describe("Strategy Workers Unit Tests", () => {
     const candidate0 = {
       redemptionId: 0n,
       user: mockAddress,
+      batchId: 0n,
       humaRequestId: 0n,
       redemptionType: RedemptionType.BondSale,
+      amount: 1_000_000n,
     };
     const candidate1 = {
       redemptionId: 1n,
       user: TEST_ADDRESSES.USER_2,
+      batchId: 0n,
       humaRequestId: 1n,
       redemptionType: RedemptionType.BondSale,
+      amount: 1_000_000n,
     };
 
     interface SentinelInternalState {
@@ -1335,14 +1328,18 @@ describe("Strategy Workers Unit Tests", () => {
       {
         redemptionId: 10n,
         user: mockAddress,
+        batchId: 0n,
         humaRequestId: 10n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
       {
         redemptionId: 11n,
         user: TEST_ADDRESSES.USER_2,
+        batchId: 0n,
         humaRequestId: 11n,
         redemptionType: RedemptionType.BondSale,
+        amount: 1_000_000n,
       },
     ];
 
@@ -1385,5 +1382,236 @@ describe("Strategy Workers Unit Tests", () => {
         /Claiming batch of 1 settled redemptions \(IDs: \[#10\]\)/
       );
     }
+  });
+
+  it("BatchSentinelWorker canHandle should allow non-closed pools", () => {
+    const sentinel = new BatchSentinelWorker();
+    const activeSnapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool(),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+    assert.strictEqual(sentinel.canHandle(activeSnapshot), true);
+    assert.strictEqual(
+      sentinel.canHandle({ ...activeSnapshot, state: "POOL_CLOSED" as const }),
+      false
+    );
+  });
+
+  it("BatchSentinelWorker should return shouldExecute false when no batch action needed", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(
+      signer,
+      {},
+      {
+        getMultipleAccounts: () => ({
+          send: async () => ({ value: [] }),
+        }),
+      }
+    );
+    const sentinel = new BatchSentinelWorker(ctx.config);
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        totalAccumulatingRedemptions: 0n,
+        submittedBatchId: 0xffffffffffffffffn,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.match(outcome.reason, /Batch pipeline idle/);
+  });
+
+  it("BatchSentinelWorker should build SUBMIT instruction when accumulating batch has pending redemptions", async () => {
+    const signer = await generateKeyPairSigner();
+    const accumulatingBytes = buildMockRedemptionBatchEncoded({
+      poolId: 1,
+      batchId: 0n,
+      status: RedemptionBatchStatus.Accumulating,
+      totalPrincipalRequested: 50_000_000n,
+    });
+
+    const ctx = createMockContext(
+      signer,
+      {},
+      {
+        getMultipleAccounts: () => ({
+          send: async () => ({
+            value: [{ data: accumulatingBytes }],
+          }),
+        }),
+      }
+    );
+
+    const sentinel = new BatchSentinelWorker(ctx.config);
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        totalAccumulatingRedemptions: 1n,
+        accumulatingRedemptionBatchId: 0n,
+        nextRedemptionBatchId: 1n,
+        submittedBatchId: 0xffffffffffffffffn,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, true);
+    assert.match(outcome.reason, /Accumulating batch #0 has.*pending/);
+    assert.strictEqual(outcome.instructions?.length, 1);
+    assert.strictEqual(outcome.computeUnitLimit, 400_000);
+    assert.strictEqual(outcome.priorityFeeTier, "high");
+  });
+
+  it("BatchSentinelWorker should build SETTLE instruction when submitted batch is fulfilled in Huma queue", async () => {
+    const signer = await generateKeyPairSigner();
+    const accumulatingBytes = buildMockRedemptionBatchEncoded({
+      poolId: 1,
+      batchId: 2n,
+      status: RedemptionBatchStatus.Accumulating,
+    });
+    const submittedBytes = buildMockRedemptionBatchEncoded({
+      poolId: 1,
+      batchId: 1n,
+      humaRequestId: 10n,
+      status: RedemptionBatchStatus.Submitted,
+      totalPrincipalRequested: 25_000_000n,
+    });
+
+    const humaBytes = createHumaPoolStateBytes({
+      nextRequestId: 11n,
+    });
+
+    const ctx = createMockContext(
+      signer,
+      {},
+      {
+        getMultipleAccounts: () => ({
+          send: async () => ({
+            value: [{ data: accumulatingBytes }, { data: submittedBytes }],
+          }),
+        }),
+        getAccountInfo: () => ({
+          send: async () => ({
+            value: { data: humaBytes },
+          }),
+        }),
+      }
+    );
+
+    const sentinel = new BatchSentinelWorker(ctx.config);
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        accumulatingRedemptionBatchId: 2n,
+        nextRedemptionBatchId: 3n,
+        submittedBatchId: 1n,
+        totalAccumulatingRedemptions: 0n,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, true);
+    assert.match(outcome.reason, /Huma queue has settled request #10/);
+    assert.strictEqual(outcome.instructions?.length, 1);
+    assert.strictEqual(outcome.computeUnitLimit, 400_000);
+    assert.strictEqual(outcome.priorityFeeTier, "high");
+  });
+
+  it("BatchSentinelWorker should build CLOSE instruction when settled batch is claimed or expired", async () => {
+    const signer = await generateKeyPairSigner();
+    const accumulatingBytes = buildMockRedemptionBatchEncoded({
+      poolId: 1,
+      batchId: 2n,
+      status: RedemptionBatchStatus.Accumulating,
+    });
+    const settledBytes = buildMockRedemptionBatchEncoded({
+      poolId: 1,
+      batchId: 1n,
+      status: RedemptionBatchStatus.Settled,
+      totalPrincipalRequested: 10_000_000n,
+      claimedPrincipal: 10_000_000n,
+      settledAt: 1000n,
+    });
+
+    const ctx = createMockContext(
+      signer,
+      {},
+      {
+        getMultipleAccounts: () => ({
+          send: async () => ({
+            value: [{ data: accumulatingBytes }, { data: settledBytes }],
+          }),
+        }),
+        getAccountInfo: () => ({
+          send: async () => ({
+            value: null,
+          }),
+        }),
+      }
+    );
+
+    const sentinel = new BatchSentinelWorker(ctx.config);
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        accumulatingRedemptionBatchId: 2n,
+        nextRedemptionBatchId: 3n,
+        submittedBatchId: 1n,
+        totalAccumulatingRedemptions: 0n,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(2000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(3000),
+    };
+
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, true);
+    assert.match(outcome.reason, /eligible for rent closure and sweep/);
+    assert.strictEqual(outcome.instructions?.length, 1);
+    assert.strictEqual(outcome.computeUnitLimit, 200_000);
+    assert.strictEqual(outcome.priorityFeeTier, "medium");
+  });
+
+  it("BatchSentinelWorker should handle onDeferred without crashing", () => {
+    const sentinel = new BatchSentinelWorker();
+    assert.doesNotThrow(() => {
+      sentinel.onDeferred(1, {
+        status: "CONCURRENCY_RACE_LOST",
+        reason: "Blockhash expired or transaction superseded",
+      });
+    });
   });
 });

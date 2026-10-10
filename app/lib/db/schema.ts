@@ -225,7 +225,54 @@ export const drawWinners = pgTable(
 );
 
 /**
- * 6. Pending Redemptions (Async Withdrawal & Settlement Tracker)
+ * 6. Redemption Batches (Async Liquidity Aggregator & Huma Pipeline Tracker)
+ */
+export const redemptionBatches = pgTable(
+  "redemption_batches",
+  {
+    poolId: integer("pool_id").notNull(),
+    batchId: bigint("batch_id", { mode: "bigint" }).notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("Accumulating"), // 'Accumulating' | 'Submitted' | 'Settled' | 'Closed'
+    totalPrincipalRequested: bigint("total_principal_requested", {
+      mode: "bigint",
+    })
+      .notNull()
+      .default(0n),
+    totalPstSharesLocked: bigint("total_pst_shares_locked", { mode: "bigint" })
+      .notNull()
+      .default(0n),
+    settledUsdcReceived: bigint("settled_usdc_received", { mode: "bigint" })
+      .notNull()
+      .default(0n),
+    claimedPrincipal: bigint("claimed_principal", { mode: "bigint" })
+      .notNull()
+      .default(0n),
+    humaRequestId: numeric("huma_request_id", { precision: 39, scale: 0 }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    submittedAt: bigint("submitted_at", { mode: "number" }),
+    settledAt: bigint("settled_at", { mode: "number" }),
+    closedAt: bigint("closed_at", { mode: "number" }),
+    submitSignature: varchar("submit_signature", { length: 88 }),
+    settleSignature: varchar("settle_signature", { length: 88 }),
+    closeSignature: varchar("close_signature", { length: 88 }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      columns: [t.poolId, t.batchId],
+      name: "pk_redemption_batches",
+    }),
+    idxPoolStatus: index("idx_redemption_batches_pool_status").on(
+      t.poolId,
+      t.status
+    ),
+  })
+);
+
+/**
+ * 7. Pending Redemptions (Async Withdrawal & Settlement Tracker)
  */
 export const pendingRedemptions = pgTable(
   "pending_redemptions",
@@ -236,7 +283,7 @@ export const pendingRedemptions = pgTable(
     redemptionType: varchar("redemption_type", { length: 32 }).notNull(), // 'bond_sale' | 'prize_claim' | 'fee_withdrawal'
     amountUsdc: bigint("amount_usdc", { mode: "bigint" }).notNull(),
     pstSharesLocked: bigint("pst_shares_locked", { mode: "bigint" }),
-    humaRequestId: numeric("huma_request_id", { precision: 39, scale: 0 }),
+    batchId: bigint("batch_id", { mode: "bigint" }).notNull(),
     status: varchar("status", { length: 32 }).notNull().default("settling"), // 'settling' | 'ready' | 'claimed'
     requestSignature: varchar("request_signature", { length: 88 }).notNull(),
     claimSignature: varchar("claim_signature", { length: 88 }),
@@ -261,6 +308,11 @@ export const pendingRedemptions = pgTable(
       t.poolId,
       t.status,
       t.requestedAt
+    ),
+    idxBatchLookup: index("idx_pending_redemptions_batch").on(
+      t.poolId,
+      t.batchId,
+      t.status
     ),
   })
 );
