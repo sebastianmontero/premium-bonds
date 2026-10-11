@@ -29,6 +29,15 @@ export const REDEMPTION_TYPE_TO_DB: Record<
   [RedemptionType.FeeWithdrawal]: "fee_withdrawal",
 };
 
+export function mapRedemptionTypeToDb(
+  type?: RedemptionType | number
+): "bond_sale" | "prize_claim" | "fee_withdrawal" {
+  if (type !== undefined && REDEMPTION_TYPE_TO_DB[type as RedemptionType]) {
+    return REDEMPTION_TYPE_TO_DB[type as RedemptionType];
+  }
+  return "bond_sale";
+}
+
 export { TERMINAL_DRAW_STATUSES };
 
 export interface WinnerUpdateRow {
@@ -205,7 +214,7 @@ export interface BuildPendingRedemptionRowParams {
   humaRequestId?: bigint | number | string | null;
   signature: string;
   blockTime: number;
-  status?: "settling" | "ready" | "claimed";
+  status?: "settling" | "ready" | "claimed" | "expired";
   claimSignature?: string | null;
   requestedAt?: number | null;
   claimedAt?: number | null;
@@ -375,10 +384,17 @@ export function foldPendingRedemptionRows(
         existing.status = "claimed";
         existing.claimSignature = r.claimSignature || existing.claimSignature;
         existing.claimedAt = r.claimedAt || existing.claimedAt;
-      } else if (r.status === "ready" && existing.status !== "claimed") {
+      } else if (r.status === "expired" && existing.status !== "claimed") {
+        existing.status = "expired";
+      } else if (
+        r.status === "ready" &&
+        existing.status !== "claimed" &&
+        existing.status !== "expired"
+      ) {
         existing.status = "ready";
       }
-      if (r.amountUsdc != null) existing.amountUsdc = r.amountUsdc;
+      if (r.amountUsdc != null && r.amountUsdc > 0n)
+        existing.amountUsdc = r.amountUsdc;
       if (r.pstSharesLocked != null)
         existing.pstSharesLocked = r.pstSharesLocked;
       if (r.batchId != null) existing.batchId = r.batchId;
@@ -413,8 +429,6 @@ export function foldRedemptionBatchRows(
       }
       if (r.totalPrincipalRequested)
         existing.totalPrincipalRequested = r.totalPrincipalRequested;
-      if (r.totalPstSharesLocked)
-        existing.totalPstSharesLocked = r.totalPstSharesLocked;
       if (r.settledUsdcReceived)
         existing.settledUsdcReceived = r.settledUsdcReceived;
       if (r.claimedPrincipal) existing.claimedPrincipal = r.claimedPrincipal;
@@ -641,6 +655,7 @@ export async function upsertPendingRedemptionsTx(
           status: sql`CASE
             WHEN ${pendingRedemptions.status} = 'claimed' THEN 'claimed'
             WHEN EXCLUDED.status = 'claimed' THEN 'claimed'
+            WHEN EXCLUDED.status = 'expired' THEN 'expired'
             WHEN ${pendingRedemptions.status} = 'ready' THEN 'ready'
             ELSE EXCLUDED.status
           END`,
@@ -677,7 +692,6 @@ export async function upsertRedemptionBatchesTx(
             ELSE EXCLUDED.status
           END`,
           totalPrincipalRequested: sql`COALESCE(NULLIF(EXCLUDED.total_principal_requested, 0), ${redemptionBatches.totalPrincipalRequested})`,
-          totalPstSharesLocked: sql`COALESCE(NULLIF(EXCLUDED.total_pst_shares_locked, 0), ${redemptionBatches.totalPstSharesLocked})`,
           settledUsdcReceived: sql`COALESCE(NULLIF(EXCLUDED.settled_usdc_received, 0), ${redemptionBatches.settledUsdcReceived})`,
           claimedPrincipal: sql`COALESCE(NULLIF(EXCLUDED.claimed_principal, 0), ${redemptionBatches.claimedPrincipal})`,
           humaRequestId: sql`COALESCE(EXCLUDED.huma_request_id, ${redemptionBatches.humaRequestId})`,
@@ -1025,13 +1039,7 @@ export function reduceBatchEvents(
               poolId: evt.data.poolId,
               redemptionId: evt.data.redemptionId,
               userAddress: evt.data.user,
-              redemptionType:
-                evt.data.redemptionType !== undefined &&
-                REDEMPTION_TYPE_TO_DB[evt.data.redemptionType as RedemptionType]
-                  ? REDEMPTION_TYPE_TO_DB[
-                      evt.data.redemptionType as RedemptionType
-                    ]
-                  : "bond_sale",
+              redemptionType: mapRedemptionTypeToDb(evt.data.redemptionType),
               amountUsdc: evt.data.amount,
               batchId: evt.data.batchId,
               signature: context.signature,
@@ -1257,6 +1265,35 @@ export function reduceBatchEvents(
           });
           break;
 
+        case "ExpiredRedemptionClosed":
+          activityRows.push({
+            signature: context.signature,
+            eventIndex,
+            userAddress: evt.data.beneficiary,
+            poolId: evt.data.poolId,
+            activityType: "close-expired-redemption",
+            amountUsdc: 0n,
+            redemptionId:
+              evt.data.redemptionId != null
+                ? BigInt(evt.data.redemptionId)
+                : null,
+            blockTime: context.blockTime,
+          });
+          redemptionRows.push(
+            buildPendingRedemptionRow({
+              poolId: evt.data.poolId,
+              redemptionId: evt.data.redemptionId,
+              userAddress: evt.data.beneficiary,
+              redemptionType: mapRedemptionTypeToDb(evt.data.redemptionType),
+              amountUsdc: evt.data.expiredPrincipal ?? 0n,
+              batchId: evt.data.batchId,
+              signature: context.signature,
+              blockTime: context.blockTime,
+              status: "expired",
+            })
+          );
+          break;
+
         case "RedemptionBatchSubmitted":
           batchRows.push({
             poolId: evt.data.poolId,
@@ -1264,7 +1301,6 @@ export function reduceBatchEvents(
             status: "Submitted",
             humaRequestId: evt.data.humaRequestId.toString(),
             totalPrincipalRequested: evt.data.totalPrincipalRequested,
-            totalPstSharesLocked: evt.data.pstSharesLocked,
             createdAt: context.blockTime,
             submittedAt: context.blockTime,
             submitSignature: context.signature,

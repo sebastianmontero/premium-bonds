@@ -174,25 +174,31 @@ pub fn handle(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
     let current_value = huma::pst_shares_to_usdc(new_pst_amount, pst_supply, total_assets)?;
 
-    let mut is_unpaused = false;
-    {
+    let (is_unpaused, book_value) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
         pool.ensure_current_version()?;
-        if pool.is_solvent(current_value)? {
+        let book = pool.calculate_book_value()?;
+        let unpaused = if pool.is_solvent(current_value)? {
             pool.unpause()?;
-            is_unpaused = true;
-        }
-    }
+            true
+        } else {
+            false
+        };
+        (unpaused, book)
+    };
+    let deficit = book_value.saturating_sub(current_value);
 
     let clock = Clock::get()?;
 
     #[cfg(feature = "debug-logs")]
     msg!(
-        "RecapitalizePool: pool_id={}, sponsor={}, amount={}, pst_shares={}, unpaused={}",
+        "RecapitalizePool: pool_id={}, sponsor={}, amount={}, current_value={}, book_value={}, deficit={}, unpaused={}",
         pool_id,
         ctx.accounts.sponsor.key(),
         amount,
-        pst_shares_minted,
+        current_value,
+        book_value,
+        deficit,
         is_unpaused,
     );
 
@@ -200,7 +206,9 @@ pub fn handle(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
         pool_id,
         sponsor: ctx.accounts.sponsor.key(),
         amount,
-        pst_shares_minted,
+        current_value,
+        book_value,
+        deficit,
         is_unpaused,
         timestamp: clock.unix_timestamp,
     });

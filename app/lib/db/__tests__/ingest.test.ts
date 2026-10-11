@@ -11,6 +11,7 @@ import {
   buildHaltedDrawRow,
   buildPendingRedemptionRow,
   REDEMPTION_TYPE_TO_DB,
+  mapRedemptionTypeToDb,
   TERMINAL_DRAW_STATUSES,
   reduceBatchEvents,
   type IngestTransactionItem,
@@ -186,8 +187,11 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           poolId: 1,
           batchId: 1n,
           amount: 25000000n,
+          principal: 25000000n,
           redemptionId: 100n,
           redemptionType: 0,
+          requestedAt: 1700000000n,
+          timestamp: 1700000000n,
         },
       };
       const meta = resolveEventMetadata(redClaimEvent);
@@ -390,6 +394,58 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(folded[0].status, "ready");
       assert.strictEqual(folded[0].pstSharesLocked, 500_000n);
       assert.strictEqual(folded[0].batchId, 1n);
+    });
+
+    it("should correctly fold rows with expired status and not be shadowed by ready", () => {
+      const rows = [
+        {
+          poolId: 1,
+          redemptionId: 101n,
+          userAddress: "user1",
+          redemptionType: "bond_sale",
+          amountUsdc: 1_000_000n,
+          batchId: 1n,
+          status: "ready" as const,
+          requestSignature: "sig1",
+          requestedAt: 1700000000,
+        },
+        {
+          poolId: 1,
+          redemptionId: 101n,
+          userAddress: "user1",
+          redemptionType: "bond_sale",
+          amountUsdc: 0n,
+          batchId: 1n,
+          status: "expired" as const,
+          requestSignature: "sig1",
+          requestedAt: 1700000000,
+        },
+      ];
+
+      const folded = foldPendingRedemptionRows(rows);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "expired");
+      assert.strictEqual(folded[0].amountUsdc, 1_000_000n);
+    });
+
+    it("should map redemption types accurately with mapRedemptionTypeToDb", () => {
+      assert.strictEqual(
+        mapRedemptionTypeToDb(RedemptionType.BondSale),
+        "bond_sale"
+      );
+      assert.strictEqual(
+        mapRedemptionTypeToDb(RedemptionType.PrizeClaim),
+        "prize_claim"
+      );
+      assert.strictEqual(
+        mapRedemptionTypeToDb(RedemptionType.FeeWithdrawal),
+        "fee_withdrawal"
+      );
+      assert.strictEqual(
+        mapRedemptionTypeToDb(99 as unknown as RedemptionType),
+        "bond_sale"
+      );
+      assert.strictEqual(mapRedemptionTypeToDb(undefined), "bond_sale");
     });
 
     it("should validate isPendingRedemptionStatus type guard correctly", () => {
@@ -1454,10 +1510,11 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           poolId: 1,
           batchId: 1n,
           amount: 50_000_000n,
+          principal: 50_000_000n,
           redemptionId: 100n,
           redemptionType: 0,
-          pstSharesLocked: 25_000_000n,
-          humaRequestId: 12345n,
+          requestedAt: 1700000000n,
+          timestamp: 1700000000n,
         },
       };
 
@@ -1792,6 +1849,42 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(res.payoutRegistryClosedUpdates.length, 1);
       assert.strictEqual(res.payoutRegistryClosedUpdates[0].poolId, 1);
       assert.strictEqual(res.payoutRegistryClosedUpdates[0].cycleId, 7);
+    });
+
+    it("should process ExpiredRedemptionClosed into user activity and transition pending redemption to expired", () => {
+      const batch: IngestTransactionItem[] = [
+        {
+          context: mockContext,
+          events: [
+            {
+              type: "ExpiredRedemptionClosed",
+              data: {
+                poolId: 1,
+                batchId: 2n,
+                redemptionId: 88n,
+                beneficiary: userAddr,
+                expiredPrincipal: 5_000_000n,
+                redemptionType: 0,
+                rentReclaimedLamports: 2_000_000n,
+                timestamp: 1700000600n,
+              },
+            },
+          ],
+        },
+      ];
+
+      const res = reduceBatchEvents(batch);
+      assert.strictEqual(res.activityRows.length, 1);
+      assert.strictEqual(
+        res.activityRows[0].activityType,
+        "close-expired-redemption"
+      );
+      assert.strictEqual(res.activityRows[0].userAddress, userAddr.toString());
+      assert.strictEqual(res.redemptionRows.length, 1);
+      assert.strictEqual(res.redemptionRows[0].status, "expired");
+      assert.strictEqual(res.redemptionRows[0].redemptionId, 88n);
+      assert.strictEqual(res.redemptionRows[0].batchId, 2n);
+      assert.strictEqual(res.redemptionRows[0].amountUsdc, 5_000_000n);
     });
   });
 });

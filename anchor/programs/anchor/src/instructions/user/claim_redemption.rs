@@ -181,6 +181,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         pool_id,
         batch_id,
         amount: payout,
+        principal: principal_amount,
         redemption_id,
         redemption_type,
         requested_at,

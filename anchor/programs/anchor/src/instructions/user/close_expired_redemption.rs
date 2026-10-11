@@ -1,5 +1,6 @@
 use crate::constants::{BATCH_CLAIM_EXPIRY_SECONDS, PENDING_REDEMPTION_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::ExpiredRedemptionClosed;
 use crate::state::PendingRedemption;
 use anchor_lang::prelude::*;
 
@@ -29,6 +30,13 @@ pub struct CloseExpiredRedemption<'info> {
 
     /// The Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Allows a user to close an expired PendingRedemption whose batch was already swept and closed after 180 days.
@@ -39,12 +47,35 @@ pub fn handle(ctx: Context<CloseExpiredRedemption>) -> Result<()> {
 
     require!(now >= expiry_threshold, PremiumBondsError::BatchNotFullyClaimed);
 
+    let rent_reclaimed_lamports = ctx.accounts.pending_redemption.to_account_info().lamports();
+    let pool_id = ctx.accounts.pending_redemption.pool_id;
+    let batch_id = ctx.accounts.pending_redemption.batch_id;
+    let redemption_id = ctx.accounts.pending_redemption.redemption_id;
+    let beneficiary = ctx.accounts.beneficiary.key();
+    let expired_principal = ctx.accounts.pending_redemption.amount;
+    let redemption_type = ctx.accounts.pending_redemption.redemption_type;
+
     #[cfg(feature = "debug-logs")]
     msg!(
-        "CloseExpiredRedemption: beneficiary={}, redemption_id={}",
-        ctx.accounts.beneficiary.key(),
-        ctx.accounts.pending_redemption.redemption_id,
+        "CloseExpiredRedemption: beneficiary={}, redemption_id={}, rent_reclaimed={}",
+        beneficiary,
+        redemption_id,
+        rent_reclaimed_lamports,
     );
+
+    emit_cpi!(ExpiredRedemptionClosed {
+        pool_id,
+        batch_id,
+        redemption_id,
+        beneficiary,
+        expired_principal,
+        redemption_type,
+        rent_reclaimed_lamports,
+        timestamp: now,
+    });
+
+    // Zero out amount to prevent re-entrancy before Anchor closes account
+    ctx.accounts.pending_redemption.clear_amount();
 
     // Account closed and rent refunded to beneficiary via `close = beneficiary`
     Ok(())

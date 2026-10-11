@@ -43,6 +43,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
+import { findEventAuthorityPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const CLOSE_EXPIRED_REDEMPTION_DISCRIMINATOR: ReadonlyUint8Array =
@@ -60,6 +61,9 @@ export type CloseExpiredRedemptionInstruction<
   TAccountPendingRedemption extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -75,6 +79,12 @@ export type CloseExpiredRedemptionInstruction<
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -111,35 +121,48 @@ export function getCloseExpiredRedemptionInstructionDataCodec(): FixedSizeCodec<
   );
 }
 
-export type CloseExpiredRedemptionInput<
+export type CloseExpiredRedemptionAsyncInput<
   TAccountBeneficiary extends string = string,
   TAccountPendingRedemption extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   beneficiary: TransactionSigner<TAccountBeneficiary>;
   /** The expired PendingRedemption PDA to close. */
   pendingRedemption: Address<TAccountPendingRedemption>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
-export function getCloseExpiredRedemptionInstruction<
+export async function getCloseExpiredRedemptionInstructionAsync<
   TAccountBeneficiary extends string,
   TAccountPendingRedemption extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: CloseExpiredRedemptionInput<
+  input: CloseExpiredRedemptionAsyncInput<
     TAccountBeneficiary,
     TAccountPendingRedemption,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
-): CloseExpiredRedemptionInstruction<
-  TProgramAddress,
-  TAccountBeneficiary,
-  TAccountPendingRedemption,
-  TAccountSystemProgram
+): Promise<
+  CloseExpiredRedemptionInstruction<
+    TProgramAddress,
+    TAccountBeneficiary,
+    TAccountPendingRedemption,
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
+  >
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -152,6 +175,8 @@ export function getCloseExpiredRedemptionInstruction<
       isWritable: true,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -163,6 +188,13 @@ export function getCloseExpiredRedemptionInstruction<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" as Address<"4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -170,6 +202,8 @@ export function getCloseExpiredRedemptionInstruction<
       getAccountMeta("beneficiary", accounts.beneficiary),
       getAccountMeta("pendingRedemption", accounts.pendingRedemption),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getCloseExpiredRedemptionInstructionDataEncoder().encode({}),
     programAddress,
@@ -177,7 +211,100 @@ export function getCloseExpiredRedemptionInstruction<
     TProgramAddress,
     TAccountBeneficiary,
     TAccountPendingRedemption,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
+  >);
+}
+
+export type CloseExpiredRedemptionInput<
+  TAccountBeneficiary extends string = string,
+  TAccountPendingRedemption extends string = string,
+  TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
+> = {
+  beneficiary: TransactionSigner<TAccountBeneficiary>;
+  /** The expired PendingRedemption PDA to close. */
+  pendingRedemption: Address<TAccountPendingRedemption>;
+  /** The Solana System Program. */
+  systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
+};
+
+export function getCloseExpiredRedemptionInstruction<
+  TAccountBeneficiary extends string,
+  TAccountPendingRedemption extends string,
+  TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
+  TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
+>(
+  input: CloseExpiredRedemptionInput<
+    TAccountBeneficiary,
+    TAccountPendingRedemption,
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
+  >,
+  config?: { programAddress?: TProgramAddress }
+): CloseExpiredRedemptionInstruction<
+  TProgramAddress,
+  TAccountBeneficiary,
+  TAccountPendingRedemption,
+  TAccountSystemProgram,
+  TAccountEventAuthority,
+  TAccountProgram
+> {
+  // Program address.
+  const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
+
+  // Original accounts.
+  const originalAccounts = {
+    beneficiary: { value: input.beneficiary ?? null, isWritable: true },
+    pendingRedemption: {
+      value: input.pendingRedemption ?? null,
+      isWritable: true,
+    },
+    systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
+  };
+  const accounts = originalAccounts as Record<
+    keyof typeof originalAccounts,
+    ResolvedInstructionAccount
+  >;
+
+  // Resolve default values.
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG" as Address<"4ZJJemMiVfNzwwoz8BedkWZ8ZKCkx1ya6iA59JS6baGG">;
+  }
+
+  const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
+  return Object.freeze({
+    accounts: [
+      getAccountMeta("beneficiary", accounts.beneficiary),
+      getAccountMeta("pendingRedemption", accounts.pendingRedemption),
+      getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
+    ],
+    data: getCloseExpiredRedemptionInstructionDataEncoder().encode({}),
+    programAddress,
+  } as CloseExpiredRedemptionInstruction<
+    TProgramAddress,
+    TAccountBeneficiary,
+    TAccountPendingRedemption,
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -192,6 +319,9 @@ export type ParsedCloseExpiredRedemptionInstruction<
     pendingRedemption: TAccountMetas[1];
     /** The Solana System Program. */
     systemProgram: TAccountMetas[2];
+    eventAuthority: TAccountMetas[3];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[4];
   };
   data: CloseExpiredRedemptionInstructionData;
 };
@@ -204,12 +334,12 @@ export function parseCloseExpiredRedemptionInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedCloseExpiredRedemptionInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 3) {
+  if (instruction.accounts.length < 5) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 3,
+        expectedAccountMetas: 5,
       }
     );
   }
@@ -225,6 +355,8 @@ export function parseCloseExpiredRedemptionInstruction<
       beneficiary: getNextAccount(),
       pendingRedemption: getNextAccount(),
       systemProgram: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getCloseExpiredRedemptionInstructionDataDecoder().decode(
       instruction.data

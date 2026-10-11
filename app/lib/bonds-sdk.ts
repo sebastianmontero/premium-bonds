@@ -1892,6 +1892,7 @@ import {
   getSettleRedemptionBatchInstructionAsync,
   getCrankCloseRedemptionBatchInstructionAsync,
   getCloseExpiredRedemptionInstruction,
+  getCloseExpiredRedemptionInstructionAsync,
   getEnableImpairedModeInstructionAsync,
   getRecapitalizePoolInstructionAsync,
 } from "./generated/yield-bonds/src/generated/instructions";
@@ -1937,6 +1938,7 @@ export {
   getSettleRedemptionBatchInstructionAsync,
   getCrankCloseRedemptionBatchInstructionAsync,
   getCloseExpiredRedemptionInstruction,
+  getCloseExpiredRedemptionInstructionAsync,
   getEnableImpairedModeInstructionAsync,
   getRecapitalizePoolInstructionAsync,
   getSimulateYieldInstructionDataEncoder,
@@ -2805,7 +2807,7 @@ export async function buildCloseExpiredRedemptionInstruction(
     BigInt(params.redemptionId)
   );
 
-  const ix = getCloseExpiredRedemptionInstruction({
+  const ix = await getCloseExpiredRedemptionInstructionAsync({
     beneficiary: params.beneficiary as TransactionSigner,
     pendingRedemption,
   });

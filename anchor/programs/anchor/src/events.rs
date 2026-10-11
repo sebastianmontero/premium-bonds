@@ -105,6 +105,8 @@ pub struct RedemptionClaimed {
     pub batch_id: u64,
     /// Amount of USDC disbursed (in base units).
     pub amount: u64,
+    /// Requested principal amount in USDC (in base units).
+    pub principal: u64,
     /// Unique identifier of the redeemed pending redemption.
     pub redemption_id: u64,
     /// Origin type of the redemption (BondSale, PrizeClaim, FeeWithdrawal).
@@ -414,9 +416,9 @@ pub struct PayoutRegistryClosed {
 pub struct RedemptionBatchSubmitted {
     pub pool_id: u32,
     pub batch_id: u64,
+    pub caller: Pubkey,
     pub huma_request_id: u128,
     pub total_principal_requested: u64,
-    pub pst_shares_locked: u64,
     pub next_batch_id: u64,
     pub timestamp: i64,
 }
@@ -426,6 +428,7 @@ pub struct RedemptionBatchSubmitted {
 pub struct RedemptionBatchSettled {
     pub pool_id: u32,
     pub batch_id: u64,
+    pub caller: Pubkey,
     pub huma_request_id: u128,
     pub total_principal_requested: u64,
     pub settled_usdc_received: u64,
@@ -448,7 +451,10 @@ pub struct RedemptionBatchClosed {
 #[event]
 pub struct PoolImpairedModeEnabled {
     pub pool_id: u32,
-    pub authority: Pubkey,
+    pub caller: Pubkey,
+    pub current_value: u64,
+    pub book_value: u64,
+    pub deficit: u64,
     pub total_deposited_principal: u64,
     pub total_accumulating_redemptions: u64,
     pub timestamp: i64,
@@ -460,7 +466,22 @@ pub struct PoolRecapitalized {
     pub pool_id: u32,
     pub sponsor: Pubkey,
     pub amount: u64,
-    pub pst_shares_minted: u64,
+    pub current_value: u64,
+    pub book_value: u64,
+    pub deficit: u64,
     pub is_unpaused: bool,
+    pub timestamp: i64,
+}
+
+/// Emitted when an expired pending redemption receipt is closed and SOL rent is reimbursed.
+#[event]
+pub struct ExpiredRedemptionClosed {
+    pub pool_id: u32,
+    pub batch_id: u64,
+    pub redemption_id: u64,
+    pub beneficiary: Pubkey,
+    pub expired_principal: u64,
+    pub redemption_type: RedemptionType,
+    pub rent_reclaimed_lamports: u64,
     pub timestamp: i64,
 }

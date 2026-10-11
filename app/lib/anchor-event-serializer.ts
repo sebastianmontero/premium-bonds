@@ -92,6 +92,9 @@ export const ANCHOR_EVENT_DISCRIMINATORS: Record<string, Uint8Array> = {
   PoolRecapitalized: new Uint8Array([
     0x08, 0x93, 0x0b, 0xfe, 0x80, 0x6b, 0x19, 0x6b,
   ]),
+  ExpiredRedemptionClosed: new Uint8Array([
+    0xb1, 0xa1, 0xb2, 0xbe, 0x62, 0x3f, 0x2f, 0x96,
+  ]),
 };
 
 function pubkeyToBytes(pubkey: string): Uint8Array {
@@ -107,16 +110,68 @@ function pubkeyToBytes(pubkey: string): Uint8Array {
   return fallback;
 }
 
-export function writeU128(
-  view: DataView,
-  offset: number,
-  value: bigint | number | string
-): void {
-  const bi = BigInt(value ?? 0);
-  const low = bi & 0xffff_ffff_ffff_ffffn;
-  const high = (bi >> 64n) & 0xffff_ffff_ffff_ffffn;
-  view.setBigUint64(offset, low, true);
-  view.setBigUint64(offset + 8, high, true);
+export class BorshWriter {
+  private buffer: Uint8Array;
+  private view: DataView;
+  private offset: number = 0;
+
+  constructor(size: number) {
+    this.buffer = new Uint8Array(size);
+    this.view = new DataView(this.buffer.buffer);
+  }
+
+  writeU8(value: number): void {
+    this.view.setUint8(this.offset, value);
+    this.offset += 1;
+  }
+
+  writeBool(value: boolean): void {
+    this.writeU8(value ? 1 : 0);
+  }
+
+  writeU16(value: number): void {
+    this.view.setUint16(this.offset, value, true);
+    this.offset += 2;
+  }
+
+  writeU32(value: number): void {
+    this.view.setUint32(this.offset, value, true);
+    this.offset += 4;
+  }
+
+  writeU64(value: bigint | number): void {
+    this.view.setBigUint64(this.offset, BigInt(value ?? 0), true);
+    this.offset += 8;
+  }
+
+  writeI64(value: bigint | number): void {
+    this.view.setBigInt64(this.offset, BigInt(value ?? 0), true);
+    this.offset += 8;
+  }
+
+  writeU128(value: bigint | number | string): void {
+    const bi = BigInt(value ?? 0);
+    const low = bi & 0xffff_ffff_ffff_ffffn;
+    const high = (bi >> 64n) & 0xffff_ffff_ffff_ffffn;
+    this.view.setBigUint64(this.offset, low, true);
+    this.view.setBigUint64(this.offset + 8, high, true);
+    this.offset += 16;
+  }
+
+  writePubkey(pubkey: string): void {
+    const bytes = pubkeyToBytes(pubkey || "11111111111111111111111111111111");
+    this.buffer.set(bytes, this.offset);
+    this.offset += 32;
+  }
+
+  getBytes(): Uint8Array {
+    if (this.offset !== this.buffer.byteLength) {
+      throw new Error(
+        `BorshWriter byte length mismatch: allocated ${this.buffer.byteLength}, wrote ${this.offset}`
+      );
+    }
+    return this.buffer;
+  }
 }
 
 /**
@@ -224,100 +279,100 @@ export function serializeAnchorEvent(
       break;
     }
     case "RedemptionClaimed": {
-      // Pubkey(32) + Pubkey(32) + u32(4) + u64(8) + u64(8) + u64(8) + u8(1) + i64(8) + i64(8) = 109 bytes
-      fields = new Uint8Array(109);
-      const view = new DataView(fields.buffer);
-      fields.set(
-        pubkeyToBytes(
-          data.caller || data.user || "11111111111111111111111111111111"
-        ),
-        0
-      );
-      fields.set(
-        pubkeyToBytes(data.user || "11111111111111111111111111111111"),
-        32
-      );
-      view.setUint32(64, Number(data.poolId || 1), true);
-      view.setBigUint64(68, BigInt(data.batchId || 0), true);
-      view.setBigUint64(76, BigInt(data.amount || 0), true);
-      view.setBigUint64(84, BigInt(data.redemptionId || 0), true);
-      view.setUint8(92, Number(data.redemptionType ?? 0));
-      view.setBigInt64(93, BigInt(data.requestedAt || 0), true);
-      view.setBigInt64(101, BigInt(data.timestamp || 0), true);
+      // Pubkey(32) + Pubkey(32) + u32(4) + u64(8) + u64(8) + u64(8) + u64(8) + u8(1) + i64(8) + i64(8) = 117 bytes
+      const writer = new BorshWriter(117);
+      writer.writePubkey(data.caller || data.user);
+      writer.writePubkey(data.user);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writeU64(data.batchId || 0);
+      writer.writeU64(data.amount || 0);
+      writer.writeU64(data.principal || data.amount || 0);
+      writer.writeU64(data.redemptionId || 0);
+      writer.writeU8(Number(data.redemptionType ?? 0));
+      writer.writeI64(data.requestedAt || 0);
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
+      break;
+    }
+    case "ExpiredRedemptionClosed": {
+      // u32(4) + u64(8) + u64(8) + Pubkey(32) + u64(8) + u8(1) + u64(8) + i64(8) = 77 bytes
+      const writer = new BorshWriter(77);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writeU64(data.batchId || 0);
+      writer.writeU64(data.redemptionId || 0);
+      writer.writePubkey(data.beneficiary);
+      writer.writeU64(data.expiredPrincipal || 0);
+      writer.writeU8(Number(data.redemptionType ?? 0));
+      writer.writeU64(data.rentReclaimedLamports || 0);
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     case "RedemptionBatchSubmitted": {
-      // u32(4) + u64(8) + u128(16) + u64(8) + u64(8) + u64(8) + i64(8) = 56 bytes
-      fields = new Uint8Array(56);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      view.setBigUint64(4, BigInt(data.batchId || 0), true);
-      writeU128(view, 12, data.humaRequestId || 0);
-      view.setBigUint64(28, BigInt(data.totalPrincipalRequested || 0), true);
-      view.setBigUint64(36, BigInt(data.pstSharesLocked || 0), true);
-      view.setBigUint64(44, BigInt(data.nextBatchId || 0), true);
-      view.setBigInt64(52, BigInt(data.timestamp || 0), true);
+      // u32(4) + u64(8) + Pubkey(32) + u128(16) + u64(8) + u64(8) + i64(8) = 84 bytes
+      const writer = new BorshWriter(84);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writeU64(data.batchId || 0);
+      writer.writePubkey(data.caller);
+      writer.writeU128(data.humaRequestId || 0);
+      writer.writeU64(data.totalPrincipalRequested || 0);
+      writer.writeU64(data.nextBatchId || 0);
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     case "RedemptionBatchSettled": {
-      // u32(4) + u64(8) + u128(16) + u64(8) + u64(8) + i64(8) = 48 bytes
-      fields = new Uint8Array(48);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      view.setBigUint64(4, BigInt(data.batchId || 0), true);
-      writeU128(view, 12, data.humaRequestId || 0);
-      view.setBigUint64(28, BigInt(data.totalPrincipalRequested || 0), true);
-      view.setBigUint64(36, BigInt(data.settledUsdcReceived || 0), true);
-      view.setBigInt64(44, BigInt(data.timestamp || 0), true);
+      // u32(4) + u64(8) + Pubkey(32) + u128(16) + u64(8) + u64(8) + i64(8) = 84 bytes
+      const writer = new BorshWriter(84);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writeU64(data.batchId || 0);
+      writer.writePubkey(data.caller);
+      writer.writeU128(data.humaRequestId || 0);
+      writer.writeU64(data.totalPrincipalRequested || 0);
+      writer.writeU64(data.settledUsdcReceived || 0);
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     case "RedemptionBatchClosed": {
       // u32(4) + u64(8) + Pubkey(32) + u64(8) + u64(8) + u64(8) + i64(8) = 76 bytes
-      fields = new Uint8Array(76);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      view.setBigUint64(4, BigInt(data.batchId || 0), true);
-      fields.set(
-        pubkeyToBytes(data.caller || "11111111111111111111111111111111"),
-        12
-      );
-      view.setBigUint64(44, BigInt(data.rentReclaimed || 0), true);
-      view.setBigUint64(52, BigInt(data.unclaimedPrincipalSwept || 0), true);
-      view.setBigUint64(60, BigInt(data.unclaimedUsdcSwept || 0), true);
-      view.setBigInt64(68, BigInt(data.timestamp || 0), true);
+      const writer = new BorshWriter(76);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writeU64(data.batchId || 0);
+      writer.writePubkey(data.caller);
+      writer.writeU64(data.rentReclaimed || 0);
+      writer.writeU64(data.unclaimedPrincipalSwept || 0);
+      writer.writeU64(data.unclaimedUsdcSwept || 0);
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     case "PoolImpairedModeEnabled": {
-      // u32(4) + Pubkey(32) + u64(8) + u64(8) + i64(8) = 60 bytes
-      fields = new Uint8Array(60);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      fields.set(
-        pubkeyToBytes(data.authority || "11111111111111111111111111111111"),
-        4
-      );
-      view.setBigUint64(36, BigInt(data.totalDepositedPrincipal || 0), true);
-      view.setBigUint64(
-        44,
-        BigInt(data.totalAccumulatingRedemptions || 0),
-        true
-      );
-      view.setBigInt64(52, BigInt(data.timestamp || 0), true);
+      // u32(4) + Pubkey(32) + u64(8) + u64(8) + u64(8) + u64(8) + u64(8) + i64(8) = 84 bytes
+      const writer = new BorshWriter(84);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writePubkey(data.caller || data.authority);
+      writer.writeU64(data.currentValue || 0);
+      writer.writeU64(data.bookValue || 0);
+      writer.writeU64(data.deficit || 0);
+      writer.writeU64(data.totalDepositedPrincipal || 0);
+      writer.writeU64(data.totalAccumulatingRedemptions || 0);
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     case "PoolRecapitalized": {
-      // u32(4) + Pubkey(32) + u64(8) + u64(8) + bool(1) + i64(8) = 61 bytes
-      fields = new Uint8Array(61);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      fields.set(
-        pubkeyToBytes(data.sponsor || "11111111111111111111111111111111"),
-        4
-      );
-      view.setBigUint64(36, BigInt(data.amount || 0), true);
-      view.setBigUint64(44, BigInt(data.pstSharesMinted || 0), true);
-      view.setUint8(52, data.isUnpaused ? 1 : 0);
-      view.setBigInt64(53, BigInt(data.timestamp || 0), true);
+      // u32(4) + Pubkey(32) + u64(8) + u64(8) + u64(8) + u64(8) + bool(1) + i64(8) = 77 bytes
+      const writer = new BorshWriter(77);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writePubkey(data.sponsor);
+      writer.writeU64(data.amount || 0);
+      writer.writeU64(data.currentValue || 0);
+      writer.writeU64(data.bookValue || 0);
+      writer.writeU64(data.deficit || 0);
+      writer.writeBool(Boolean(data.isUnpaused));
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     case "YieldHarvested": {
@@ -637,16 +692,15 @@ export function serializeAnchorEvent(
     }
     case "PayoutRegistryClosed": {
       // u32(4) + u32(4) + Pubkey(32) + u64(8) + i64(8) = 56 bytes
-      fields = new Uint8Array(56);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      view.setUint32(4, Number(data.cycleId || 1), true);
-      fields.set(
-        pubkeyToBytes(data.rentRecipient || "11111111111111111111111111111111"),
-        8
+      const writer = new BorshWriter(56);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writeU32(Number(data.cycleId || 1));
+      writer.writePubkey(
+        data.crank || data.rentRecipient || "11111111111111111111111111111111"
       );
-      view.setBigUint64(40, BigInt(data.rentReclaimed || 0), true);
-      view.setBigInt64(48, BigInt(data.timestamp || 0), true);
+      writer.writeU64(data.rentReclaimedLamports ?? data.rentReclaimed ?? 0);
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     default:

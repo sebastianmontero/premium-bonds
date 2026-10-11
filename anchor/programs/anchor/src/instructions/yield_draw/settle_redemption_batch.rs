@@ -174,6 +174,7 @@ pub fn handle(ctx: Context<SettleRedemptionBatch>) -> Result<()> {
     emit_cpi!(RedemptionBatchSettled {
         pool_id,
         batch_id,
+        caller: ctx.accounts.caller.key(),
         huma_request_id,
         total_principal_requested,
         settled_usdc_received: usdc_received,

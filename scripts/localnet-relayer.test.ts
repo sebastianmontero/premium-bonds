@@ -56,7 +56,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
     }
   });
 
-  it("should round-trip serialize and parse all 11 Anchor event types", () => {
+  it("should round-trip serialize and parse Anchor event types (including batch and solvency)", () => {
     // 1. BondsPurchased
     {
       const log = serializeAnchorEvent("BondsPurchased", {
@@ -146,8 +146,11 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
         user: TEST_USER,
         poolId: 1,
         amount: 25000000n,
+        principal: 25000000n,
         redemptionId: 789n,
         redemptionType: 0,
+        requestedAt: 1700000000n,
+        timestamp: 1700000000n,
       });
       const parsed = parseEventsFromTxMeta({ logMessages: [log] });
       assert.strictEqual(parsed.length, 1);
@@ -156,6 +159,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       assert.strictEqual(parsed[0].data.user, TEST_USER);
       assert.strictEqual(parsed[0].data.poolId, 1);
       assert.strictEqual(parsed[0].data.amount, 25000000n);
+      assert.strictEqual(parsed[0].data.principal, 25000000n);
       assert.strictEqual(parsed[0].data.redemptionId, 789n);
     }
 
@@ -274,6 +278,162 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
       assert.strictEqual(parsed[0].data.batchEnd, 50);
       assert.strictEqual(parsed[0].data.isComplete, false);
+    }
+
+    // 12. ExpiredRedemptionClosed
+    {
+      const log = serializeAnchorEvent("ExpiredRedemptionClosed", {
+        poolId: 1,
+        batchId: 5n,
+        redemptionId: 123n,
+        beneficiary: TEST_USER,
+        expiredPrincipal: 10000000n,
+        redemptionType: 0,
+        rentReclaimedLamports: 2000000n,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "ExpiredRedemptionClosed");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.batchId, 5n);
+      assert.strictEqual(parsed[0].data.redemptionId, 123n);
+      assert.strictEqual(parsed[0].data.beneficiary, TEST_USER);
+      assert.strictEqual(parsed[0].data.expiredPrincipal, 10000000n);
+      assert.strictEqual(parsed[0].data.redemptionType, 0);
+      assert.strictEqual(parsed[0].data.rentReclaimedLamports, 2000000n);
+    }
+
+    // 13. RedemptionBatchSubmitted
+    {
+      const log = serializeAnchorEvent("RedemptionBatchSubmitted", {
+        poolId: 1,
+        batchId: 2n,
+        caller: TEST_ADMIN,
+        humaRequestId: 1001n,
+        totalPrincipalRequested: 50000000n,
+        nextBatchId: 3n,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "RedemptionBatchSubmitted");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.batchId, 2n);
+      assert.strictEqual(parsed[0].data.caller, TEST_ADMIN);
+      assert.strictEqual(parsed[0].data.humaRequestId, 1001n);
+      assert.strictEqual(parsed[0].data.totalPrincipalRequested, 50000000n);
+      assert.strictEqual(parsed[0].data.nextBatchId, 3n);
+    }
+
+    // 14. RedemptionBatchSettled
+    {
+      const log = serializeAnchorEvent("RedemptionBatchSettled", {
+        poolId: 1,
+        batchId: 2n,
+        caller: TEST_ADMIN,
+        humaRequestId: 1001n,
+        totalPrincipalRequested: 50000000n,
+        settledUsdcReceived: 49000000n,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "RedemptionBatchSettled");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.batchId, 2n);
+      assert.strictEqual(parsed[0].data.caller, TEST_ADMIN);
+      assert.strictEqual(parsed[0].data.humaRequestId, 1001n);
+      assert.strictEqual(parsed[0].data.totalPrincipalRequested, 50000000n);
+      assert.strictEqual(parsed[0].data.settledUsdcReceived, 49000000n);
+    }
+
+    // 15. RedemptionBatchClosed
+    {
+      const log = serializeAnchorEvent("RedemptionBatchClosed", {
+        poolId: 1,
+        batchId: 2n,
+        caller: TEST_ADMIN,
+        rentReclaimed: 2000000n,
+        unclaimedPrincipalSwept: 500000n,
+        unclaimedUsdcSwept: 490000n,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "RedemptionBatchClosed");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.batchId, 2n);
+      assert.strictEqual(parsed[0].data.caller, TEST_ADMIN);
+      assert.strictEqual(parsed[0].data.rentReclaimed, 2000000n);
+      assert.strictEqual(parsed[0].data.unclaimedPrincipalSwept, 500000n);
+      assert.strictEqual(parsed[0].data.unclaimedUsdcSwept, 490000n);
+    }
+
+    // 16. PoolImpairedModeEnabled
+    {
+      const log = serializeAnchorEvent("PoolImpairedModeEnabled", {
+        poolId: 1,
+        caller: TEST_ADMIN,
+        currentValue: 40000000n,
+        bookValue: 50000000n,
+        deficit: 10000000n,
+        totalDepositedPrincipal: 50000000n,
+        totalAccumulatingRedemptions: 0n,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "PoolImpairedModeEnabled");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.caller, TEST_ADMIN);
+      assert.strictEqual(parsed[0].data.currentValue, 40000000n);
+      assert.strictEqual(parsed[0].data.bookValue, 50000000n);
+      assert.strictEqual(parsed[0].data.deficit, 10000000n);
+      assert.strictEqual(parsed[0].data.totalDepositedPrincipal, 50000000n);
+      assert.strictEqual(parsed[0].data.totalAccumulatingRedemptions, 0n);
+    }
+
+    // 17. PoolRecapitalized
+    {
+      const log = serializeAnchorEvent("PoolRecapitalized", {
+        poolId: 1,
+        sponsor: TEST_USER,
+        amount: 10000000n,
+        currentValue: 50000000n,
+        bookValue: 50000000n,
+        deficit: 0n,
+        isUnpaused: true,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "PoolRecapitalized");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.sponsor, TEST_USER);
+      assert.strictEqual(parsed[0].data.amount, 10000000n);
+      assert.strictEqual(parsed[0].data.currentValue, 50000000n);
+      assert.strictEqual(parsed[0].data.bookValue, 50000000n);
+      assert.strictEqual(parsed[0].data.deficit, 0n);
+      assert.strictEqual(parsed[0].data.isUnpaused, true);
+    }
+
+    // 18. PayoutRegistryClosed
+    {
+      const log = serializeAnchorEvent("PayoutRegistryClosed", {
+        poolId: 1,
+        cycleId: 4,
+        crank: TEST_ADMIN,
+        rentReclaimedLamports: 1500000n,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "PayoutRegistryClosed");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.cycleId, 4);
+      assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
+      assert.strictEqual(parsed[0].data.rentReclaimedLamports, 1500000n);
     }
   });
 

@@ -77,7 +77,7 @@ import {
   getCancelAdminNominationInstructionAsync,
   getClaimNonReinvestedWinningsInstructionAsync,
   getClaimRedemptionInstructionAsync,
-  getCloseExpiredRedemptionInstruction,
+  getCloseExpiredRedemptionInstructionAsync,
   getClosePoolInstructionAsync,
   getCrankClosePayoutRegistryInstructionAsync,
   getCrankCloseRedemptionBatchInstructionAsync,
@@ -141,7 +141,7 @@ import {
   type CancelAdminNominationAsyncInput,
   type ClaimNonReinvestedWinningsAsyncInput,
   type ClaimRedemptionAsyncInput,
-  type CloseExpiredRedemptionInput,
+  type CloseExpiredRedemptionAsyncInput,
   type ClosePoolAsyncInput,
   type CrankClosePayoutRegistryAsyncInput,
   type CrankCloseRedemptionBatchAsyncInput,
@@ -1113,8 +1113,8 @@ export type AnchorPluginInstructions = {
   ) => ReturnType<typeof getClaimRedemptionInstructionAsync> &
     SelfPlanAndSendFunctions;
   closeExpiredRedemption: (
-    input: CloseExpiredRedemptionInput
-  ) => ReturnType<typeof getCloseExpiredRedemptionInstruction> &
+    input: CloseExpiredRedemptionAsyncInput
+  ) => ReturnType<typeof getCloseExpiredRedemptionInstructionAsync> &
     SelfPlanAndSendFunctions;
   closePool: (
     input: ClosePoolAsyncInput
@@ -1297,7 +1297,7 @@ export function anchorProgram() {
           closeExpiredRedemption: (input) =>
             addSelfPlanAndSendFunctions(
               client,
-              getCloseExpiredRedemptionInstruction(input)
+              getCloseExpiredRedemptionInstructionAsync(input)
             ),
           closePool: (input) =>
             addSelfPlanAndSendFunctions(

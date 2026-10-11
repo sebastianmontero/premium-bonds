@@ -238,9 +238,6 @@ export const redemptionBatches = pgTable(
     })
       .notNull()
       .default(0n),
-    totalPstSharesLocked: bigint("total_pst_shares_locked", { mode: "bigint" })
-      .notNull()
-      .default(0n),
     settledUsdcReceived: bigint("settled_usdc_received", { mode: "bigint" })
       .notNull()
       .default(0n),

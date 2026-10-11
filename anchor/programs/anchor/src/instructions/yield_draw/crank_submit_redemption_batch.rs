@@ -230,9 +230,9 @@ pub fn handle(ctx: Context<CrankSubmitRedemptionBatch>) -> Result<()> {
     emit_cpi!(RedemptionBatchSubmitted {
         pool_id,
         batch_id,
+        caller: ctx.accounts.crank.key(),
         huma_request_id,
         total_principal_requested: principal_requested,
-        pst_shares_locked: pst_shares,
         next_batch_id,
         timestamp,
     });

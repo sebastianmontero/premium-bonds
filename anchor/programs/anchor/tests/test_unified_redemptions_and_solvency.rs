@@ -592,6 +592,8 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
             beneficiary: user_a.pubkey(),
             pending_redemption: pda,
             system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
         }
         .to_account_metas(None),
         data: anchor::instruction::CloseExpiredRedemption {}.data(),
@@ -601,18 +603,49 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
 
     // Warp clock past 180 days: succeeds, closes account, refunds rent
     warp_to_timestamp(&mut ctx.svm, now + BATCH_CLAIM_EXPIRY_SECONDS);
+
+    // Negative path: Attacker cannot close another user's pending redemption
+    let attacker = Keypair::new();
+    ctx.svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+    let ix_attacker = Instruction {
+        program_id: anchor::id(),
+        accounts: anchor::accounts::CloseExpiredRedemption {
+            beneficiary: attacker.pubkey(),
+            pending_redemption: pda,
+            system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
+        }
+        .to_account_metas(None),
+        data: anchor::instruction::CloseExpiredRedemption {}.data(),
+    };
+    let res_attacker = send_user_tx(&mut ctx.svm, &attacker, ix_attacker);
+    assert!(
+        res_attacker.is_err(),
+        "Attacker cannot close another user's pending redemption"
+    );
+
     let ix_valid = Instruction {
         program_id: anchor::id(),
         accounts: anchor::accounts::CloseExpiredRedemption {
             beneficiary: user_a.pubkey(),
             pending_redemption: pda,
             system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
         }
         .to_account_metas(None),
         data: anchor::instruction::CloseExpiredRedemption {}.data(),
     };
     let res_valid = send_user_tx(&mut ctx.svm, &user_a, ix_valid);
     assert!(res_valid.is_ok(), "CloseExpiredRedemption must succeed: {res_valid:?}");
+    let meta = res_valid.unwrap();
+    let event = assert_cpi_event::<anchor::events::ExpiredRedemptionClosed>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.batch_id, 0);
+    assert_eq!(event.beneficiary, user_a.pubkey());
+    assert_eq!(event.expired_principal, 5_000_000);
+    assert!(event.rent_reclaimed_lamports > 0);
     assert!(
         ctx.svm.get_account(&pda).is_none(),
         "Account closed and rent refunded"
@@ -821,6 +854,15 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
         res_valid.is_ok(),
         "Keeper successfully enabled impaired mode after 90 days: {res_valid:?}"
     );
+    let meta = res_valid.unwrap();
+    let event = assert_cpi_event::<anchor::events::PoolImpairedModeEnabled>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.caller, keeper.pubkey());
+    assert_eq!(event.current_value, 5_000_000);
+    assert_eq!(event.book_value, 10_000_000);
+    assert_eq!(event.deficit, 5_000_000);
+    assert_eq!(event.total_deposited_principal, 10_000_000);
+    assert_eq!(event.total_accumulating_redemptions, 0);
 
     let pool_post = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool_post.status, PoolStatus::Impaired as u8);
@@ -831,21 +873,105 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
 // ─────────────────────────────────────────────────────────────────────────────
 #[test]
 fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
-    let mut pool = PrizePoolTestBuilder::new(1).build();
-    pool.status = PoolStatus::Paused as u8;
-    pool.paused_at = 1000;
-    pool.total_deposited_principal = 10_000_000;
+    let mut ctx = setup_e2e();
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
-    // Venue was short 3 USDC (assets = 7_000_000)
-    assert!(!pool.is_solvent(7_000_000).unwrap());
+    // 1. Pause pool
+    send_pause_pool(&mut ctx.svm, &ctx.admin, 1).unwrap();
+    let pool_paused = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_paused.status, PoolStatus::Paused as u8);
 
-    // Sponsor deposits 3 USDC -> cures deficit -> assets = 10_000_000
-    assert!(pool.is_solvent(10_000_000).unwrap());
+    // 2. Introduce shortfall in venue (venue assets drop to 5M vs 10M liabilities)
+    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 5_000_000);
+    set_token_mint_supply(&mut ctx.svm, ctx.pst_mint, 10_000_000);
 
-    // Pool unpauses
-    pool.unpause().unwrap();
-    assert_eq!(pool.status, PoolStatus::Active as u8);
-    assert_eq!(pool.paused_at, 0);
+    // Setup sponsor with USDC tokens
+    let sponsor = Keypair::new();
+    ctx.svm.airdrop(&sponsor.pubkey(), 10_000_000_000).unwrap();
+    let sponsor_usdc =
+        create_spl_token_account(&mut ctx.svm, &sponsor, &ctx.usdc_mint, &sponsor.pubkey());
+    set_token_balance(&mut ctx.svm, sponsor_usdc, 10_000_000);
+
+    let (pool_pda_addr, _) = pool_pda(1);
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let dummy = Keypair::new().pubkey();
+
+    let build_recap_ix = |amount: u64| Instruction {
+        program_id: anchor::id(),
+        accounts: anchor::accounts::RecapitalizePool {
+            sponsor: sponsor.pubkey(),
+            pool: pool_pda_addr,
+            sponsor_token_account: sponsor_usdc,
+            token_mint: ctx.usdc_mint,
+            pool_vault_account: pool_vault,
+            pool_pst_vault,
+            huma_program: huma_program_id(),
+            huma_config: dummy,
+            huma_pool_config: dummy,
+            huma_pool_state: ctx.huma_pool_state,
+            huma_mode_config: dummy,
+            huma_mode_mint: ctx.pst_mint,
+            huma_pool_authority: ctx.huma_pool_authority,
+            huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+            token_program: anchor_spl::token::ID,
+            pst_token_program: anchor_spl::token::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
+        }
+        .to_account_metas(None),
+        data: anchor::instruction::RecapitalizePool { amount }.data(),
+    };
+
+    // Negative path: zero recapitalization amount is rejected
+    let res_zero = send_user_tx(&mut ctx.svm, &sponsor, build_recap_ix(0));
+    assert_custom_error(res_zero, PremiumBondsError::InvalidRecapitalizeAmount);
+
+    // 3. Partial recapitalization: deposit 2_000_000 USDC (deficit remains > 0, is_unpaused == false)
+    let res_partial = send_user_tx(&mut ctx.svm, &sponsor, build_recap_ix(2_000_000));
+    assert!(
+        res_partial.is_ok(),
+        "Partial recapitalization transaction succeeded: {res_partial:?}"
+    );
+    let meta_partial = res_partial.unwrap();
+    let event_partial = assert_cpi_event::<anchor::events::PoolRecapitalized>(&meta_partial);
+    assert_eq!(event_partial.pool_id, 1);
+    assert_eq!(event_partial.sponsor, sponsor.pubkey());
+    assert_eq!(event_partial.amount, 2_000_000);
+    assert!(
+        event_partial.current_value < event_partial.book_value,
+        "Current value must be less than book value under partial recap"
+    );
+    assert!(
+        event_partial.deficit > 0,
+        "Deficit must be positive under partial recap"
+    );
+    assert!(!event_partial.is_unpaused);
+
+    let pool_mid = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_mid.status, PoolStatus::Paused as u8);
+
+    // 4. Full recapitalization: deposit 3_000_000 USDC to cure remaining deficit
+    let res_full = send_user_tx(&mut ctx.svm, &sponsor, build_recap_ix(3_000_000));
+    assert!(
+        res_full.is_ok(),
+        "Full recapitalization transaction succeeded: {res_full:?}"
+    );
+    let meta_full = res_full.unwrap();
+    let event_full = assert_cpi_event::<anchor::events::PoolRecapitalized>(&meta_full);
+    assert_eq!(event_full.pool_id, 1);
+    assert_eq!(event_full.sponsor, sponsor.pubkey());
+    assert_eq!(event_full.amount, 3_000_000);
+    assert!(
+        event_full.current_value >= event_full.book_value,
+        "Current value must meet or exceed book value under full recap"
+    );
+    assert_eq!(event_full.deficit, 0, "Deficit must be zero after full recap");
+    assert!(event_full.is_unpaused);
+
+    let pool_post = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_post.status, PoolStatus::Active as u8);
+    assert_eq!(pool_post.paused_at, 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

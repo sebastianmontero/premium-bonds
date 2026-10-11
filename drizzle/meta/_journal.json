@@ -29,6 +29,13 @@
       "when": 1790809884564,
       "tag": "0003_noisy_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791500000000,
+      "tag": "0004_drop_total_pst_shares_locked",
+      "breakpoints": true
     }
   ]
 }

@@ -196,12 +196,22 @@ export interface RedemptionClaimedEvent {
   poolId: number;
   batchId: bigint;
   amount: bigint;
+  principal: bigint;
   redemptionId: bigint;
   redemptionType: RedemptionType;
-  pstSharesLocked?: bigint;
-  humaRequestId?: bigint;
-  requestedAt?: bigint;
-  timestamp?: bigint;
+  requestedAt: bigint;
+  timestamp: bigint;
+}
+
+export interface ExpiredRedemptionClosedEvent {
+  poolId: number;
+  batchId: bigint;
+  redemptionId: bigint;
+  beneficiary: Address;
+  expiredPrincipal: bigint;
+  redemptionType: RedemptionType;
+  rentReclaimedLamports: bigint;
+  timestamp: bigint;
 }
 
 export interface YieldHarvestedEvent {
@@ -428,20 +438,21 @@ export interface FeesWithdrawnEvent {
 export interface RedemptionBatchSubmittedEvent {
   poolId: number;
   batchId: bigint;
+  caller: Address;
   humaRequestId: bigint;
   totalPrincipalRequested: bigint;
-  pstSharesLocked: bigint;
   nextBatchId: bigint;
-  timestamp?: bigint;
+  timestamp: bigint;
 }
 
 export interface RedemptionBatchSettledEvent {
   poolId: number;
   batchId: bigint;
+  caller: Address;
   humaRequestId: bigint;
   totalPrincipalRequested: bigint;
   settledUsdcReceived: bigint;
-  timestamp?: bigint;
+  timestamp: bigint;
 }
 
 export interface RedemptionBatchClosedEvent {
@@ -456,19 +467,24 @@ export interface RedemptionBatchClosedEvent {
 
 export interface PoolImpairedModeEnabledEvent {
   poolId: number;
-  authority: Address;
+  caller: Address;
+  currentValue: bigint;
+  bookValue: bigint;
+  deficit: bigint;
   totalDepositedPrincipal: bigint;
   totalAccumulatingRedemptions: bigint;
-  timestamp?: bigint;
+  timestamp: bigint;
 }
 
 export interface PoolRecapitalizedEvent {
   poolId: number;
   sponsor: Address;
   amount: bigint;
-  pstSharesMinted: bigint;
+  currentValue: bigint;
+  bookValue: bigint;
+  deficit: bigint;
   isUnpaused: boolean;
-  timestamp?: bigint;
+  timestamp: bigint;
 }
 
 export type ParsedProgramEvent =
@@ -477,6 +493,7 @@ export type ParsedProgramEvent =
   | { type: "WinningsReinvested"; data: WinningsReinvestedEvent }
   | { type: "WinningsClaimed"; data: WinningsClaimedEvent }
   | { type: "RedemptionClaimed"; data: RedemptionClaimedEvent }
+  | { type: "ExpiredRedemptionClosed"; data: ExpiredRedemptionClosedEvent }
   | { type: "YieldHarvested"; data: YieldHarvestedEvent }
   | { type: "DrawCompleted"; data: DrawCompletedEvent }
   | { type: "DrawForceUnlocked"; data: DrawForceUnlockedEvent }
@@ -571,6 +588,12 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
         ["pool", "user", "redemptions", "activity"],
         evt.data.user
       );
+    case "ExpiredRedemptionClosed":
+      return createMetadata(
+        evt.data.poolId,
+        ["pool", "user", "redemptions", "activity"],
+        evt.data.beneficiary
+      );
     case "YieldHarvested":
       return createMetadata(evt.data.poolId, ["draws", "pool", "clock"]);
     case "DrawCompleted":
@@ -638,6 +661,7 @@ const DISCRIMINATOR_MAP: Record<string, ParsedProgramEvent["type"]> = {
   aeeb2097b9e63e6e: "WinningsReinvested",
   bbb81dc436754696: "WinningsClaimed",
   "6bfbc7d53bad35bd": "RedemptionClaimed",
+  b1a1b2be623f2f96: "ExpiredRedemptionClosed",
   c1882558b47c6014: "DrawCompleted",
   "270b1dbe81f95cb4": "DrawSkipped",
   "1a1dc53ce504de2d": "DrawForceUnlocked",
@@ -783,23 +807,43 @@ function decodeEventData(
         const poolId = reader.readU32();
         const batchId = reader.readU64();
         const amount = reader.readU64();
+        const principal = reader.readU64();
         const redemptionId = reader.readU64();
         const redemptionType = reader.readU8() as RedemptionType;
-        let requestedAt: bigint | undefined;
-        let timestamp: bigint | undefined;
-        if (reader.remaining >= 8) requestedAt = reader.readI64();
-        if (reader.remaining >= 8) timestamp = reader.readI64();
+        const requestedAt = reader.readI64();
+        const timestamp = reader.readI64();
         return {
           caller,
           user,
           poolId,
           batchId,
           amount,
+          principal,
           redemptionId,
           redemptionType,
           requestedAt,
           timestamp,
         } as RedemptionClaimedEvent;
+      }
+      case "ExpiredRedemptionClosed": {
+        const poolId = reader.readU32();
+        const batchId = reader.readU64();
+        const redemptionId = reader.readU64();
+        const beneficiary = reader.readPubkey();
+        const expiredPrincipal = reader.readU64();
+        const redemptionType = reader.readU8() as RedemptionType;
+        const rentReclaimedLamports = reader.readU64();
+        const timestamp = reader.readI64();
+        return {
+          poolId,
+          batchId,
+          redemptionId,
+          beneficiary,
+          expiredPrincipal,
+          redemptionType,
+          rentReclaimedLamports,
+          timestamp,
+        } as ExpiredRedemptionClosedEvent;
       }
       case "YieldHarvested": {
         const poolId = reader.readU32();
@@ -1122,18 +1166,17 @@ function decodeEventData(
       case "RedemptionBatchSubmitted": {
         const poolId = reader.readU32();
         const batchId = reader.readU64();
+        const caller = reader.readPubkey();
         const humaRequestId = reader.readU128();
         const totalPrincipalRequested = reader.readU64();
-        const pstSharesLocked = reader.readU64();
         const nextBatchId = reader.readU64();
-        let timestamp: bigint | undefined;
-        if (reader.remaining >= 8) timestamp = reader.readI64();
+        const timestamp = reader.readI64();
         return {
           poolId,
           batchId,
+          caller,
           humaRequestId,
           totalPrincipalRequested,
-          pstSharesLocked,
           nextBatchId,
           timestamp,
         } as RedemptionBatchSubmittedEvent;
@@ -1141,14 +1184,15 @@ function decodeEventData(
       case "RedemptionBatchSettled": {
         const poolId = reader.readU32();
         const batchId = reader.readU64();
+        const caller = reader.readPubkey();
         const humaRequestId = reader.readU128();
         const totalPrincipalRequested = reader.readU64();
         const settledUsdcReceived = reader.readU64();
-        let timestamp: bigint | undefined;
-        if (reader.remaining >= 8) timestamp = reader.readI64();
+        const timestamp = reader.readI64();
         return {
           poolId,
           batchId,
+          caller,
           humaRequestId,
           totalPrincipalRequested,
           settledUsdcReceived,
@@ -1176,14 +1220,19 @@ function decodeEventData(
       }
       case "PoolImpairedModeEnabled": {
         const poolId = reader.readU32();
-        const authority = reader.readPubkey();
+        const caller = reader.readPubkey();
+        const currentValue = reader.readU64();
+        const bookValue = reader.readU64();
+        const deficit = reader.readU64();
         const totalDepositedPrincipal = reader.readU64();
         const totalAccumulatingRedemptions = reader.readU64();
-        let timestamp: bigint | undefined;
-        if (reader.remaining >= 8) timestamp = reader.readI64();
+        const timestamp = reader.readI64();
         return {
           poolId,
-          authority,
+          caller,
+          currentValue,
+          bookValue,
+          deficit,
           totalDepositedPrincipal,
           totalAccumulatingRedemptions,
           timestamp,
@@ -1193,15 +1242,18 @@ function decodeEventData(
         const poolId = reader.readU32();
         const sponsor = reader.readPubkey();
         const amount = reader.readU64();
-        const pstSharesMinted = reader.readU64();
+        const currentValue = reader.readU64();
+        const bookValue = reader.readU64();
+        const deficit = reader.readU64();
         const isUnpaused = reader.readBool();
-        let timestamp: bigint | undefined;
-        if (reader.remaining >= 8) timestamp = reader.readI64();
+        const timestamp = reader.readI64();
         return {
           poolId,
           sponsor,
           amount,
-          pstSharesMinted,
+          currentValue,
+          bookValue,
+          deficit,
           isUnpaused,
           timestamp,
         } as PoolRecapitalizedEvent;

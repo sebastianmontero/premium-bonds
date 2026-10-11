@@ -94,28 +94,37 @@ pub fn handle(ctx: Context<EnableImpairedMode>) -> Result<()> {
     // Verify pool is genuinely insolvent against book value
     let book_value = pool.calculate_book_value()?;
     let tolerance = pool.calculate_solvency_tolerance(book_value)?;
+    let deficit = book_value.saturating_sub(current_value);
     require!(
         current_value.saturating_add(tolerance) < book_value,
         PremiumBondsError::CannotImpairSolventPool
     );
 
-    // Execute transition to Impaired
+    let pool_id = pool.pool_id;
+    let total_deposited_principal = pool.total_deposited_principal;
+    let total_accumulating_redemptions = pool.total_accumulating_redemptions;
+
+    // Execute transition to Impaired (subordinates and wipes junior liabilities)
     pool.transition_to_impaired()?;
 
     #[cfg(feature = "debug-logs")]
     msg!(
-        "EnableImpairedMode: pool_id={}, caller={}, deposited_principal={}, accumulating_redemptions={}",
-        pool.pool_id,
+        "EnableImpairedMode: pool_id={}, caller={}, deposited_principal={}, accumulating_redemptions={}, deficit={}",
+        pool_id,
         ctx.accounts.caller.key(),
-        pool.total_deposited_principal,
-        pool.total_accumulating_redemptions,
+        total_deposited_principal,
+        total_accumulating_redemptions,
+        deficit,
     );
 
     emit_cpi!(PoolImpairedModeEnabled {
-        pool_id: pool.pool_id,
-        authority: ctx.accounts.caller.key(),
-        total_deposited_principal: pool.total_deposited_principal,
-        total_accumulating_redemptions: pool.total_accumulating_redemptions,
+        pool_id,
+        caller: ctx.accounts.caller.key(),
+        current_value,
+        book_value,
+        deficit,
+        total_deposited_principal,
+        total_accumulating_redemptions,
         timestamp: now,
     });
 

@@ -147,6 +147,14 @@ fn test_claim_redemption_e2e_happy_path() {
         "RedemptionClaimed event user must match user_a"
     );
     assert_eq!(
+        event.amount, 3_000_000,
+        "RedemptionClaimed amount must match disbursed payout"
+    );
+    assert_eq!(
+        event.principal, 3_000_000,
+        "RedemptionClaimed principal must match requested principal"
+    );
+    assert_eq!(
         event.redemption_type,
         anchor::state::RedemptionType::BondSale,
         "RedemptionClaimed event type must be BondSale"
@@ -1083,6 +1091,14 @@ fn test_claim_redemption_max_dust_tolerance_succeeds() {
         "Disbursed amount must equal 2_990_000"
     );
     assert_eq!(
+        event.principal, 3_000_000,
+        "Requested principal must equal 3_000_000"
+    );
+    assert_eq!(
+        event.principal - event.amount, 10_000,
+        "Haircut loss realization must match dust tolerance delta"
+    );
+    assert_eq!(
         read_token_balance(&ctx.svm, user_a_usdc),
         92_990_000,
         "User balance must match clamped transfer"
@@ -1270,9 +1286,10 @@ fn test_claim_redemption_sub_tolerance_zero_vault_succeeds_and_refunds_rent() {
         "sub-tolerance zero payout redemption must succeed and refund rent",
     );
 
-    // Truthful event reporting: disbursed 0
+    // Truthful event reporting: disbursed 0, requested principal 500
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
     assert_eq!(event.amount, 0, "Emitted amount must be 0");
+    assert_eq!(event.principal, 500, "Emitted principal must be 500");
     assert_eq!(
         read_token_balance(&ctx.svm, user_a_usdc),
         100_000_000,
