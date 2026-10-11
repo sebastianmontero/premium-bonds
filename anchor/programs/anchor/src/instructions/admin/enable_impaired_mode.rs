@@ -93,10 +93,9 @@ pub fn handle(ctx: Context<EnableImpairedMode>) -> Result<()> {
 
     // Verify pool is genuinely insolvent against book value
     let book_value = pool.calculate_book_value()?;
-    let tolerance = pool.calculate_solvency_tolerance(book_value)?;
     let deficit = book_value.saturating_sub(current_value);
     require!(
-        current_value.saturating_add(tolerance) < book_value,
+        !pool.is_solvent(current_value)?,
         PremiumBondsError::CannotImpairSolventPool
     );
 

@@ -260,22 +260,16 @@ export function serializeAnchorEvent(
       break;
     }
     case "FeesWithdrawn": {
-      // u32(4) + Pubkey(32) + Pubkey(32) + u64(8) + u64(8) + u64(8) + i64(8) = 96 bytes
-      fields = new Uint8Array(96);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      fields.set(
-        pubkeyToBytes(data.admin || "11111111111111111111111111111111"),
-        4
-      );
-      fields.set(
-        pubkeyToBytes(data.feeWallet || "11111111111111111111111111111111"),
-        36
-      );
-      view.setBigUint64(68, BigInt(data.batchId || 0), true);
-      view.setBigUint64(76, BigInt(data.amount || 0), true);
-      view.setBigUint64(84, BigInt(data.redemptionId || 0), true);
-      view.setBigInt64(92, BigInt(data.timestamp || 0), true);
+      // u32(4) + Pubkey(32) + Pubkey(32) + u64(8) + u64(8) + u64(8) + i64(8) = 100 bytes
+      const writer = new BorshWriter(100);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writePubkey(data.admin || "11111111111111111111111111111111");
+      writer.writePubkey(data.feeWallet || "11111111111111111111111111111111");
+      writer.writeU64(data.batchId || 0);
+      writer.writeU64(data.amount || 0);
+      writer.writeU64(data.redemptionId || 0);
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     case "RedemptionClaimed": {
@@ -482,29 +476,21 @@ export function serializeAnchorEvent(
       break;
     }
     case "RandomnessRebound": {
-      // u32(4) + u32(4) + Pubkey(32) + Pubkey(32) + Pubkey(32) + u64(8) + i64(8) = 120 bytes
-      fields = new Uint8Array(120);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      view.setUint32(4, Number(data.cycleId || 1), true);
-      fields.set(
-        pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
-        8
+      // u32(4) + u32(4) + Pubkey(32) + Pubkey(32) + Pubkey(32) + u64(8) + u8(1) + i64(8) = 121 bytes
+      const writer = new BorshWriter(121);
+      writer.writeU32(Number(data.poolId || 1));
+      writer.writeU32(Number(data.cycleId || 1));
+      writer.writePubkey(data.crank || "11111111111111111111111111111111");
+      writer.writePubkey(
+        data.oldRandomnessAccount || "11111111111111111111111111111111"
       );
-      fields.set(
-        pubkeyToBytes(
-          data.oldRandomnessAccount || "11111111111111111111111111111111"
-        ),
-        40
+      writer.writePubkey(
+        data.newRandomnessAccount || "11111111111111111111111111111111"
       );
-      fields.set(
-        pubkeyToBytes(
-          data.newRandomnessAccount || "11111111111111111111111111111111"
-        ),
-        72
-      );
-      view.setBigUint64(104, BigInt(data.vrfSeedSlot ?? 0), true);
-      view.setBigInt64(112, BigInt(data.timestamp || 0), true);
+      writer.writeU64(data.vrfSeedSlot ?? 0);
+      writer.writeU8(Number(data.rebindCount ?? 0));
+      writer.writeI64(data.timestamp || 0);
+      fields = writer.getBytes();
       break;
     }
     case "EmergencyInsolvencyDetected": {

@@ -620,10 +620,7 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
         data: anchor::instruction::CloseExpiredRedemption {}.data(),
     };
     let res_attacker = send_user_tx(&mut ctx.svm, &attacker, ix_attacker);
-    assert!(
-        res_attacker.is_err(),
-        "Attacker cannot close another user's pending redemption"
-    );
+    assert_custom_error(res_attacker, PremiumBondsError::InvalidRedemptionOwner);
 
     let ix_valid = Instruction {
         program_id: anchor::id(),
@@ -807,18 +804,6 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
     let mut ctx = setup_e2e();
     send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
-    // Pause pool
-    send_pause_pool(&mut ctx.svm, &ctx.admin, 1).unwrap();
-    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
-    let now = clock.unix_timestamp;
-    mutate_pool_state(&mut ctx.svm, 1, |p| {
-        p.paused_at = now;
-    });
-
-    // Make pool truly insolvent: assets = 5M vs 10M liabilities
-    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 5_000_000);
-    set_token_mint_supply(&mut ctx.svm, ctx.pst_mint, 10_000_000);
-
     let (pool_pda_addr, _) = pool_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (global_config, _) = global_config_pda();
@@ -841,6 +826,22 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
         .to_account_metas(None),
         data: anchor::instruction::EnableImpairedMode {}.data(),
     };
+
+    // Negative path: enable_impaired_mode on an active (unpaused) pool is rejected
+    let res_unpaused = send_user_tx(&mut ctx.svm, &ctx.admin, build_ix(ctx.admin.pubkey()));
+    assert_custom_error(res_unpaused, PremiumBondsError::PoolNotPaused);
+
+    // Pause pool
+    send_pause_pool(&mut ctx.svm, &ctx.admin, 1).unwrap();
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let now = clock.unix_timestamp;
+    mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.paused_at = now;
+    });
+
+    // Make pool truly insolvent: assets = 5M vs 10M liabilities
+    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 5_000_000);
+    set_token_mint_supply(&mut ctx.svm, ctx.pst_mint, 10_000_000);
 
     // 1. Non-admin caller at paused_at + 90d - 1s -> fails with ImpairmentTimelockActive
     warp_to_timestamp(&mut ctx.svm, now + IMPAIRMENT_TIMELOCK_SECONDS - 1);
@@ -866,6 +867,31 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
 
     let pool_post = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool_post.status, PoolStatus::Impaired as u8);
+
+    // 3. Admin immediate workout path: admin can transition immediately without waiting 90 days
+    let other_keeper = Keypair::new();
+    ctx.svm.airdrop(&other_keeper.pubkey(), 10_000_000_000).unwrap();
+    let clock_post: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let now_admin = clock_post.unix_timestamp;
+    mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.status = PoolStatus::Paused as u8;
+        p.paused_at = now_admin;
+    });
+    // Non-admin immediately fails at now_admin (< now_admin + 90 days)
+    let res_keeper_now =
+        send_user_tx(&mut ctx.svm, &other_keeper, build_ix(other_keeper.pubkey()));
+    assert_custom_error(res_keeper_now, PremiumBondsError::ImpairmentTimelockActive);
+    // Admin immediately succeeds without waiting 90 days!
+    let res_admin = send_user_tx(&mut ctx.svm, &ctx.admin, build_ix(ctx.admin.pubkey()));
+    assert!(
+        res_admin.is_ok(),
+        "Admin can transition immediately without timelock: {res_admin:?}"
+    );
+    let meta_admin = res_admin.unwrap();
+    let event_admin = assert_cpi_event::<anchor::events::PoolImpairedModeEnabled>(&meta_admin);
+    assert_eq!(event_admin.caller, ctx.admin.pubkey());
+    let pool_admin_post = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_admin_post.status, PoolStatus::Impaired as u8);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -875,15 +901,6 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
 fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
     let mut ctx = setup_e2e();
     send_e2e_buy_bonds(&mut ctx, 10).unwrap();
-
-    // 1. Pause pool
-    send_pause_pool(&mut ctx.svm, &ctx.admin, 1).unwrap();
-    let pool_paused = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool_paused.status, PoolStatus::Paused as u8);
-
-    // 2. Introduce shortfall in venue (venue assets drop to 5M vs 10M liabilities)
-    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 5_000_000);
-    set_token_mint_supply(&mut ctx.svm, ctx.pst_mint, 10_000_000);
 
     // Setup sponsor with USDC tokens
     let sponsor = Keypair::new();
@@ -922,6 +939,19 @@ fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
         .to_account_metas(None),
         data: anchor::instruction::RecapitalizePool { amount }.data(),
     };
+
+    // Negative path: recapitalize_pool on active (unpaused) pool is rejected
+    let res_unpaused = send_user_tx(&mut ctx.svm, &sponsor, build_recap_ix(1_000_000));
+    assert_custom_error(res_unpaused, PremiumBondsError::PoolNotPaused);
+
+    // 1. Pause pool
+    send_pause_pool(&mut ctx.svm, &ctx.admin, 1).unwrap();
+    let pool_paused = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_paused.status, PoolStatus::Paused as u8);
+
+    // 2. Introduce shortfall in venue (venue assets drop to 5M vs 10M liabilities)
+    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 5_000_000);
+    set_token_mint_supply(&mut ctx.svm, ctx.pst_mint, 10_000_000);
 
     // Negative path: zero recapitalization amount is rejected
     let res_zero = send_user_tx(&mut ctx.svm, &sponsor, build_recap_ix(0));
@@ -962,9 +992,13 @@ fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
     assert_eq!(event_full.pool_id, 1);
     assert_eq!(event_full.sponsor, sponsor.pubkey());
     assert_eq!(event_full.amount, 3_000_000);
-    assert!(
-        event_full.current_value >= event_full.book_value,
-        "Current value must meet or exceed book value under full recap"
+    assert_eq!(
+        event_full.current_value, 10_000_000,
+        "Current value must equal exactly 10M after full recap"
+    );
+    assert_eq!(
+        event_full.book_value, 10_000_000,
+        "Book value must equal exactly 10M after full recap"
     );
     assert_eq!(event_full.deficit, 0, "Deficit must be zero after full recap");
     assert!(event_full.is_unpaused);

@@ -15,6 +15,7 @@ export const INDEXER_TABLE_NAMES = [
   "draw_history",
   "draw_winners",
   "pending_redemptions",
+  "redemption_batches",
   "pool_snapshots",
   "user_portfolio_stats",
 ] as const;

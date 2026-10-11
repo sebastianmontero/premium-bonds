@@ -420,6 +420,7 @@ export interface RandomnessReboundEvent {
   oldRandomnessAccount: Address;
   newRandomnessAccount: Address;
   vrfSeedSlot: bigint;
+  rebindCount: number;
   timestamp?: bigint;
 }
 
@@ -429,9 +430,7 @@ export interface FeesWithdrawnEvent {
   feeWallet: Address;
   batchId: bigint;
   amount: bigint;
-  pstShares?: bigint;
   redemptionId: bigint;
-  humaRequestId?: bigint;
   timestamp?: bigint;
 }
 
@@ -1134,14 +1133,23 @@ function decodeEventData(
         } as RegistryResizedEvent;
       }
       case "RandomnessRebound": {
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const crank = reader.readPubkey();
+        const oldRandomnessAccount = reader.readPubkey();
+        const newRandomnessAccount = reader.readPubkey();
+        const vrfSeedSlot = reader.readU64();
+        const rebindCount = reader.readU8();
+        const timestamp = reader.remaining >= 8 ? reader.readI64() : undefined;
         return {
-          poolId: reader.readU32(),
-          cycleId: reader.readU32(),
-          crank: reader.readPubkey(),
-          oldRandomnessAccount: reader.readPubkey(),
-          newRandomnessAccount: reader.readPubkey(),
-          vrfSeedSlot: reader.readU64(),
-          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+          poolId,
+          cycleId,
+          crank,
+          oldRandomnessAccount,
+          newRandomnessAccount,
+          vrfSeedSlot,
+          rebindCount,
+          timestamp,
         } as RandomnessReboundEvent;
       }
       case "FeesWithdrawn": {

@@ -76,14 +76,15 @@ describe("sanitizeDatabaseName", () => {
 });
 
 describe("cleanIndexerDatabase", () => {
-  it("contains all 8 indexer tables in INDEXER_TABLE_NAMES", () => {
-    assert.equal(INDEXER_TABLE_NAMES.length, 8);
+  it("contains all 9 indexer tables in INDEXER_TABLE_NAMES", () => {
+    assert.equal(INDEXER_TABLE_NAMES.length, 9);
     assert.ok(INDEXER_TABLE_NAMES.includes("indexer_cursor"));
     assert.ok(INDEXER_TABLE_NAMES.includes("protocol_events"));
     assert.ok(INDEXER_TABLE_NAMES.includes("bonds_activity"));
     assert.ok(INDEXER_TABLE_NAMES.includes("draw_history"));
     assert.ok(INDEXER_TABLE_NAMES.includes("draw_winners"));
     assert.ok(INDEXER_TABLE_NAMES.includes("pending_redemptions"));
+    assert.ok(INDEXER_TABLE_NAMES.includes("redemption_batches"));
     assert.ok(INDEXER_TABLE_NAMES.includes("pool_snapshots"));
     assert.ok(INDEXER_TABLE_NAMES.includes("user_portfolio_stats"));
   });
@@ -100,7 +101,7 @@ describe("cleanIndexerDatabase", () => {
     const result = await cleanIndexerDatabase({ pool: mockPool });
 
     assert.equal(result.success, true);
-    assert.equal(result.truncatedTables.length, 8);
+    assert.equal(result.truncatedTables.length, 9);
     assert.equal(executedQueries.length, 1);
     assert.ok(
       executedQueries[0].startsWith("TRUNCATE TABLE ") &&

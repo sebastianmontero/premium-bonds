@@ -165,6 +165,7 @@ pub fn handle(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
     )?;
 
     ctx.accounts.pool_pst_vault.reload()?;
+    ctx.accounts.huma_mode_mint.reload()?;
     let new_pst_amount = ctx.accounts.pool_pst_vault.amount;
     let pst_shares_minted = new_pst_amount.saturating_sub(initial_pst_amount);
     require!(pst_shares_minted > 0, PremiumBondsError::ZeroSharesMinted);

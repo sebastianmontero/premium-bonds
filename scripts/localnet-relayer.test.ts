@@ -435,6 +435,54 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
       assert.strictEqual(parsed[0].data.rentReclaimedLamports, 1500000n);
     }
+
+    // 19. FeesWithdrawn
+    {
+      const log = serializeAnchorEvent("FeesWithdrawn", {
+        poolId: 1,
+        admin: TEST_ADMIN,
+        feeWallet: TEST_USER,
+        batchId: 2n,
+        amount: 5000000n,
+        redemptionId: 101n,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "FeesWithdrawn");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.admin, TEST_ADMIN);
+      assert.strictEqual(parsed[0].data.feeWallet, TEST_USER);
+      assert.strictEqual(parsed[0].data.batchId, 2n);
+      assert.strictEqual(parsed[0].data.amount, 5000000n);
+      assert.strictEqual(parsed[0].data.redemptionId, 101n);
+      assert.strictEqual(parsed[0].data.timestamp, 1700000000n);
+    }
+
+    // 20. RandomnessRebound
+    {
+      const log = serializeAnchorEvent("RandomnessRebound", {
+        poolId: 1,
+        cycleId: 2,
+        crank: TEST_ADMIN,
+        oldRandomnessAccount: TEST_RANDOMNESS,
+        newRandomnessAccount: TEST_RANDOMNESS,
+        vrfSeedSlot: 123456n,
+        rebindCount: 1,
+        timestamp: 1700000000n,
+      });
+      const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+      assert.strictEqual(parsed.length, 1);
+      assert.strictEqual(parsed[0].type, "RandomnessRebound");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.cycleId, 2);
+      assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
+      assert.strictEqual(parsed[0].data.oldRandomnessAccount, TEST_RANDOMNESS);
+      assert.strictEqual(parsed[0].data.newRandomnessAccount, TEST_RANDOMNESS);
+      assert.strictEqual(parsed[0].data.vrfSeedSlot, 123456n);
+      assert.strictEqual(parsed[0].data.rebindCount, 1);
+      assert.strictEqual(parsed[0].data.timestamp, 1700000000n);
+    }
   });
 
   it("should persist, update, and reset watermark cursors per database cleanly", () => {
