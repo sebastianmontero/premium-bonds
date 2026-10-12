@@ -1,9 +1,9 @@
 # Formal Invariant Specification: YieldBonds Protocol
 
 **Domain Context:** [README.md](file:///home/sebastian/vsc-workspace/premium-bonds/README.md), [ticket-registry-redesign.md](file:///home/sebastian/vsc-workspace/premium-bonds/ticket-registry-redesign.md), [docs/agents/domain.md](file:///home/sebastian/vsc-workspace/premium-bonds/docs/agents/domain.md)  
-**Extracted At:** 2026-09-16  
+**Extracted At:** 2026-10-12  
 **Audit Mode:** `reconciliation` (Mode 3 Formal Spec-Code Reconciliation & Drift Verification)  
-**Overall Conformance:** 26/26 Instructions Verified | 8 Conservation Laws Verified | 10 Metamorphic Relations Verified | 66 Error Codes Mapped (100% Conformance)
+**Overall Conformance:** 32/32 Instructions Verified | 10 Conservation Laws Verified | 13 Metamorphic Relations Verified | 89 Error Codes Mapped (100% Conformance)
 
 ---
 
@@ -17,12 +17,13 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
 - **Vector Tag:** `Math`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`harvest_yield_and_commit.rs#L188-L230`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L188-L230)
+- **Source Location:** [`pool.rs#L317-L373`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L317-L373), [`harvest_yield_and_commit.rs#L188-L222`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L188-L222), [`constants.rs#L55-L61`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/constants.rs#L55-L61)
 - **Conservation Law:**
   $$\text{CurrentValue} = \left\lfloor \frac{\text{pool\_pst\_balance} \times \text{huma\_total\_assets}}{\text{pst\_supply}} \right\rfloor$$
-  $$\text{BookValue} = \text{total\_deposited\_principal} + (\text{total\_fees\_accrued} - \text{total\_fees\_withdrawn}) + \text{total\_prizes\_allocated}$$
-  $$\text{BookValue} - \text{CurrentValue} \le \text{SOLVENCY\_DUST\_TOLERANCE} \quad (1,000 \text{ base units})$$
-- **Description:** Protocol assets (yield-bearing $PST shares converted to USDC via on-chain Huma pool asset ratio) must always match or exceed outstanding protocol liabilities (active user principal, unwithdrawn accrued protocol fees, and allocated prize pots). If the deficit exceeds the 1,000 base unit dust tolerance, the on-chain circuit breaker immediately trips, halts the pool, and transitions the draw cycle to `DrawStatus::HaltedInsolvent`.
+  $$\text{BookValue} = \text{total\_deposited\_principal} + \text{unwithdrawn\_fees} + \text{total\_prizes\_allocated} + \text{total\_accumulating\_redemptions}$$
+  $$\text{Tolerance} = \text{clamp}\left(\left\lfloor \frac{\text{BookValue} \times \text{SOLVENCY\_TOLERANCE\_BPS}}{10,000} \right\rfloor, \text{MIN\_SOLVENCY\_TOLERANCE}, \text{MAX\_SOLVENCY\_TOLERANCE}\right)$$
+  $$\text{BookValue} - \text{CurrentValue} \le \text{Tolerance} \quad (\text{Tolerance} \in [10,000, 20,000,000] \text{ base units / } [\$0.01, \$20.00] \text{ USDC})$$
+- **Description:** Protocol assets (yield-bearing $PST shares valued via on-chain Huma pool asset ratio) must always match or exceed outstanding protocol book liabilities (active user principal, unwithdrawn protocol fees, allocated prize pots, and accumulating redemption batch liabilities). Deficit tolerance is dynamically scaled at 1 bps of book value and clamped between \$0.01 (10,000 units) and \$20.00 (20,000,000 units) to absorb integer division rounding without allowing unmonitored value loss. If deficit exceeds this tolerance during harvest, the on-chain circuit breaker immediately trips, halts the pool, transitions the draw cycle to `DrawStatus::HaltedInsolvent`, and emits `EmergencyInsolvencyDetected`.
 
 ### `INV-SOLV-002`: Ticket Registry Mass Conservation
 
@@ -30,10 +31,10 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
 - **Vector Tag:** `Math`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`registry.rs#L20-L22`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L20-L22), [`registry.rs#L304-L317`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L304-L317), [`registry.rs#L425-L436`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L425-L436), [`buy_bonds.rs#L249-L254`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/buy_bonds.rs#L249-L254), [`sell_bonds.rs#L220-L225`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L220-L225)
+- **Source Location:** [`registry.rs#L20-L22`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L20-L22), [`registry.rs#L304-L317`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L304-L317), [`buy_bonds.rs#L249-L254`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/buy_bonds.rs#L249-L254), [`sell_bonds.rs#L137-L143`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L137-L143)
 - **Conservation Law:**
   $$\text{TicketRegistry.total\_active\_tickets} + \text{TicketRegistry.total\_pending\_tickets} = \sum_{i=0}^{\text{user\_count}-1} (\text{UserEntry}[i].\text{active} + \text{UserEntry}[i].\text{pending})$$
-- **Description:** The global ticket counters stored in the `TicketRegistry` zero-copy header must strictly equal the sum of all individual active and pending tickets across all valid user slots $[0, \text{user\_count}-1]$.
+- **Description:** Global ticket counters tracked in the `TicketRegistry` zero-copy header must strictly equal the algebraic sum of all individual active and pending tickets across all valid user slots $[0, \text{user\_count}-1]$.
 
 ### `INV-SOLV-003`: User Index Bijective PDA Mapping & Swap-and-Pop Invariant
 
@@ -41,22 +42,23 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
 - **Vector Tag:** `Access` / `Realloc`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`registry.rs#L444-L467`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L444-L467), [`sell_bonds.rs#L220-L241`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L220-L241), [`pool.rs#L595-L658`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L595-L658)
+- **Source Location:** [`registry.rs#L444-L467`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L444-L467), [`sell_bonds.rs#L145-L159`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L145-L159), [`pool.rs#L644-L706`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L644-L706)
 - **Conservation Law:**
   $$\forall i \in [0, \text{user\_count}-1], \quad \text{UserWinnings}(\text{UserEntry}[i].\text{owner}).\text{registry\_entry\_index} = i$$
   $$\forall \text{user} \text{ with 0 tickets}, \quad \text{UserWinnings}(\text{user}).\text{registry\_entry\_index} = \text{u32::MAX} \quad (\text{UNASSIGNED\_ENTRY\_INDEX})$$
-- **Description:** Every active entry at index $i$ in `TicketRegistry` corresponds bijectively to a `UserWinnings` PDA where `registry_entry_index == i`. When an exiting user at slot $k < N-1$ sells all tickets, the last entry at $N-1$ is relocated into slot $k$, `swapped_user_winnings.registry_entry_index` is updated to $k$, and the vacated memory slot at $N-1$ is explicitly cleared with zeroed default memory (`UserEntry::default()`).
+- **Description:** Every active entry at index $i$ in `TicketRegistry` corresponds bijectively to a `UserWinnings` PDA where `registry_entry_index == i`. When an exiting user at slot $k < N-1$ sells all tickets, the last entry at $N-1$ is relocated into slot $k$, `swapped_user_winnings.registry_entry_index` is updated to $k$, and the vacated memory slot at $N-1$ is explicitly cleared with 64 zero bytes (`UserEntry::default()`).
 
-### `INV-SOLV-004`: Pending Redemption Asset Backing
+### `INV-SOLV-004`: Pending Redemption Asset Backing & Pipeline Conservation
 
-- **Domain:** Async Redemption Accounting
-- **Vector Tag:** `Math`
+- **Domain:** Async Redemption Pipeline
+- **Vector Tag:** `Math` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`pool.rs#L103`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L103), [`pool.rs#L258-L269`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L258-L269), [`sell_bonds.rs#L258`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L258), [`claim_redemption.rs#L215-L219`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/claim_redemption.rs#L215-L219)
+- **Source Location:** [`pool.rs#L99-L106`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L99-L106), [`pool.rs#L423-L453`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L423-L453), [`sell_bonds.rs#L166-L179`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L166-L179), [`claim_redemption.rs#L141-L145`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/claim_redemption.rs#L141-L145), [`crank_close_redemption_batch.rs#L131-L136`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/crank_close_redemption_batch.rs#L131-L136)
 - **Conservation Law:**
-  $$\text{PrizePool.total\_pending\_redemptions} = \sum_{r \in \text{ActivePendingRedemptions}} \text{PendingRedemption}[r].\text{amount}$$
-- **Description:** The aggregate `total_pending_redemptions` counter tracked on `PrizePool` strictly equals the sum of all active, unsettled `PendingRedemption` PDA amounts across bond sales, prize claims, and fee withdrawals.
+  $$\text{PrizePool.total\_pending\_redemptions} = \text{total\_accumulating\_redemptions} + \sum_{b \in \text{Batches}} \text{Batch}[b].\text{unclaimed\_principal}$$
+  $$\text{RedemptionBatch}[b].\text{unclaimed\_principal} = \text{total\_principal\_requested} - \text{claimed\_principal}$$
+- **Description:** `PrizePool.total_pending_redemptions` strictly equals the sum of unsubmitted principal in the active accumulating batch plus all unclaimed principal remaining in active submitted and settled batches. Conserved atomically across ticket sales, prize claims, fee extractions, batch submissions, batch settlements, claims, and batch expirations.
 
 ### `INV-SOLV-005`: Prize Tier Share Conservation & Winner Allocation
 
@@ -64,11 +66,11 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
 - **Vector Tag:** `Math`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`pool.rs#L448-L483`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L448-L483), [`constants.rs#L34`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/constants.rs#L34)
+- **Source Location:** [`pool.rs#L508-L543`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L508-L543), [`constants.rs#L34`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/constants.rs#L34)
 - **Conservation Law:**
   $$\sum_{t=0}^{\text{prize\_tiers\_count}-1} (\text{PrizeTier}[t].\text{basis\_points} \times \text{PrizeTier}[t].\text{num\_winners}) = 10,000 \quad (100.00\%)$$
   $$\sum_{t=0}^{\text{prize\_tiers\_count}-1} \text{PrizeTier}[t].\text{num\_winners} \le \text{MAX\_TOTAL\_WINNERS} \quad (180)$$
-- **Description:** The sum of basis points multiplied by the number of winners across all active prize tiers must equal exactly 10,000 (100.00%). Each tier must specify `basis_points > 0` and `num_winners > 0`, with total winners across all tiers capped at 180 to fit within Solana's 10 KiB account limit ($104 \text{ B header} + 180 \times 56 \text{ B} = 10,184 \text{ B}$).
+- **Description:** The sum of basis points multiplied by the number of winners across all active prize tiers must equal exactly 10,000 (100.00%). Each tier must specify `basis_points > 0` and `num_winners > 0`, with total winners capped at 180 to fit within Solana's 10 KiB account limit ($104 \text{ B header} + 180 \times 56 \text{ B} = 10,184 \text{ B}$).
 
 ### `INV-SOLV-006`: Ticket-to-Principal Capital Invariant
 
@@ -108,22 +110,48 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
   $$\text{PrizePot} + \text{ProtocolFee} = \text{YieldGenerated}$$
 - **Description:** Harvested yield is partitioned strictly into the protocol fee and net prize pot via integer arithmetic without rounding deficit.
 
+### `INV-SOLV-009`: Unified Batch Pro-Rata Settlement & Payout Invariant
+
+- **Domain:** Batch Redemption Settlement
+- **Vector Tag:** `Math`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`redemption_batch.rs#L121-L140`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/redemption_batch.rs#L121-L140), [`settle_redemption_batch.rs#L150-L165`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/settle_redemption_batch.rs#L150-L165)
+- **Conservation Law:**
+  $$\text{Payout}(p) = \left\lfloor \frac{p \times \text{settled\_usdc\_received}}{\text{total\_principal\_requested}} \right\rfloor$$
+  $$\sum_{i=1}^{M} \text{Payout}(p_i) + \text{UnclaimedPayout} \le \text{settled\_usdc\_received}$$
+- **Description:** In any settled `RedemptionBatch`, individual payout for requested principal $p$ is strictly proportional to the actual USDC lamports disbursed by Huma (`settled_usdc_received`). If Huma applies a haircut $h > 0$ to the batch, all participants in the batch absorb the loss pro-rata. Total claims can never exceed `settled_usdc_received` regardless of rounding or claim order (`BatchOverclaimed` defense).
+
+### `INV-SOLV-010`: Impairment Seniority & Junior Liability Subordination Invariant
+
+- **Domain:** Solvency Workout & Capital Protection
+- **Vector Tag:** `Lifecycle` / `Math`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`pool.rs#L499-L506`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L499-L506), [`enable_impaired_mode.rs#L106-L108`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/enable_impaired_mode.rs#L106-L108)
+- **Conservation Law:**
+  $$\text{Upon } \text{transition\_to\_impaired}: \quad \text{total\_fees\_accrued} \leftarrow \text{total\_fees\_withdrawn} \implies \text{unwithdrawn\_fees} = 0$$
+  $$\text{total\_prizes\_allocated} \leftarrow 0$$
+  $$\text{BookValue}_{\text{impaired}} = \text{total\_deposited\_principal} + \text{total\_accumulating\_redemptions}$$
+- **Description:** When an insolvent pool enters `PoolStatus::Impaired`, junior protocol claims (unwithdrawn accrued fees and unawarded prize pots) are immediately subordinated and erased to maximize recovery for user deposited principal. Subsequent batch submissions calculate $PST shares based exclusively on remaining principal liabilities.
+
 ---
 
-## 2. State Account Architecture (7 Accounts & Vaults)
+## 2. State Account Architecture (8 Accounts & Vaults)
 
-| Account Name                                                                                                                             |       Size (Bytes)        | Discriminator / Space Formula                                                                                                                                       | Canonical PDA Seeds                                                           | Struct Alignment |
-| :--------------------------------------------------------------------------------------------------------------------------------------- | :-----------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------- | :--------------: |
-| [`GlobalConfig`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/global_state.rs#L12-L25)            |           `201`           | `8 + 32 + 32 + 32 + 32 + 1 + 64` (includes `pending_admin`)                                                                                                         | `[b"global_config"]`                                                          |  8-byte aligned  |
-| [`PrizePool`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L83-L143)                      |           `448`           | `8 + 440` (zero-copy `unsafe`)                                                                                                                                      | `[b"prize_pool", pool_id.to_le_bytes()]`                                      |  8-byte aligned  |
-| [`TicketRegistry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L10-L33)              | `262,248` to `10,485,760` | `104` B Header + $N \times 64$ B [`UserEntry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L107-L124)           | `[b"ticket_registry", pool_id.to_le_bytes()]` (or direct key)                 |  8-byte aligned  |
-| [`UserWinnings`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L528-L550)                  |           `138`           | `8 + 8 + 8 + 8 + 4 + 4 + 32 + 1 + 1 + 64`                                                                                                                           | `[b"user_winnings", pool_id.to_le_bytes(), user.as_ref()]`                    |  8-byte aligned  |
-| [`DrawCycle`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L58-L87)                       |           `186`           | `8 + 8 + 8 + 8 + 8 + 8 + 32 + 4 + 4 + 4 + 1 + 1 + 32 + 64`                                                                                                          | `[b"draw_cycle", pool_id.to_le_bytes(), cycle_id.to_le_bytes()]`              |  8-byte aligned  |
-| [`PayoutRegistry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L211-L232)                |     `160` to `10,184`     | `104` B Header + $W \times 56$ B [`Winner`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L237-L266) (dynamic sizing) | `[b"payout", pool_id.to_le_bytes(), cycle_id.to_le_bytes()]`                  |  8-byte aligned  |
-| [`PendingRedemption`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pending_redemption.rs#L54-L82) |           `160`           | `8 + 152` `INIT_SPACE` (`16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 1 + 1 + 64`)                                                                                         | `[b"pending_redemption", pool_id.to_le_bytes(), redemption_id.to_le_bytes()]` |  8-byte aligned  |
-| `PoolVaultAccount` (USDC)                                                                                                                |         SPL Token         | Interface Token Account                                                                                                                                             | `[b"pool_vault", pool_id.to_le_bytes()]`                                      |    Token PDA     |
-| `PoolPstVault` ($PST)                                                                                                                    |         SPL Token         | Interface Token Account                                                                                                                                             | `[b"pool_pst", pool_id.to_le_bytes()]`                                        |    Token PDA     |
-| `EventAuthority`                                                                                                                         |        System PDA         | Event Authority Account                                                                                                                                             | `[b"__event_authority"]`                                                      |  Canonical CPI   |
+| Account Name                                                                                                                             |       Size (Bytes)        | Discriminator / Space Formula                                                                                                                                       | Canonical PDA Seeds                                                           | Struct Alignment  |
+| :--------------------------------------------------------------------------------------------------------------------------------------- | :-----------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------- | :---------------: |
+| [`GlobalConfig`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/global_state.rs#L12-L25)            |           `201`           | `8 + 32 + 32 + 32 + 32 + 1 + 64` (includes `pending_admin`)                                                                                                         | `[b"global_config"]`                                                          |  8-byte aligned   |
+| [`PrizePool`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L81-L140)                      |           `480`           | `8 + 472` (zero-copy `unsafe`)                                                                                                                                      | `[b"prize_pool", pool_id.to_le_bytes()]`                                      |  8-byte aligned   |
+| [`TicketRegistry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L10-L33)              | `262,248` to `10,485,760` | `104` B Header + $N \times 64$ B [`UserEntry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L107-L124)           | `[b"ticket_registry", pool_id.to_le_bytes()]` (or direct key)                 |  8-byte aligned   |
+| [`UserWinnings`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L588-L612)                  |           `138`           | `8 + 8 + 8 + 8 + 4 + 4 + 32 + 1 + 1 + 64`                                                                                                                           | `[b"user_winnings", pool_id.to_le_bytes(), user.as_ref()]`                    |  8-byte aligned   |
+| [`DrawCycle`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L58-L87)                       |           `186`           | `8 + 8 + 8 + 8 + 8 + 8 + 32 + 4 + 4 + 4 + 1 + 1 + 32 + 64`                                                                                                          | `[b"draw_cycle", pool_id.to_le_bytes(), cycle_id.to_le_bytes()]`              |  8-byte aligned   |
+| [`PayoutRegistry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L211-L232)                |     `160` to `10,184`     | `104` B Header + $W \times 56$ B [`Winner`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L237-L266) (dynamic sizing) | `[b"payout", pool_id.to_le_bytes(), cycle_id.to_le_bytes()]`                  |  8-byte aligned   |
+| [`PendingRedemption`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pending_redemption.rs#L46-L67) |           `144`           | `8 + 136` `INIT_SPACE` (`32 + 8 + 8 + 8 + 8 + 4 + 1 + 1 + 1 + 1 + 64`)                                                                                              | `[b"pending_redemption", pool_id.to_le_bytes(), redemption_id.to_le_bytes()]` |  8-byte aligned   |
+| [`RedemptionBatch`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/redemption_batch.rs#L15-L64)     |           `168`           | `8 + 160` `INIT_SPACE` (`16 + 8*7 + 4 + 1*4 + 72`)                                                                                                                  | `[b"redemption_batch", pool_id.to_le_bytes(), batch_id.to_le_bytes()]`        | 8/16-byte aligned |
+| `PoolVaultAccount` (USDC)                                                                                                                |         SPL Token         | Interface Token Account                                                                                                                                             | `[b"pool_vault", pool_id.to_le_bytes()]`                                      |     Token PDA     |
+| `PoolPstVault` ($PST)                                                                                                                    |         SPL Token         | Interface Token Account                                                                                                                                             | `[b"pool_pst", pool_id.to_le_bytes()]`                                        |     Token PDA     |
+| `EventAuthority`                                                                                                                         |        System PDA         | Event Authority Account                                                                                                                                             | `[b"__event_authority"]`                                                      |   Canonical CPI   |
 
 ---
 
@@ -133,20 +161,25 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Active: create_pool (Tiers validated, status=Active)
+    [*] --> Active: create_pool (Tiers validated, status=Active, batch_0 initialized)
     Active --> Paused: pause_pool (Admin or Guardian)
     Paused --> Active: unpause_pool (Admin strictly)
+    Paused --> Active: recapitalize_pool (Sponsor deposits USDC, deficit cured)
     Active --> Closed: close_pool (Admin strictly, !frozen)
     Paused --> Closed: close_pool (Admin strictly, !frozen)
+    Paused --> Impaired: enable_impaired_mode (Admin or Keeper after 90d timelock)
     Closed --> [*]: Orderly sunset (Redemptions active, Deposits disabled)
+    Impaired --> [*]: Workout mode (Haircut batch redemptions, junior claims wiped)
 ```
 
-| Source Status       | Trigger Instruction | Caller Role       | Target Status | Transition Guards & Constraints                                                                    |
-| :------------------ | :------------------ | :---------------- | :------------ | :------------------------------------------------------------------------------------------------- |
-| `[*]`               | `create_pool`       | Admin             | `Active`      | Parameters valid, prize tiers sum to 10,000 bps (`BasisPointsMustEqual10000`)                      |
-| `Active`            | `pause_pool`        | Admin or Guardian | `Paused`      | Pool status $\neq$ `Closed` (`PoolClosed`)                                                         |
-| `Paused`            | `unpause_pool`      | Admin strictly    | `Active`      | Pool status $==$ `Paused` (`PoolNotActive`), signer $==$ `admin` (`UnauthorizedAdmin`)             |
-| `Active` / `Paused` | `close_pool`        | Admin strictly    | `Closed`      | Pool status $\neq$ `Closed` (`PoolClosed`), `is_frozen_for_draw == 0` (`AwaitingRandomnessFreeze`) |
+| Source Status       | Trigger Instruction    | Caller Role       | Target Status | Transition Guards & Constraints                                                                                     |
+| :------------------ | :--------------------- | :---------------- | :------------ | :------------------------------------------------------------------------------------------------------------------ |
+| `[*]`               | `create_pool`          | Admin             | `Active`      | Parameters valid, prize tiers sum to 10,000 bps (`BasisPointsMustEqual10000`), initializes batch 0                  |
+| `Active`            | `pause_pool`           | Admin or Guardian | `Paused`      | Pool status $\neq$ `Closed` (`PoolClosed`)                                                                          |
+| `Paused`            | `unpause_pool`         | Admin strictly    | `Active`      | Pool status $==$ `Paused` (`PoolNotPaused`), signer $==$ `admin` (`UnauthorizedAdmin`)                              |
+| `Paused`            | `recapitalize_pool`    | Sponsor           | `Active`      | Deficit cured (`is_solvent(current_value) == true`), unpauses automatically                                         |
+| `Active` / `Paused` | `close_pool`           | Admin strictly    | `Closed`      | Pool status $\neq$ `Closed` (`PoolClosed`), `is_frozen_for_draw == 0` (`AwaitingRandomnessFreeze`)                  |
+| `Paused`            | `enable_impaired_mode` | Admin or Keeper   | `Impaired`    | Pool paused, deficit $> \text{tolerance}$, if not admin requires $\ge 90$ days elapsed (`ImpairmentTimelockActive`) |
 
 ### 3.2 Draw Cycle Pipeline & Circuit Breakers FSM
 
@@ -154,7 +187,7 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> AwaitingRandomness: harvest_yield_and_commit (yield >= min && active_tickets > 0)
     [*] --> Skipped: harvest_yield_and_commit (yield < min || active_tickets == 0)
-    [*] --> HaltedInsolvent: harvest_yield_and_commit (deficit > 1,000 lamports)
+    [*] --> HaltedInsolvent: harvest_yield_and_commit (deficit > dynamic tolerance)
     [*] --> HaltedYieldSpike: harvest_yield_and_commit (yield > max_allowed_yield)
     AwaitingRandomness --> AwaitingRandomness: prepare_draw (batch prefix sum progress)
     AwaitingRandomness --> AwaitingRandomness: crank_rebind_expired_randomness (> 1,000 slots expired)
@@ -173,7 +206,7 @@ stateDiagram-v2
 | :------------------- | :-------------------------------- | :--------------------- | :------------------- | :------------------------------------------------------------------------------------------------------- |
 | `Draft` / `[*]`      | `harvest_yield_and_commit`        | Crank (`jobs_account`) | `AwaitingRandomness` | `unix_timestamp >= cycle_end`, `yield >= min_threshold`, `tickets > 0`, `is_frozen == 0`                 |
 | `Draft` / `[*]`      | `harvest_yield_and_commit`        | Crank (`jobs_account`) | `Skipped`            | `yield < min_threshold` or `active_tickets == 0`, rolls over yield, emits `DrawSkipped`                  |
-| `Draft` / `[*]`      | `harvest_yield_and_commit`        | Crank (`jobs_account`) | `HaltedInsolvent`    | Venue deficit $> 1,000$ base units, pauses pool, emits `EmergencyInsolvencyDetected`                     |
+| `Draft` / `[*]`      | `harvest_yield_and_commit`        | Crank (`jobs_account`) | `HaltedInsolvent`    | Venue deficit $> \text{dynamic tolerance}$, pauses pool, emits `EmergencyInsolvencyDetected`             |
 | `Draft` / `[*]`      | `harvest_yield_and_commit`        | Crank (`jobs_account`) | `HaltedYieldSpike`   | Single-cycle yield rate $> \text{max\_yield\_basis\_points}$, pauses pool, emits `YieldVelocityBreached` |
 | `AwaitingRandomness` | `prepare_draw`                    | Permissionless         | `AwaitingRandomness` | `pool.status == Active`, `is_frozen_for_draw != 0` (`PoolNotFrozen`), processes batch                    |
 | `AwaitingRandomness` | `crank_rebind_expired_randomness` | Crank (`jobs_account`) | `AwaitingRandomness` | `clock.slot - vrf_seed_slot > 1000` (`RandomnessNotExpired`), Switchboard owned                          |
@@ -221,9 +254,31 @@ stateDiagram-v2
 | `AllPayoutsCompleted` | `crank_close_payout_registry` | Crank or Admin fallback | `Closed`              | `can_close() == true` (`PayoutsPending`), 100% rent refunded to `crank` |
 | `Voided`              | `crank_close_payout_registry` | Crank or Admin fallback | `Closed`              | `can_close() == true` (`PayoutsPending`), 100% rent refunded to `crank` |
 
+### 3.5 Unified Redemption Batch Pipeline Lifecycle FSM
+
+```mermaid
+stateDiagram-v2
+    [*] --> Accumulating: create_pool / crank_submit_redemption_batch (status=Accumulating)
+    Accumulating --> Accumulating: sell_bonds / claim_non_reinvested_winnings / withdraw_fees (accumulate)
+    Accumulating --> Submitted: crank_submit_redemption_batch (Single in-flight guard, aggregated CPI)
+    Submitted --> Settled: settle_redemption_batch (Huma queue matured, disburse executed)
+    Settled --> Settled: claim_redemption (Pro-rata payout disburse)
+    Settled --> Closed: crank_close_redemption_batch (100% claimed OR expired after 180 days)
+    Closed --> [*]
+```
+
+| Source State   | Trigger Instruction                                              | Caller Role                    | Target State   | Transition Guards & Constraints                                                      |
+| :------------- | :--------------------------------------------------------------- | :----------------------------- | :------------- | :----------------------------------------------------------------------------------- | --- | ------------------------------------------------------------------- |
+| `[*]`          | `create_pool` / `crank_submit_redemption_batch`                  | Admin / Crank                  | `Accumulating` | Initializes batch with `total_principal_requested = 0`, `status = Accumulating`      |
+| `Accumulating` | `sell_bonds` / `claim_non_reinvested_winnings` / `withdraw_fees` | User / Admin                   | `Accumulating` | Increments `total_principal_requested`, creates `PendingRedemption` receipt          |
+| `Accumulating` | `crank_submit_redemption_batch`                                  | Crank (`jobs_account`/`admin`) | `Submitted`    | `principal > 0`, `submitted_batch_id == u64::MAX`, `!is_frozen()`, advances pipeline |
+| `Submitted`    | `settle_redemption_batch`                                        | Permissionless                 | `Settled`      | `huma_snapshot.is_redemption_settled(huma_request_id)`, clears `submitted_batch_id`  |
+| `Settled`      | `claim_redemption`                                               | User or Crank                  | `Settled`      | `batch.status == Settled`, transfers pro-rata USDC, closes `PendingRedemption`       |
+| `Settled`      | `crank_close_redemption_batch`                                   | Crank (`jobs_account`/`admin`) | `Closed`       | `is_fully_claimed()                                                                  |     | is_expired(now)`, sweeps abandoned dust to fee wallet, refunds rent |
+
 ---
 
-## 4. Instruction State Transition & Boundary Invariants (26 Instructions)
+## 4. Instruction State Transition & Boundary Invariants (32 Instructions)
 
 ### 4.1 Protocol Governance & Pool Administration
 
@@ -323,11 +378,13 @@ stateDiagram-v2
 - **Vector Tag:** `Boundary` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`create_pool.rs#L12-L220`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/create_pool.rs#L12-L220)
+- **Source Location:** [`create_pool.rs#L12-L242`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/create_pool.rs#L12-L242)
 - **Precondition:** `admin.is_signer && admin.key() == global_config.admin && bond_price > 0 && 1 <= stake_cycle_duration_hrs <= 8760 && fee_basis_points <= 10000 && max_yield_basis_points <= 10000 && payout_timelock_seconds <= 86400 && sum(tier.basis_points * tier.num_winners) == 10000 && total_winners <= 180 && ticket_registry.len >= 262,248 && mint extensions supported && token_mint.decimals == 6 && pst_mint.decimals == 6`.
 - **Action:** `create_pool(pool_id, bond_price, duration, fee_bps, min_yield, max_yield_bps, timelock, prize_tiers)`
 - **Postcondition:**
-  - `PrizePool` zero-copy state initialized with `status = PoolStatus::Active (0)`.
+  - `PrizePool` zero-copy state initialized (480 bytes) with `status = PoolStatus::Active (0)`.
+  - `initial_redemption_batch` (Batch #0) initialized with `status = Accumulating`.
+  - `accumulating_redemption_batch_id = 0`, `next_redemption_batch_id = 1`, `submitted_batch_id = u64::MAX`.
   - `pool_vault_account` and `pool_pst_vault` initialized.
   - `TicketRegistry` initialized with `capacity = (data_len - 104) / 64`, `user_count = 0`, `draw_cycle_id = 0`.
   - Emits `PoolCreated`.
@@ -401,6 +458,7 @@ stateDiagram-v2
 - **Action:** `pause_pool()`
 - **Postcondition:**
   - `pool.status = PoolStatus::Paused (1)`.
+  - `pool.paused_at = clock.unix_timestamp`.
   - Emits CPI event `PoolStatusChanged`.
 - **Expected Errors:**
   - If signer is unauthorized: `ErrorCode::Unauthorized` (6048)
@@ -418,10 +476,11 @@ stateDiagram-v2
 - **Action:** `unpause_pool()`
 - **Postcondition:**
   - `pool.status = PoolStatus::Active (0)`.
+  - `pool.paused_at = 0`.
   - Emits CPI event `PoolStatusChanged`.
 - **Expected Errors:**
   - If signer is guardian (not admin): `ErrorCode::UnauthorizedAdmin` (6017)
-  - If pool is not paused: `ErrorCode::PoolNotActive` (6000)
+  - If pool is not paused: `ErrorCode::PoolNotPaused` (6088)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-POOL-005`: Permanent Pool Closure (`close_pool`)
@@ -461,9 +520,70 @@ stateDiagram-v2
   - If account exceeds 10 MB: `ErrorCode::RegistryAtMaxSize` (6006)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
+#### `INV-IMPR-001`: Transition to Impaired Workout Mode (`enable_impaired_mode`)
+
+- **Domain:** Solvency Workout & Capital Protection
+- **Vector Tag:** `Lifecycle` / `Time` / `Access` / `Math`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`enable_impaired_mode.rs#L9-L131`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/enable_impaired_mode.rs#L9-L131)
+- **Precondition:** `pool.is_paused() && !pool.is_solvent(current_value) && (caller == global_config.admin || now >= pool.paused_at + IMPAIRMENT_TIMELOCK_SECONDS)`.
+- **Action:** `enable_impaired_mode()`
+- **Postcondition:**
+  - Junior claims subordinated: `total_fees_accrued = total_fees_withdrawn` (`unwithdrawn_fees = 0`).
+  - Unawarded prize liabilities wiped: `total_prizes_allocated = 0`.
+  - Draws halted: `is_frozen_for_draw = 0`.
+  - `pool.status = PoolStatus::Impaired (3)`.
+  - Emits CPI event `PoolImpairedModeEnabled`.
+- **Expected Errors:**
+  - If pool is not paused: `ErrorCode::PoolNotPaused` (6088)
+  - If pool is solvent against book value: `ErrorCode::CannotImpairSolventPool` (6084)
+  - If caller is not admin and 90-day timelock has not elapsed: `ErrorCode::ImpairmentTimelockActive` (6086)
+  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
+
+#### `INV-RECAP-001`: Pool Recapitalization & Solvency Recovery (`recapitalize_pool`)
+
+- **Domain:** Solvency Recovery
+- **Vector Tag:** `Math` / `CPI` / `Lifecycle`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`recapitalize_pool.rs#L13-L218`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/recapitalize_pool.rs#L13-L218)
+- **Precondition:** `sponsor.is_signer && amount > 0 && pool.is_paused()`.
+- **Action:** `recapitalize_pool(amount)`
+- **Postcondition:**
+  - Sponsor deposits USDC into `pool_vault_account` and executes CPI `huma::deposit` to mint $PST into `pool_pst_vault`.
+  - No new liabilities created: `total_deposited_principal` remains unchanged.
+  - If `pool.is_solvent(new_current_value) == true`, pool unpauses automatically: `status = PoolStatus::Active (0)`, `paused_at = 0`.
+  - Emits CPI event `PoolRecapitalized`.
+- **Expected Errors:**
+  - If `amount == 0`: `ErrorCode::InvalidRecapitalizeAmount` (6087)
+  - If pool is not paused: `ErrorCode::PoolNotPaused` (6088)
+  - If deposit produces zero $PST shares: `ErrorCode::ZeroSharesMinted` (6046)
+  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
+
 ---
 
-### 4.2 User Bond Lifecycle & Ticket Management
+### 4.2 Lending Integration
+
+#### `INV-LEND-001`: Huma Lender Binding (`initialize_huma_lender`)
+
+- **Domain:** Lending Integration
+- **Vector Tag:** `CPI` / `Access`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`initialize_huma_lender.rs#L10-L151`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/initialize_huma_lender.rs#L10-L151)
+- **Precondition:** `admin.is_signer && admin.key() == global_config.admin`.
+- **Action:** `initialize_huma_lender()`
+- **Postcondition:**
+  - CPI into Huma `create_lender_accounts_v2` initializes lender state and $PST ATA for pool PDA.
+  - Emits `HumaLenderInitialized`.
+- **Expected Errors:**
+  - If signer is unauthorized: `ErrorCode::UnauthorizedAdmin` (6017)
+  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
+
+---
+
+### 4.3 User Bond Lifecycle & Ticket Management
 
 #### `INV-BOND-001`: New User Bond Purchase (`buy_bonds`)
 
@@ -518,13 +638,13 @@ stateDiagram-v2
   - If calculation overflows: `ErrorCode::MathOverflow` (6009)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
-#### `INV-SELL-001`: Partial Bond Sale (`sell_bonds`)
+#### `INV-SELL-001`: Partial Bond Sale Queued into Active Batch (`sell_bonds`)
 
 - **Domain:** Bond Redemptions
-- **Vector Tag:** `Boundary` / `CPI`
+- **Vector Tag:** `Boundary` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`sell_bonds.rs#L10-L345`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L10-L345)
+- **Source Location:** [`sell_bonds.rs#L11-L218`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L11-L218)
 - **Precondition:** `user_winnings.registry_entry_index < registry.user_count && pool.status != Paused && pool.is_frozen_for_draw == 0 && (active_to_sell + pending_to_sell > 0) && (active_to_sell <= entry.active) && (pending_to_sell <= entry.pending) && (entry.active - active_to_sell + entry.pending - pending_to_sell > 0)`.
 - **Action:** `sell_bonds(active_to_sell, pending_to_sell)`
 - **Postcondition:**
@@ -532,16 +652,17 @@ stateDiagram-v2
   - `entry[k].active -= active_to_sell`, `entry[k].pending -= pending_to_sell`.
   - `registry.total_active_tickets -= active_to_sell`, `registry.total_pending_tickets -= pending_to_sell`.
   - `pool.total_deposited_principal -= expected_principal`.
+  - `pool.total_accumulating_redemptions += expected_principal`.
   - `pool.total_pending_redemptions += expected_principal`.
-  - `PendingRedemption` PDA initialized (`redemption_type: BondSale`).
-  - CPI into Huma `add_redemption_request` enqueues $PST share redemption.
+  - Queued into `redemption_batch`: `batch.accumulate(expected_principal)`.
+  - `PendingRedemption` PDA initialized with `batch_id = redemption_batch.batch_id` and `redemption_type = BondSale`.
   - Emits CPI event `BondsSold`.
 - **Expected Errors:**
   - If `active_to_sell > entry[k].active`: `ErrorCode::InsufficientActiveTickets` (6034)
   - If `pending_to_sell > entry[k].pending`: `ErrorCode::InsufficientPendingTickets` (6033)
   - If pool is paused: `ErrorCode::PoolPaused` (6039)
   - If pool frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
-  - If mode mint does not match: `ErrorCode::InvalidModeMint` (6027)
+  - If batch status not Accumulating: `ErrorCode::InvalidBatchStatus` (6074)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-SELL-002`: Full Pool Exit & Swap-and-Pop Index Relocation (`sell_bonds`)
@@ -550,7 +671,7 @@ stateDiagram-v2
 - **Vector Tag:** `Realloc` / `Access`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`sell_bonds.rs#L220-L241`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L220-L241), [`registry.rs#L444-L472`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L444-L472), [`pool.rs#L595-L658`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L595-L658)
+- **Source Location:** [`sell_bonds.rs#L137-L160`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L137-L160), [`registry.rs#L444-L472`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L444-L472), [`pool.rs#L644-L706`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L644-L706)
 - **Precondition:** `user_winnings.registry_entry_index < registry.user_count && (active_to_sell == entry.active) && (pending_to_sell == entry.pending)`.
 - **Action:** `sell_bonds(active_to_sell, pending_to_sell)`
 - **Postcondition:**
@@ -560,8 +681,8 @@ stateDiagram-v2
     - `last_entry = registry.entries[N - 1]`.
     - `registry.entries[k] = last_entry`.
     - `swapped_user_winnings.registry_entry_index = k`.
-    - First remaining account validated against PDA `[b"user_winnings", pool_id_bytes, last_entry.owner]`.
-  - **Vacated Memory Zeroing:** Slot $N-1$ zeroed with `UserEntry::default()`.
+    - Remaining account validated against PDA `[b"user_winnings", pool_id_bytes, last_entry.owner]`.
+  - **Vacated Memory Zeroing:** Slot $N-1$ zeroed with `UserEntry::default()` (64 zero bytes).
   - `registry.user_count = N - 1`.
   - `registry.total_active_tickets -= active_to_sell`, `registry.total_pending_tickets -= pending_to_sell`.
   - Emits CPI event `BondsSold`.
@@ -570,51 +691,126 @@ stateDiagram-v2
   - If user entry index hint mismatch: `ErrorCode::InvalidUserEntryHint` (6032)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
-#### `INV-REDM-001`: Asynchronous Redemption Settlement (`claim_redemption`)
+---
 
-- **Domain:** Redemption Settlement
-- **Vector Tag:** `Time` / `CPI`
+### 4.4 Unified Batch Redemption Pipeline
+
+#### `INV-BATCH-001`: Redemption Batch Submission (`crank_submit_redemption_batch`)
+
+- **Domain:** Batch Redemption Pipeline
+- **Vector Tag:** `CPI` / `Math` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`claim_redemption.rs#L11-L265`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/claim_redemption.rs#L11-L265)
-- **Precondition:** `pool.status != Paused && beneficiary.key() == pending_redemption.user`.
+- **Source Location:** [`crank_submit_redemption_batch.rs#L12-L243`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/crank_submit_redemption_batch.rs#L12-L243)
+- **Precondition:** `(crank.key() == global_config.jobs_account || crank.key() == global_config.admin) && batch.status == Accumulating && batch.total_principal_requested > 0 && !pool.has_submitted_batch() && pool.is_frozen_for_draw == 0`.
+- **Action:** `crank_submit_redemption_batch()`
+- **Postcondition:**
+  - Reads Huma queue snapshot; calculates $PST shares to redeem (`calculate_batch_submission_shares`).
+  - Executes single aggregated CPI `huma::add_redemption_request`.
+  - `batch.status = Submitted`, `batch.huma_request_id = request_id`, `batch.total_pst_shares_locked = shares`.
+  - `pool.total_accumulating_redemptions -= batch.total_principal_requested`.
+  - `pool.submitted_batch_id = batch.batch_id`.
+  - `pool.accumulating_redemption_batch_id = next_batch_id`, `pool.next_redemption_batch_id += 1`.
+  - `next_batch` initialized with `status = Accumulating`.
+  - Emits CPI event `RedemptionBatchSubmitted`.
+- **Expected Errors:**
+  - If caller is not authorized crank: `ErrorCode::UnauthorizedCrank` (6011)
+  - If batch is empty: `ErrorCode::EmptyRedemptionBatch` (6073)
+  - If another batch is already in-flight: `ErrorCode::SubmittedBatchInFlight` (6079)
+  - If pool is frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
+  - If pool is insolvent (unless impaired): `ErrorCode::YieldVenueInsolvent` (6047)
+  - If batch submission derives zero shares: `ErrorCode::ZeroSharesRedeemed` (6081)
+  - If batch status is not Accumulating: `ErrorCode::InvalidBatchStatus` (6074)
+
+#### `INV-BATCH-002`: Redemption Batch Settlement (`settle_redemption_batch`)
+
+- **Domain:** Batch Redemption Settlement
+- **Vector Tag:** `CPI` / `Math` / `Lifecycle`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`settle_redemption_batch.rs#L12-L187`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/settle_redemption_batch.rs#L12-L187)
+- **Precondition:** `batch.status == Submitted && pool.submitted_batch_id == batch.batch_id && huma_snapshot.is_redemption_settled(batch.huma_request_id)`.
+- **Action:** `settle_redemption_batch()`
+- **Postcondition:**
+  - Measures `pool_vault_account` balance before and after CPI `huma::disburse`.
+  - `usdc_received = vault_after - vault_before`.
+  - `batch.settle(usdc_received, clock.unix_timestamp)`.
+  - `batch.status = Settled`.
+  - Locks pro-rata payout rate $(usdc\_received / total\_principal\_requested)$.
+  - `pool.clear_submitted_batch(batch_id)` clears `submitted_batch_id = u64::MAX`, unlocking pipeline.
+  - Emits CPI event `RedemptionBatchSettled`.
+- **Expected Errors:**
+  - If batch is not in Submitted status: `ErrorCode::InvalidBatchStatus` (6074)
+  - If batch does not match pool submitted batch ID: `ErrorCode::MismatchedBatchId` (6077)
+  - If Huma queue has not settled: `ErrorCode::HumaQueueNotSettled` (6076)
+  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
+
+#### `INV-BATCH-003`: Redemption Batch Closure & Sweep (`crank_close_redemption_batch`)
+
+- **Domain:** Batch Lifecycle & Rent Recovery
+- **Vector Tag:** `Lifecycle` / `Time` / `Math`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`crank_close_redemption_batch.rs#L13-L160`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/crank_close_redemption_batch.rs#L13-L160)
+- **Precondition:** `(crank.key() == global_config.jobs_account || crank.key() == global_config.admin) && (batch.is_fully_claimed() || now >= batch.settled_at + BATCH_CLAIM_EXPIRY_SECONDS)`.
+- **Action:** `crank_close_redemption_batch()`
+- **Postcondition:**
+  - If expired with unclaimed funds ($unclaimed\_principal > 0$):
+    - Calculates unclaimed payout: $unclaimed\_usdc = \text{calculate\_unclaimed\_payout}()$.
+    - Sweeps $unclaimed\_usdc$ from `pool_vault_account` to `fee_wallet`.
+    - Decrements pool liabilities: `pool.complete_pending_redemption(unclaimed_principal)`.
+  - `batch` account closed on-chain, refunding 100% of SOL rent lamports to `crank`.
+  - Emits CPI event `RedemptionBatchClosed`.
+- **Expected Errors:**
+  - If caller is not authorized crank: `ErrorCode::UnauthorizedCrank` (6011)
+  - If batch is neither fully claimed nor expired: `ErrorCode::BatchNotFullyClaimed` (6080)
+  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
+
+#### `INV-REDM-001`: Pro-Rata Settled Batch Claim (`claim_redemption`)
+
+- **Domain:** Redemption Settlement
+- **Vector Tag:** `Math` / `Lifecycle`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`claim_redemption.rs#L13-L194`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/claim_redemption.rs#L13-L194)
+- **Precondition:** `pool.status != Paused && beneficiary.key() == pending_redemption.user && batch.status == Settled && batch.batch_id == pending_redemption.batch_id`.
 - **Action:** `claim_redemption()`
 - **Postcondition:**
-  - CPI into Huma `disburse` pulls settled USDC into `pool_vault_account`.
-  - Validates Huma queue progress: `huma_pool_state.next_request_id > pending_redemption.huma_request_id`.
-  - Validates bounded vault solvency: `redemption_amount.saturating_sub(vault_balance) <= SOLVENCY_DUST_TOLERANCE`.
-  - `pending_redemption.amount = 0` (re-entrancy defense).
-  - `pool.total_pending_redemptions -= redemption_amount`.
-  - USDC transferred from `pool_vault_account` to `beneficiary_token_account` (`min(redemption_amount, vault_balance)` when > 0).
-  - `PendingRedemption` account closed and rent refunded to `beneficiary`.
-  - Emits CPI event `RedemptionClaimed` with actual disbursed amount (`transfer_amount`).
+  - Calculates and commits pro-rata payout on batch: `payout = batch.claim(pending_redemption.amount)`.
+  - `pending_redemption.clear_amount()` zeroes out owed amount to prevent re-entrancy.
+  - Decrements pool liabilities: `pool.complete_pending_redemption(pending_redemption.amount)`.
+  - If $payout > 0$, transfers $payout$ USDC from `pool_vault_account` to `beneficiary_token_account`.
+  - `PendingRedemption` PDA closes and refunds 100% SOL rent to `beneficiary`.
+  - Emits CPI event `RedemptionClaimed`.
 - **Expected Errors:**
-  - If vault deficit exceeds dust tolerance: `ErrorCode::InsufficientVaultBalance` (6066)
-  - If Huma redemption not settled: `ErrorCode::HumaRedemptionNotSettled` (6020)
-  - If `beneficiary.key() != pending_redemption.user`: `ErrorCode::InvalidRedemptionOwner` (6021)
   - If pool is paused: `ErrorCode::PoolPaused` (6039)
-  - If redemption type discriminant invalid: `ErrorCode::InvalidRedemptionType` (6064)
+  - If beneficiary does not match receipt: `ErrorCode::InvalidRedemptionOwner` (6021)
+  - If batch is not settled: `ErrorCode::RedemptionBatchNotSettled` (6075)
+  - If batch overclaimed: `ErrorCode::BatchOverclaimed` (6082)
+  - If vault balance insufficient: `ErrorCode::InsufficientVaultBalance` (6066)
+  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
+
+#### `INV-REDM-002`: Expired Redemption Receipt Rent Reclaim (`close_expired_redemption`)
+
+- **Domain:** Receipt Cleanup & Rent Recovery
+- **Vector Tag:** `Lifecycle` / `Time` / `Access`
+- **Provenance:** `code_mined`
+- **Code Conformance:** `VERIFIED`
+- **Source Location:** [`close_expired_redemption.rs#L8-L82`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/close_expired_redemption.rs#L8-L82)
+- **Precondition:** `beneficiary.key() == pending_redemption.user && now >= pending_redemption.requested_at + BATCH_CLAIM_EXPIRY_SECONDS`.
+- **Action:** `close_expired_redemption()`
+- **Postcondition:**
+  - `pending_redemption.clear_amount()` zeroes out owed amount.
+  - `PendingRedemption` PDA closed on-chain, refunding 100% SOL rent to `beneficiary`.
+  - Emits CPI event `ExpiredRedemptionClosed`.
+- **Expected Errors:**
+  - If caller is not receipt owner: `ErrorCode::InvalidRedemptionOwner` (6021)
+  - If 180-day expiry window has not elapsed: `ErrorCode::BatchNotFullyClaimed` (6080)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 ---
 
-### 4.3 Lending Integration & Yield Harvesting
-
-#### `INV-LEND-001`: Huma Lender Binding (`initialize_huma_lender`)
-
-- **Domain:** Lending Integration
-- **Vector Tag:** `CPI` / `Access`
-- **Provenance:** `code_mined`
-- **Code Conformance:** `VERIFIED`
-- **Source Location:** [`initialize_huma_lender.rs#L10-L151`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/initialize_huma_lender.rs#L10-L151)
-- **Precondition:** `admin.is_signer && admin.key() == global_config.admin`.
-- **Action:** `initialize_huma_lender()`
-- **Postcondition:**
-  - CPI into Huma `create_lender_accounts_v2` initializes lender state and $PST ATA for pool PDA.
-  - Emits `HumaLenderInitialized`.
-- **Expected Errors:**
-  - If signer is unauthorized: `ErrorCode::UnauthorizedAdmin` (6017)
-  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
+### 4.5 Yield Draw Engine & VRF Randomness
 
 #### `INV-HARV-001`: Yield Harvest & Draw Commitment (`harvest_yield_and_commit`)
 
@@ -646,63 +842,42 @@ stateDiagram-v2
   - If prize tiers not configured: `ErrorCode::PrizeTiersNotConfigured` (6013)
   - If randomness account not owned by Switchboard: `ErrorCode::InvalidRandomnessAccount` (6028)
   - If randomness account uncommitted: `ErrorCode::RandomnessNotCommitted` (6068)
-  - If randomness account already revealed: `ErrorCode::RandomnessAlreadyResolved` (6069)
+  - If randomness account already revealed: `ErrorCode::RandomnessAlreadyRevealed` (6069)
   - If randomness seed slot older than 64 slots: `ErrorCode::StaleRandomnessRequest` (6030)
-  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-HARV-002`: Solvency Circuit Breaker (`harvest_yield_and_commit`)
 
-- **Domain:** Solvency Circuit Breaker
-- **Vector Tag:** `Math` / `Boundary`
+- **Domain:** Safety / Solvency Circuit Breakers
+- **Vector Tag:** `Lifecycle` / `Boundary`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`harvest_yield_and_commit.rs#L208-L229`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L208-L229)
-- **Precondition:** `current_value < book_value && (book_value - current_value) > 1,000`.
+- **Source Location:** [`harvest_yield_and_commit.rs#L202-L222`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L202-L222)
+- **Precondition:** `current_value + Tolerance < book_value`.
 - **Action:** `harvest_yield_and_commit()`
 - **Postcondition:**
+  - `draw_cycle.status = DrawStatus::HaltedInsolvent`.
   - `pool.status = PoolStatus::Paused (1)`.
   - `pool.is_frozen_for_draw = 0`.
-  - `draw_cycle.status = DrawStatus::HaltedInsolvent`.
-  - `draw_cycle.prize_pot = 0`, `draw_cycle.cycle_fee_collected = 0`.
-  - `pool.current_draw_cycle_id += 1`, `pool.current_cycle_end_at` advanced.
+  - `pool.current_draw_cycle_id += 1`.
   - Emits CPI event `EmergencyInsolvencyDetected`.
+- **Expected Errors:** None (safe exit with circuit breaker halt).
 
 #### `INV-HARV-003`: Yield Velocity Spike Circuit Breaker (`harvest_yield_and_commit`)
 
-- **Domain:** Safety Guard
-- **Vector Tag:** `Math` / `Boundary`
+- **Domain:** Safety / Oracle Manipulation Protection
+- **Vector Tag:** `Boundary` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`harvest_yield_and_commit.rs#L240-L263`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L240-L263)
-- **Precondition:** `pool.max_yield_basis_points > 0 && yield_generated > (book_value * max_yield_basis_points) / 10000`.
+- **Source Location:** [`harvest_yield_and_commit.rs#L233-L255`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L233-L255)
+- **Precondition:** `YieldGenerated > (book_value * max_yield_basis_points) / 10000`.
 - **Action:** `harvest_yield_and_commit()`
 - **Postcondition:**
+  - `draw_cycle.status = DrawStatus::HaltedYieldSpike`.
   - `pool.status = PoolStatus::Paused (1)`.
   - `pool.is_frozen_for_draw = 0`.
-  - `draw_cycle.status = DrawStatus::HaltedYieldSpike`.
-  - `draw_cycle.prize_pot = 0`, `draw_cycle.cycle_fee_collected = 0`.
-  - `pool.current_draw_cycle_id += 1`, `pool.current_cycle_end_at` advanced.
+  - `pool.current_draw_cycle_id += 1`.
   - Emits CPI event `YieldVelocityBreached`.
-
-#### `INV-HARV-004`: Sub-Threshold Yield & Zero-Ticket Draw Skipping (`harvest_yield_and_commit`)
-
-- **Domain:** Yield Draw / Commitment
-- **Vector Tag:** `Lifecycle`
-- **Provenance:** `code_mined`
-- **Code Conformance:** `VERIFIED`
-- **Source Location:** [`harvest_yield_and_commit.rs#L305-L322`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L305-L322)
-- **Precondition:** `yield_generated < pool.min_yield_threshold || eligible_locked_count == 0`.
-- **Action:** `harvest_yield_and_commit()`
-- **Postcondition:**
-  - `pool.is_frozen_for_draw` remains `0`.
-  - `draw_cycle.status = DrawStatus::Skipped`, `draw_cycle.completed_at = clock.unix_timestamp`.
-  - Yield rolls over naturally in Huma pool.
-  - `pool.current_draw_cycle_id += 1`, `pool.current_cycle_end_at` advanced.
-  - Emits CPI event `DrawSkipped`.
-
----
-
-### 4.4 Draw Preparation, Randomness & Winner Selection
+- **Expected Errors:** None (safe exit with spike trip).
 
 #### `INV-PREP-001`: Batched Lazy Merge & Prefix Sum Computation (`prepare_draw`)
 
@@ -711,51 +886,42 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`prepare_draw.rs#L8-L91`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/prepare_draw.rs#L8-L91)
-- **Precondition:** `pool.status == PoolStatus::Active && pool.is_frozen_for_draw != 0 && draw_cycle.status == DrawStatus::AwaitingRandomness && batch_size > 0`.
+- **Precondition:** `pool.status == PoolStatus::Active && pool.is_frozen_for_draw == 1 && batch_size > 0 && ticket_registry.draw_prepared_up_to < ticket_registry.user_count`.
 - **Action:** `prepare_draw(batch_size)`
 - **Postcondition:**
-  - Processes entries in range $[\text{start}, \text{end}-1]$ where $\text{start} = \text{draw\_prepared\_up\_to}$, $\text{end} = \min(\text{start} + \text{batch\_size}, \text{user\_count})$.
-  - Applies `entry.lazy_merge(draw_cycle_id - 1)`.
-  - Computes monotonic prefix sum: `cumulative += entry.active`, `entry.cumulative_active = cumulative`.
-  - `registry.draw_prepared_up_to = end`.
-  - Emits `DrawPreparationProgress`.
+  - Evaluates up to `batch_size` user entries starting at index `draw_prepared_up_to`.
+  - Lazy merge: `entry.active += entry.pending`, `entry.pending = 0`, `entry.merged_through_cycle = registry.draw_cycle_id`.
+  - Accumulates running prefix sum into `entry.cumulative_active`.
+  - `ticket_registry.draw_prepared_up_to = min(user_count, start + batch_size)`.
+  - Emits CPI event `DrawPreparationProgress`.
 - **Expected Errors:**
-  - If pool is not active: `ErrorCode::PoolNotActive` (6000)
   - If pool is not frozen: `ErrorCode::PoolNotFrozen` (6035)
-  - If draw status $\neq$ `AwaitingRandomness`: `ErrorCode::InvalidDrawStatus` (6015)
+  - If pool is not active: `ErrorCode::PoolNotActive` (6000)
   - If `batch_size == 0`: `ErrorCode::InvalidBatchSize` (6065)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-DRAW-001`: VRF Winner Selection via Binary Search (`reveal_and_pick_winners`)
 
-- **Domain:** Prize Draw / Winner Selection
+- **Domain:** Randomness & Winner Drawing
 - **Vector Tag:** `Math` / `Time`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`reveal_and_pick_winners.rs#L12-L244`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/reveal_and_pick_winners.rs#L12-L244)
-- **Precondition:** `crank.is_signer (permissionless) && pool.status == PoolStatus::Active && pool.prize_tiers_count > 0 && draw_cycle.status == DrawStatus::AwaitingRandomness && registry.draw_prepared_up_to == registry.user_count && randomness_account.owner == Switchboard && seed_slot == draw_cycle.vrf_seed_slot && (clock.slot - seed_slot) <= 1000`.
+- **Precondition:** `pool.status == PoolStatus::Active && pool.is_frozen_for_draw == 1 && ticket_registry.draw_prepared_up_to == ticket_registry.user_count && switchboard_randomness.seed_slot == draw_cycle.vrf_seed_slot && clock.slot - draw_cycle.vrf_seed_slot <= VRF_FRESHNESS_WINDOW_SLOTS (1000)`.
 - **Action:** `reveal_and_pick_winners()`
 - **Postcondition:**
-  - VRF seed extracted: `random_seed = randomness_data.get_value(clock.slot)`.
-  - Dynamically initializes `PayoutRegistry` sized for $W$ winners ($104 + W \times 56$ B).
-  - For each tier $t$ and winner $i$:
-    - Derive ticket index: $R = \text{derive\_random\_index}(\text{seed}, t, i, \text{cycle\_id}, \text{locked\_tickets})$.
-    - Binary search locates winning `UserEntry.owner` in $O(\log N)$ steps.
-    - Entry recorded in `PayoutRegistry.winners`.
-  - `dust = draw_cycle.prize_pot - total_distributed`.
-  - `pool.deduct_allocated_prizes(dust)?`.
-  - `draw_cycle.status = DrawStatus::Complete`, `draw_cycle.completed_at = clock.unix_timestamp`.
+  - `PayoutRegistry` dynamically initialized for $W$ winners.
+  - Deterministic PRNG initialized from `randomness_account.value`.
+  - For each tier and winner: picks winning ticket $T \in [0, \text{locked\_ticket\_count}-1]$, binary searches `cumulative_active` to identify winner `Pubkey`.
   - `pool.is_frozen_for_draw = 0`.
+  - `draw_cycle.status = DrawStatus::Complete`.
   - Emits CPI event `DrawCompleted`.
 - **Expected Errors:**
-  - If pool not active: `ErrorCode::PoolNotActive` (6000)
-  - If prize tiers unconfigured: `ErrorCode::PrizeTiersNotConfigured` (6013)
-  - If draw not awaiting randomness or not fully prepared: `ErrorCode::InvalidDrawStatus` (6015)
-  - If randomness account not owned by Switchboard: `ErrorCode::InvalidRandomnessAccount` (6028)
-  - If randomness seed slot does not match committed VRF seed slot or is older than 1000 slots: `ErrorCode::StaleRandomnessRequest` (6030)
-  - If randomness unfulfilled: `ErrorCode::RandomnessNotResolved` (6029)
-  - If winners count exceeds allocated registry: `ErrorCode::TooManyWinners` (6052)
-  - If winner index out of bounds: `ErrorCode::InvalidWinnerIndex` (6010)
+  - If prepared cumulative count does not match locked ticket count: `ErrorCode::DrawSnapshotMismatch` (6072)
+  - If draw preparation incomplete: `ErrorCode::InvalidDrawStatus` (6015)
+  - If randomness not resolved: `ErrorCode::RandomnessNotResolved` (6029)
+  - If seed slot mismatch: `ErrorCode::RandomnessCommitmentTampered` (6070)
+  - If freshness window exceeded (> 1000 slots): `ErrorCode::StaleRandomnessRequest` (6030)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-VRF-001`: Stale Randomness Rebinding (`crank_rebind_expired_randomness`)
@@ -765,96 +931,94 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`crank_rebind_expired_randomness.rs#L7-L142`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/crank_rebind_expired_randomness.rs#L7-L142)
-- **Precondition:** `crank.key() == global_config.jobs_account && pool.status == PoolStatus::Active && draw_cycle.status == DrawStatus::AwaitingRandomness && clock.slot - draw_cycle.vrf_seed_slot > 1000 && new_randomness_account.owner == Switchboard && new_randomness_account != current_draw_cycle.randomness_account`.
+- **Precondition:** `crank.key() == global_config.jobs_account && draw_cycle.status == DrawStatus::AwaitingRandomness && clock.slot - draw_cycle.vrf_seed_slot > VRF_FRESHNESS_WINDOW_SLOTS (1000) && draw_cycle.rebind_count < MAX_CRANK_REBINDS (2) && new_randomness != old_randomness`.
 - **Action:** `crank_rebind_expired_randomness()`
 - **Postcondition:**
-  - `draw_cycle.randomness_account = new_randomness_account.key()`.
+  - `draw_cycle.randomness_account = new_randomness.key()`.
   - `draw_cycle.vrf_seed_slot = new_seed_slot`.
+  - `draw_cycle.rebind_count += 1`.
   - Emits CPI event `RandomnessRebound`.
 - **Expected Errors:**
-  - If less than 1000 slots have elapsed: `ErrorCode::RandomnessNotExpired` (6031)
-  - If caller != `jobs_account`: `ErrorCode::UnauthorizedCrank` (6011)
-  - If new account not owned by Switchboard: `ErrorCode::InvalidRandomnessAccount` (6028)
+  - If randomness has not expired ($\le 1000$ slots): `ErrorCode::RandomnessNotExpired` (6031)
+  - If rebind limit reached ($\ge 2$): `ErrorCode::RebindLimitReached` (6071)
+  - If same randomness account: `ErrorCode::SameRandomnessAccount` (6051)
   - If new account uncommitted: `ErrorCode::RandomnessNotCommitted` (6068)
-  - If new account already resolved: `ErrorCode::RandomnessAlreadyResolved` (6069)
-  - If new account matches current randomness account: `ErrorCode::SameRandomnessAccount` (6051)
-  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
+  - If new account already revealed: `ErrorCode::RandomnessAlreadyRevealed` (6069)
+  - If caller is not jobs account: `ErrorCode::UnauthorizedCrank` (6011)
 
 ---
 
-### 4.5 Winnings Reinvestment, Dust Claims & Fee Extraction
+### 4.6 Prize Distribution & Treasury Management
 
 #### `INV-REINV-001`: Multi-Cycle Dust Aggregated Reinvestment (`reinvest_winnings`)
 
-- **Domain:** Prize Payouts & Dust Accounting
+- **Domain:** Prize Engine & Compounding
 - **Vector Tag:** `Math` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`reinvest_winnings.rs#L9-L254`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/reinvest_winnings.rs#L9-L254)
-- **Precondition:** `payout_registry.is_active() && pool.status != PoolStatus::Paused && !pool.is_frozen() && (pool.payout_timelock_seconds == 0 || clock.unix_timestamp >= payout_registry.revealed_at + pool.payout_timelock_seconds) && winner_index < payout_registry.winners_count && winner.processed == 0 && winner.winner == user_winnings.user`.
+- **Precondition:** `winner_index < payout_registry.winners_count && payout_registry.winners[winner_index].processed == 0 && clock.unix_timestamp >= draw_cycle.completed_at + pool.payout_timelock_seconds && pool.status != PoolStatus::Paused && pool.is_frozen_for_draw == 0`.
 - **Action:** `reinvest_winnings(cycle_id, winner_index)`
 - **Postcondition:**
-  - $\text{TotalAvailable} = \text{winner.amount\_owed} + \text{user\_winnings.unclaimed\_non\_reinvested\_winnings}$.
-  - If `pool.status == PoolStatus::Closed` or (`needs_registry_slot()` and `user_count >= capacity`): $\text{BondsBought} = 0$.
-  - Else: $\text{BondsBought} = \lfloor \text{TotalAvailable} / \text{bond\_price} \rfloor$.
-  - $\text{Cost} = \text{BondsBought} \times \text{bond\_price}$.
+  - `TotalAvailable = winner.amount_owed + user_winnings.unclaimed_non_reinvested_winnings`.
+  - If `pool.status == PoolStatus::Closed` or (`needs_slot && registry.user_count >= capacity`): `BondsBought = 0`.
+  - Else: `BondsBought = TotalAvailable / bond_price`.
+  - `Cost = BondsBought * bond_price`.
   - `user_winnings.unclaimed_non_reinvested_winnings = TotalAvailable - Cost`.
-  - `payout_registry.winners[winner_index].processed = 1`, `bonds_bought = BondsBought`.
-  - If $\text{BondsBought} > 0$:
-    - `pool.total_deposited_principal += Cost`, `pool.total_prizes_allocated -= Cost`.
-    - `registry.total_active_tickets += BondsBought`.
-    - If new entry: allocated in slot `user_count`, `registry.user_count += 1`.
-    - If existing entry: lazy merged, `entry.active += BondsBought`.
+  - `payout_registry.winners[winner_index].processed = 1`.
+  - `payout_registry.payouts_completed += 1`.
+  - If `BondsBought > 0`: `pool.total_deposited_principal += Cost`, `pool.total_prizes_allocated -= Cost`, `registry.total_active_tickets += BondsBought`.
   - Emits CPI event `WinningsReinvested`.
 - **Expected Errors:**
-  - If draw voided: `ErrorCode::DrawVoided` (6041)
   - If timelock active: `ErrorCode::PayoutTimelockActive` (6044)
-  - If winner already processed: `ErrorCode::AlreadyClaimed` (6008)
-  - If winner pubkey mismatch: `ErrorCode::WinnerMismatch` (6049)
+  - If draw voided: `ErrorCode::DrawVoided` (6041)
+  - If already processed: `ErrorCode::AlreadyClaimed` (6008)
+  - If winner mismatch: `ErrorCode::WinnerMismatch` (6049)
   - If winner index out of bounds: `ErrorCode::InvalidWinnerIndex` (6010)
   - If pool is paused: `ErrorCode::PoolPaused` (6039)
   - If pool frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
-  - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
-#### `INV-CLAIM-001`: User Dust Winnings Withdrawal (`claim_non_reinvested_winnings`)
+#### `INV-CLAIM-001`: User Dust Winnings Withdrawal Queued into Active Batch (`claim_non_reinvested_winnings`)
 
-- **Domain:** User Claims & Redemptions
-- **Vector Tag:** `Boundary` / `CPI`
+- **Domain:** User Claims & Batch Queuing
+- **Vector Tag:** `Boundary` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`claim_non_reinvested_winnings.rs#L9-L267`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/claim_non_reinvested_winnings.rs#L9-L267)
-- **Precondition:** `user.is_signer && user_winnings.unclaimed_non_reinvested_winnings > 0 && pool.status != PoolStatus::Paused && !pool.is_frozen() && pool_pst_vault.mint == huma_mode_mint`.
+- **Source Location:** [`claim_non_reinvested_winnings.rs#L9-L151`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/claim_non_reinvested_winnings.rs#L9-L151)
+- **Precondition:** `user.is_signer && user_winnings.unclaimed_non_reinvested_winnings > 0 && pool.status != PoolStatus::Paused && !pool.is_frozen()`.
 - **Action:** `claim_non_reinvested_winnings()`
 - **Postcondition:**
   - `claimable = user_winnings.unclaimed_non_reinvested_winnings`.
   - `user_winnings.unclaimed_non_reinvested_winnings = 0`.
   - `user_winnings.total_claimed += claimable`.
   - `pool.total_prizes_allocated -= claimable`.
+  - `pool.total_accumulating_redemptions += claimable`.
   - `pool.total_pending_redemptions += claimable`.
-  - `PendingRedemption` PDA initialized (`redemption_type: PrizeClaim`).
-  - CPI into Huma `add_redemption_request` enqueues $PST share redemption.
+  - Queued into `redemption_batch`: `batch.accumulate(claimable)`.
+  - `PendingRedemption` PDA initialized with `redemption_type = PrizeClaim`.
   - Emits CPI event `WinningsClaimed`.
 - **Expected Errors:**
   - If `unclaimed_non_reinvested_winnings == 0`: `ErrorCode::NoWinningsToClaim` (6023)
   - If pool is paused: `ErrorCode::PoolPaused` (6039)
   - If pool frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
-  - If mode mint does not match: `ErrorCode::InvalidModeMint` (6027)
+  - If batch status not Accumulating: `ErrorCode::InvalidBatchStatus` (6074)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
-#### `INV-FEE-001`: Protocol Fee Extraction (`withdraw_fees`)
+#### `INV-FEE-001`: Protocol Fee Extraction Queued into Active Batch (`withdraw_fees`)
 
-- **Domain:** Treasury Management
-- **Vector Tag:** `Access` / `Math` / `CPI`
+- **Domain:** Treasury Management & Batch Queuing
+- **Vector Tag:** `Access` / `Math` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`withdraw_fees.rs#L12-L282`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/withdraw_fees.rs#L12-L282)
-- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status != PoolStatus::Paused && pool.is_frozen_for_draw == 0 && amount > 0 && amount <= (pool.total_fees_accrued - pool.total_fees_withdrawn) && fee_wallet.key() == pool.fee_wallet`.
+- **Source Location:** [`withdraw_fees.rs#L12-L157`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/withdraw_fees.rs#L12-L157)
+- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status != PoolStatus::Paused && pool.is_frozen_for_draw == 0 && amount > 0 && amount <= pool.unwithdrawn_fees() && fee_wallet.key() == pool.fee_wallet`.
 - **Action:** `withdraw_fees(amount)`
 - **Postcondition:**
   - `pool.total_fees_withdrawn += amount`.
+  - `pool.total_accumulating_redemptions += amount`.
   - `pool.total_pending_redemptions += amount`.
-  - `PendingRedemption` PDA initialized (`redemption_type: FeeWithdrawal`, beneficiary: `fee_wallet.owner`).
-  - CPI into Huma `add_redemption_request` enqueues $PST share redemption.
+  - Queued into `redemption_batch`: `batch.accumulate(amount)`.
+  - `PendingRedemption` PDA initialized with `redemption_type = FeeWithdrawal` and `user = fee_wallet.owner`.
   - Emits CPI event `FeesWithdrawn`.
 - **Expected Errors:**
   - If signer != admin: `ErrorCode::UnauthorizedAdmin` (6017)
@@ -862,12 +1026,12 @@ stateDiagram-v2
   - If fee wallet mismatch: `ErrorCode::InvalidFeeWallet` (6037)
   - If pool is paused: `ErrorCode::PoolPaused` (6039)
   - If pool frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
-  - If mode mint does not match: `ErrorCode::InvalidModeMint` (6027)
+  - If batch status not Accumulating: `ErrorCode::InvalidBatchStatus` (6074)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 ---
 
-### 4.6 Emergency Unlocking & Draw Rollback
+### 4.7 Emergency Unlocking, Draw Rollback & Rent Reclaim
 
 #### `INV-ADMIN-001`: Multisig Emergency Draw Force Unlock (`admin_force_unlock_draw`)
 
@@ -881,8 +1045,7 @@ stateDiagram-v2
 - **Postcondition:**
   - `pool.is_frozen_for_draw = 0`.
   - `draw_cycle.status = DrawStatus::ForceUnlocked`, `completed_at = clock.unix_timestamp`.
-  - `pool.total_prizes_allocated -= draw_cycle.prize_pot`.
-  - `pool.total_fees_accrued -= draw_cycle.cycle_fee_collected`.
+  - `pool.rollback_draw_liabilities(draw_cycle.prize_pot, draw_cycle.cycle_fee_collected)`.
   - Emits CPI event `DrawForceUnlocked`.
 - **Expected Errors:**
   - If signer != admin: `ErrorCode::UnauthorizedAdmin` (6017)
@@ -896,12 +1059,11 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`admin_void_payout_registry.rs#L9-L106`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/admin_void_payout_registry.rs#L9-L106)
-- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status != PoolStatus::Closed && pool.is_frozen_for_draw == 0 && payout_registry.payouts_completed == 0 && payout_registry.status == PayoutRegistryStatus::Active && draw_cycle.status == DrawStatus::Complete && (pool.total_fees_accrued - pool.total_fees_withdrawn) >= draw_cycle.cycle_fee_collected`.
+- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status != PoolStatus::Closed && pool.is_frozen_for_draw == 0 && payout_registry.payouts_completed == 0 && payout_registry.status == PayoutRegistryStatus::Active && draw_cycle.status == DrawStatus::Complete && pool.unwithdrawn_fees() >= draw_cycle.cycle_fee_collected`.
 - **Action:** `admin_void_payout_registry()`
 - **Postcondition:**
   - `total_distributed = sum(winner.amount_owed)`.
-  - `pool.total_prizes_allocated -= total_distributed`.
-  - `pool.total_fees_accrued -= draw_cycle.cycle_fee_collected`.
+  - `pool.rollback_draw_liabilities(total_distributed, draw_cycle.cycle_fee_collected)`.
   - `payout_registry.status = PayoutRegistryStatus::Voided (1)`.
   - `draw_cycle.status = DrawStatus::Voided`, `completed_at = clock.unix_timestamp`.
   - Emits CPI event `DrawVoided`.
@@ -927,7 +1089,7 @@ stateDiagram-v2
 - **Postcondition:**
   - `PayoutRegistry` account closed on-chain.
   - 100% of rent lamports refunded directly to `crank`.
-  - Emits CPI event `PayoutRegistryClosed { pool_id, cycle_id, crank, rent_reclaimed_lamports, timestamp }`.
+  - Emits CPI event `PayoutRegistryClosed`.
 - **Expected Errors:**
   - If caller is not `jobs_account` or `admin`: `ErrorCode::UnauthorizedCrank` (6011)
   - If payouts are still pending (`payouts_completed < winners_count` and not voided): `ErrorCode::PayoutsPending` (6063)
@@ -935,7 +1097,7 @@ stateDiagram-v2
 
 ---
 
-### 4.7 Account Versioning & Schema Upgrade Safety
+### 4.8 Account Versioning & Schema Upgrade Safety
 
 #### `INV-UPGR-001`: Account Schema Versioning & Upgrade Safety Guard
 
@@ -943,7 +1105,7 @@ stateDiagram-v2
 - **Vector Tag:** `Lifecycle` / `Boundary`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`global_state.rs#L43-L59`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/global_state.rs#L43-L59), [`draw.rs#L95-L111`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L95-L111), [`pending_redemption.rs#L99-L115`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pending_redemption.rs#L99-L115), [`pool.rs#L178-L194`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L178-L194), [`registry.rs#L40-L56`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L40-L56)
+- **Source Location:** [`global_state.rs#L43-L59`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/global_state.rs#L43-L59), [`draw.rs#L95-L111`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L95-L111), [`pending_redemption.rs#L74-L98`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pending_redemption.rs#L74-L98), [`pool.rs#L168-L179`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L168-L179), [`registry.rs#L40-L56`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L40-L56), [`redemption_batch.rs#L65-L86`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/redemption_batch.rs#L65-L86)
 - **Precondition:** `account.version <= CURRENT_VERSION (1)`.
 - **Action:** Read/Write instruction handlers invoke `check_version()` and `ensure_current_version()`.
 - **Postcondition:**
@@ -954,7 +1116,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Metamorphic Relations Catalog (10 Theorems)
+## 5. Metamorphic Relations Catalog (13 Theorems)
 
 - **`MTR-001` (Deposit Linearity & Scale Invariance):**
   $$\text{BuyBonds}(2 \times N) \iff \text{BuyBonds}(N) \text{ followed by } \text{BuyBonds}(N) \quad (\text{yields identical pending ticket balance and principal addition})$$
@@ -987,98 +1149,134 @@ stateDiagram-v2
 - **`MTR-010` (Payout Registry Rent Recovery Conservation):**
   $$\text{InitPayout}(W) \circ \text{ProcessAll}(W) \circ \text{CrankClose}() \implies \text{Lamports}(\text{Crank})_{\text{after}} - \text{Lamports}(\text{Crank})_{\text{before}} = \text{Rent}(\text{PayoutRegistry}_W)$$
 
+- **`MTR-011` (Unified Batch Aggregation Monotonicity):**
+  $$\text{Payout}(p_1 + p_2) \ge \text{Payout}(p_1) + \text{Payout}(p_2) \quad (\text{integer division floor truncation guarantee})$$
+
+- **`MTR-012` (Pro-Rata Solvency Bounds under Arbitrary Haircuts):**
+  $$\forall \text{ haircut } h \in [0, 1], \quad \text{disbursed} = \lfloor \text{requested} \times (1 - h) \rfloor \implies \sum_{i=1}^{M} \text{Payout}(p_i) \le \text{disbursed}$$
+
+- **`MTR-013` (Dynamic Solvency Clamping Monotonicity):**
+  $$\text{BookValue}_1 \le \text{BookValue}_2 \implies \text{Tolerance}(\text{BookValue}_1) \le \text{Tolerance}(\text{BookValue}_2) \quad (\text{clamped in } [10,000, 20,000,000])$$
+
 ---
 
-## 6. Canonical Error Code Mapping Matrix (66 Errors)
+## 6. Canonical Error Code Mapping Matrix (89 Errors: `6000`–`6088`)
 
-|  Code  | Anchor Error Variant                      | Error Message                                                                                                  | Subsystem / Instruction                                                                                                                       | Vector Tag  |
-| :----: | :---------------------------------------- | :------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- | :---------: |
-| `6000` | `PoolNotActive`                           | "The prize pool is not currently active."                                                                      | Pool Lifecycle, `buy_bonds`, `prepare_draw`, `reveal_and_pick_winners`                                                                        | `Lifecycle` |
-| `6001` | `InvalidPoolStatus`                       | "Invalid pool status value."                                                                                   | Pool State Serialization                                                                                                                      | `Lifecycle` |
-| `6002` | `CycleNotEnded`                           | "The current stake cycle has not yet ended."                                                                   | `harvest_yield_and_commit`                                                                                                                    |   `Time`    |
-| `6003` | `InvalidBondQuantity`                     | "Invalid bond quantity."                                                                                       | `buy_bonds`, `sell_bonds`                                                                                                                     | `Boundary`  |
-| `6004` | `RegistryFull`                            | "The prize pool registration capability has hit absolute capacity constraints."                                | `buy_bonds`, `reinvest_winnings`                                                                                                              | `Boundary`  |
-| `6005` | `RegistryTooSmall`                        | "The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes."            | `create_pool`                                                                                                                                 | `Boundary`  |
-| `6006` | `RegistryAtMaxSize`                       | "The registry account has reached Solana's 10 MB maximum size."                                                | `resize_registry`                                                                                                                             | `Boundary`  |
-| `6007` | `AwaitingRandomnessFreeze`                | "The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused." | `buy_bonds`, `sell_bonds`, `harvest_yield_and_commit`, `update_pool_config`, `set_prize_tiers`                                                | `Lifecycle` |
-| `6008` | `AlreadyClaimed`                          | "Trying to claim a prize that has already been claimed."                                                       | `reinvest_winnings`, `validate_winner`                                                                                                        | `Lifecycle` |
-| `6009` | `MathOverflow`                            | "Calculation overflow occurred natively."                                                                      | Math Utilities, Registry, Pool Accounting                                                                                                     |   `Math`    |
-| `6010` | `InvalidWinnerIndex`                      | "Winner index is out of bounds."                                                                               | `reinvest_winnings`, `validate_winner`                                                                                                        | `Boundary`  |
-| `6011` | `UnauthorizedCrank`                       | "Only the designated Switchboard Jobs Account can execute this crank."                                         | `harvest_yield_and_commit`, `crank_rebind_expired_randomness`, `crank_close_payout_registry`                                                  |  `Access`   |
-| `6012` | `InvalidPrizeTierConfig`                  | "Invalid prize tier configuration."                                                                            | `create_pool`, `set_prize_tiers`                                                                                                              | `Boundary`  |
-| `6013` | `PrizeTiersNotConfigured`                 | "Prize tiers have not been configured for this pool."                                                          | `harvest_yield_and_commit`, `reveal_and_pick_winners`                                                                                         | `Lifecycle` |
-| `6014` | `BasisPointsMustEqual10000`               | "Total basis points across all tiers must equal exactly 10,000 (100%)."                                        | `create_pool`, `set_prize_tiers`                                                                                                              |   `Math`    |
-| `6015` | `InvalidDrawStatus`                       | "The draw cycle is in an invalid phase for this operation"                                                     | `prepare_draw`, `reveal_and_pick_winners`, `admin_force_unlock_draw`, `admin_void_payout_registry`                                            | `Lifecycle` |
-| `6016` | `InvalidDrawState`                        | "The draw cycle has an invalid locked count or prize pot."                                                     | `reveal_and_pick_winners`                                                                                                                     | `Boundary`  |
-| `6017` | `UnauthorizedAdmin`                       | "Unauthorized admin."                                                                                          | `initialize_global`, `update_global_config`, `nominate_admin`, `cancel_admin_nomination`, `update_pool_config`, `close_pool`, `withdraw_fees` |  `Access`   |
-| `6018` | `InvalidBondPrice`                        | "Bond price must be greater than 0."                                                                           | `create_pool`, `update_pool_config`                                                                                                           | `Boundary`  |
-| `6019` | `InvalidStakeCycleDuration`               | "Stake cycle duration must be greater than 0 hours."                                                           | `create_pool`, `update_pool_config`                                                                                                           | `Boundary`  |
-| `6020` | `HumaRedemptionNotSettled`                | "Huma redemption has not been settled yet."                                                                    | `claim_redemption`                                                                                                                            |   `Time`    |
-| `6021` | `InvalidRedemptionOwner`                  | "Beneficiary does not match pending redemption owner."                                                         | `claim_redemption`                                                                                                                            |  `Access`   |
-| `6022` | `InsufficientFeeBalance`                  | "Insufficient accrued fee balance for withdrawal."                                                             | `withdraw_fees`                                                                                                                               |   `Math`    |
-| `6023` | `NoWinningsToClaim`                       | "No unclaimed non-reinvested winnings to claim."                                                               | `claim_non_reinvested_winnings`                                                                                                               | `Boundary`  |
-| `6024` | `InvalidFeeConfig`                        | "Fee basis points must be less than or equal to 10,000 (100%)."                                                | `create_pool`, `update_pool_config`                                                                                                           | `Boundary`  |
-| `6025` | `InvalidMaxYieldBasisPoints`              | "Max yield basis points must be less than or equal to 10,000 (100%)."                                          | `create_pool`, `update_pool_config`                                                                                                           | `Boundary`  |
-| `6026` | `InvalidPayoutTimelock`                   | "Payout timelock delay must not exceed 86,400 seconds (24 hours)."                                             | `create_pool`, `update_pool_config`                                                                                                           | `Boundary`  |
-| `6027` | `InvalidModeMint`                         | "The mode mint does not match the pool's mode mint."                                                           | Huma CPI Wrappers, `withdraw_fees`, `sell_bonds`, `claim_non_reinvested_winnings`                                                             |    `CPI`    |
-| `6028` | `InvalidRandomnessAccount`                | "The provided randomness account is invalid or does not belong to Switchboard."                                | `reveal_and_pick_winners`, `crank_rebind_expired_randomness`                                                                                  |  `Access`   |
-| `6029` | `RandomnessNotResolved`                   | "The randomness request has not yet been resolved by the oracle network."                                      | `reveal_and_pick_winners`                                                                                                                     |   `Time`    |
-| `6030` | `StaleRandomnessRequest`                  | "The randomness request is stale or was committed before the harvest freeze."                                  | `reveal_and_pick_winners`                                                                                                                     |   `Time`    |
-| `6031` | `RandomnessNotExpired`                    | "The randomness account cannot be re-locked because the current one is not yet expired."                       | `crank_rebind_expired_randomness`                                                                                                             |   `Time`    |
-| `6032` | `InvalidUserEntryHint`                    | "Invalid registry user entry hint provided"                                                                    | Registry Access, `buy_bonds`, `sell_bonds`                                                                                                    |  `Access`   |
-| `6033` | `InsufficientPendingTickets`              | "Insufficient pending tickets for this transaction"                                                            | `sell_bonds`                                                                                                                                  | `Boundary`  |
-| `6034` | `InsufficientActiveTickets`               | "Insufficient active tickets for this transaction"                                                             | `sell_bonds`                                                                                                                                  | `Boundary`  |
-| `6035` | `PoolNotFrozen`                           | "The prize pool must be frozen for draw preparation"                                                           | `prepare_draw`                                                                                                                                | `Lifecycle` |
-| `6036` | `MissingSwappedUserWinnings`              | "Required remaining account for swapped user's UserWinnings is missing"                                        | Swap-and-Pop, `sell_bonds`                                                                                                                    |  `Realloc`  |
-| `6037` | `InvalidFeeWallet`                        | "The provided fee wallet account is invalid or does not match the pool configuration"                          | `update_pool_config`, `withdraw_fees`                                                                                                         |  `Access`   |
-| `6038` | `CannotModifyBondPriceWithActiveDeposits` | "Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes."           | `update_pool_config`                                                                                                                          | `Boundary`  |
-| `6039` | `PoolPaused`                              | "The prize pool is paused."                                                                                    | Circuit Breakers, `buy_bonds`, `sell_bonds`, `withdraw_fees`, `claim_redemption`, `claim_non_reinvested_winnings`, `reinvest_winnings`        | `Lifecycle` |
-| `6040` | `PoolClosed`                              | "The prize pool is closed permanently."                                                                        | `emergency_pause`, `admin_void_payout_registry`                                                                                               | `Lifecycle` |
-| `6041` | `DrawVoided`                              | "This draw has been voided."                                                                                   | `reinvest_winnings`                                                                                                                           | `Lifecycle` |
-| `6042` | `DrawAlreadyVoided`                       | "This draw has already been voided."                                                                           | `admin_void_payout_registry`                                                                                                                  | `Lifecycle` |
-| `6043` | `PayoutsAlreadyStarted`                   | "Winner payouts have already begun processing."                                                                | `admin_void_payout_registry`                                                                                                                  | `Lifecycle` |
-| `6044` | `PayoutTimelockActive`                    | "Payout settlement timelock is active."                                                                        | `reinvest_winnings`                                                                                                                           |   `Time`    |
-| `6045` | `FeesAlreadyWithdrawn`                    | "Protocol fees from this cycle were already withdrawn."                                                        | `admin_void_payout_registry`                                                                                                                  | `Lifecycle` |
-| `6046` | `ZeroSharesMinted`                        | "Huma deposit produced zero PST shares."                                                                       | Huma Deposit / Venue                                                                                                                          | `Boundary`  |
-| `6047` | `YieldVenueInsolvent`                     | "Yield venue is insolvent."                                                                                    | Solvency Circuit Breaker                                                                                                                      | `Boundary`  |
-| `6048` | `Unauthorized`                            | "Unauthorized signer."                                                                                         | `pause_pool`                                                                                                                                  |  `Access`   |
-| `6049` | `WinnerMismatch`                          | "Winner account does not match the payout registry entry."                                                     | `reinvest_winnings`, `validate_winner`                                                                                                        |  `Access`   |
-| `6050` | `UnsupportedAccountVersion`               | "Account schema version is invalid or unsupported."                                                            | Lazy Migration & Version Guards                                                                                                               | `Lifecycle` |
-| `6051` | `SameRandomnessAccount`                   | "Cannot rebind to the same randomness account."                                                                | `crank_rebind_expired_randomness`                                                                                                             |  `Access`   |
-| `6052` | `TooManyWinners`                          | "Winner count exceeds payout registry capacity"                                                                | `create_pool`, `set_prize_tiers`, `reveal_and_pick_winners`                                                                                   | `Boundary`  |
-| `6053` | `InvalidHumaPoolData`                     | "Huma pool account data is truncated or malformed"                                                             | Huma State Deserialization                                                                                                                    |    `CPI`    |
-| `6054` | `InvalidRegistryState`                    | "Ticket registry buffer layout or alignment is invalid"                                                        | Zero-Copy Buffer Access                                                                                                                       |  `Realloc`  |
-| `6055` | `TransferFeeNotSupported`                 | "Token mint contains unsupported transfer fee extension."                                                      | `create_pool`, `assert_supported_mint_extensions`                                                                                             |    `CPI`    |
-| `6056` | `TransferHookNotSupported`                | "Token mint contains unsupported transfer hook extension."                                                     | `create_pool`, `assert_supported_mint_extensions`                                                                                             |    `CPI`    |
-| `6057` | `InvalidTokenMint`                        | "Token mint account data is malformed or invalid."                                                             | `create_pool`, `assert_supported_mint_extensions`                                                                                             |    `CPI`    |
-| `6058` | `NoPendingAdmin`                          | "No pending admin transfer nomination in progress."                                                            | `cancel_admin_nomination`, `accept_admin`                                                                                                     |  `Access`   |
-| `6059` | `NotPendingAdmin`                         | "Caller is not the nominated pending admin."                                                                   | `accept_admin`                                                                                                                                |  `Access`   |
-| `6060` | `InvalidAdminAddress`                     | "Admin address cannot be the default zero address."                                                            | `nominate_admin`                                                                                                                              | `Boundary`  |
-| `6061` | `CannotNominateSelf`                      | "Cannot nominate current admin as pending admin."                                                              | `nominate_admin`                                                                                                                              |  `Access`   |
-| `6062` | `InvalidHumaPoolState`                    | "Provided Huma pool state is invalid or uninitialized."                                                        | `create_pool`                                                                                                                                 |    `CPI`    |
-| `6063` | `PayoutsPending`                          | "Cannot close payout registry: payouts are still pending."                                                     | `crank_close_payout_registry`                                                                                                                 | `Lifecycle` |
-| `6064` | `InvalidRedemptionType`                   | "Invalid redemption type value."                                                                               | `claim_redemption`, `PendingRedemption` Deserialization                                                                                       | `Lifecycle` |
-| `6065` | `InvalidBatchSize`                        | "Draw preparation batch size must be greater than 0."                                                          | `prepare_draw`                                                                                                                                | `Boundary`  |
-| `6066` | `InsufficientVaultBalance`                | "Pool vault has insufficient balance to settle redemption."                                                    | `claim_redemption`                                                                                                                            |   `Math`    |
-| `6067` | `InvalidTokenDecimals`                    | "Token mint decimals must equal 6."                                                                            | `create_pool`                                                                                                                                 | `Boundary`  |
+|  Code  | Anchor Error Variant                      | Error Message                                                                                                                   | Subsystem / Instruction                                                                                                                                       | Vector Tag  |
+| :----: | :---------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------: |
+| `6000` | `PoolNotActive`                           | "The prize pool is not currently active."                                                                                       | Pool Lifecycle, `buy_bonds`, `prepare_draw`, `reveal_and_pick_winners`                                                                                        | `Lifecycle` |
+| `6001` | `InvalidPoolStatus`                       | "Invalid pool status value."                                                                                                    | Pool State Serialization                                                                                                                                      | `Lifecycle` |
+| `6002` | `CycleNotEnded`                           | "The current stake cycle has not yet ended."                                                                                    | `harvest_yield_and_commit`                                                                                                                                    |   `Time`    |
+| `6003` | `InvalidBondQuantity`                     | "Invalid bond quantity."                                                                                                        | `buy_bonds`, `sell_bonds`                                                                                                                                     | `Boundary`  |
+| `6004` | `RegistryFull`                            | "The prize pool registration capability has hit absolute capacity constraints."                                                 | `buy_bonds`, `reinvest_winnings`                                                                                                                              | `Boundary`  |
+| `6005` | `RegistryTooSmall`                        | "The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes."                             | `create_pool`                                                                                                                                                 | `Boundary`  |
+| `6006` | `RegistryAtMaxSize`                       | "The registry account has reached Solana's 10 MB maximum size."                                                                 | `resize_registry`                                                                                                                                             | `Boundary`  |
+| `6007` | `AwaitingRandomnessFreeze`                | "The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused."                  | `buy_bonds`, `sell_bonds`, `harvest_yield_and_commit`, `update_pool_config`, `set_prize_tiers`                                                                | `Lifecycle` |
+| `6008` | `AlreadyClaimed`                          | "Trying to claim a prize that has already been claimed."                                                                        | `reinvest_winnings`, `validate_winner`                                                                                                                        | `Lifecycle` |
+| `6009` | `MathOverflow`                            | "Calculation overflow occurred natively."                                                                                       | Math Utilities, Registry, Pool Accounting                                                                                                                     |   `Math`    |
+| `6010` | `InvalidWinnerIndex`                      | "Winner index is out of bounds."                                                                                                | `reinvest_winnings`, `validate_winner`                                                                                                                        | `Boundary`  |
+| `6011` | `UnauthorizedCrank`                       | "Only the designated Switchboard Jobs Account can execute this crank."                                                          | `harvest_yield_and_commit`, `crank_rebind_expired_randomness`, `crank_close_payout_registry`, `crank_submit_redemption_batch`, `crank_close_redemption_batch` |  `Access`   |
+| `6012` | `InvalidPrizeTierConfig`                  | "Invalid prize tier configuration."                                                                                             | `create_pool`, `set_prize_tiers`                                                                                                                              | `Boundary`  |
+| `6013` | `PrizeTiersNotConfigured`                 | "Prize tiers have not been configured for this pool."                                                                           | `harvest_yield_and_commit`, `reveal_and_pick_winners`                                                                                                         | `Lifecycle` |
+| `6014` | `BasisPointsMustEqual10000`               | "Total basis points across all tiers must equal exactly 10,000 (100%)."                                                         | `create_pool`, `set_prize_tiers`                                                                                                                              |   `Math`    |
+| `6015` | `InvalidDrawStatus`                       | "The draw cycle is in an invalid phase for this operation"                                                                      | `prepare_draw`, `reveal_and_pick_winners`, `admin_force_unlock_draw`, `admin_void_payout_registry`                                                            | `Lifecycle` |
+| `6016` | `InvalidDrawState`                        | "The draw cycle has an invalid locked count or prize pot."                                                                      | `reveal_and_pick_winners`                                                                                                                                     | `Boundary`  |
+| `6017` | `UnauthorizedAdmin`                       | "Unauthorized admin."                                                                                                           | Protocol Governance, Pool Administration                                                                                                                      |  `Access`   |
+| `6018` | `InvalidBondPrice`                        | "Bond price must be greater than 0."                                                                                            | `create_pool`, `update_pool_config`                                                                                                                           | `Boundary`  |
+| `6019` | `InvalidStakeCycleDuration`               | "Stake cycle duration must be greater than 0 hours."                                                                            | `create_pool`, `update_pool_config`                                                                                                                           | `Boundary`  |
+| `6020` | `HumaRedemptionNotSettled`                | "Huma redemption has not been settled yet."                                                                                     | Legacy Huma CPI Handler                                                                                                                                       |   `Time`    |
+| `6021` | `InvalidRedemptionOwner`                  | "Beneficiary does not match pending redemption owner."                                                                          | `claim_redemption`, `close_expired_redemption`                                                                                                                |  `Access`   |
+| `6022` | `InsufficientFeeBalance`                  | "Insufficient accrued fee balance for withdrawal."                                                                              | `withdraw_fees`                                                                                                                                               |   `Math`    |
+| `6023` | `NoWinningsToClaim`                       | "No unclaimed non-reinvested winnings to claim."                                                                                | `claim_non_reinvested_winnings`                                                                                                                               | `Boundary`  |
+| `6024` | `InvalidFeeConfig`                        | "Fee basis points must be less than or equal to 10,000 (100%)."                                                                 | `create_pool`, `update_pool_config`                                                                                                                           | `Boundary`  |
+| `6025` | `InvalidMaxYieldBasisPoints`              | "Max yield basis points must be less than or equal to 10,000 (100%)."                                                           | `create_pool`, `update_pool_config`                                                                                                                           | `Boundary`  |
+| `6026` | `InvalidPayoutTimelock`                   | "Payout timelock delay must not exceed 86,400 seconds (24 hours)."                                                              | `create_pool`, `update_pool_config`                                                                                                                           | `Boundary`  |
+| `6027` | `InvalidModeMint`                         | "The mode mint does not match the pool's mode mint."                                                                            | Huma CPI Wrappers, `enable_impaired_mode`, `recapitalize_pool`                                                                                                |    `CPI`    |
+| `6028` | `InvalidRandomnessAccount`                | "The provided randomness account is invalid or does not belong to Switchboard."                                                 | `reveal_and_pick_winners`, `crank_rebind_expired_randomness`                                                                                                  |  `Access`   |
+| `6029` | `RandomnessNotResolved`                   | "The randomness request has not yet been resolved by the oracle network."                                                       | `reveal_and_pick_winners`                                                                                                                                     |   `Time`    |
+| `6030` | `StaleRandomnessRequest`                  | "The randomness request is stale or was committed before the harvest freeze."                                                   | `reveal_and_pick_winners`                                                                                                                                     |   `Time`    |
+| `6031` | `RandomnessNotExpired`                    | "The randomness account cannot be re-locked because the current one is not yet expired."                                        | `crank_rebind_expired_randomness`                                                                                                                             |   `Time`    |
+| `6032` | `InvalidUserEntryHint`                    | "Invalid registry user entry hint provided"                                                                                     | Registry Access, `buy_bonds`, `sell_bonds`                                                                                                                    |  `Access`   |
+| `6033` | `InsufficientPendingTickets`              | "Insufficient pending tickets for this transaction"                                                                             | `sell_bonds`                                                                                                                                                  | `Boundary`  |
+| `6034` | `InsufficientActiveTickets`               | "Insufficient active tickets for this transaction"                                                                              | `sell_bonds`                                                                                                                                                  | `Boundary`  |
+| `6035` | `PoolNotFrozen`                           | "The prize pool must be frozen for draw preparation"                                                                            | `prepare_draw`                                                                                                                                                | `Lifecycle` |
+| `6036` | `MissingSwappedUserWinnings`              | "Required remaining account for swapped user's UserWinnings is missing"                                                         | Swap-and-Pop, `sell_bonds`                                                                                                                                    |  `Realloc`  |
+| `6037` | `InvalidFeeWallet`                        | "The provided fee wallet account is invalid or does not match the pool configuration"                                           | `update_pool_config`, `withdraw_fees`, `crank_close_redemption_batch`                                                                                         |  `Access`   |
+| `6038` | `CannotModifyBondPriceWithActiveDeposits` | "Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes."                            | `update_pool_config`                                                                                                                                          | `Boundary`  |
+| `6039` | `PoolPaused`                              | "The prize pool is paused."                                                                                                     | Circuit Breakers, `buy_bonds`, `sell_bonds`, `withdraw_fees`, `claim_redemption`, `claim_non_reinvested_winnings`, `reinvest_winnings`                        | `Lifecycle` |
+| `6040` | `PoolClosed`                              | "The prize pool is closed permanently."                                                                                         | `emergency_pause`, `admin_void_payout_registry`                                                                                                               | `Lifecycle` |
+| `6041` | `DrawVoided`                              | "This draw has been voided."                                                                                                    | `reinvest_winnings`                                                                                                                                           | `Lifecycle` |
+| `6042` | `DrawAlreadyVoided`                       | "This draw has already been voided."                                                                                            | `admin_void_payout_registry`                                                                                                                                  | `Lifecycle` |
+| `6043` | `PayoutsAlreadyStarted`                   | "Winner payouts have already begun processing."                                                                                 | `admin_void_payout_registry`                                                                                                                                  | `Lifecycle` |
+| `6044` | `PayoutTimelockActive`                    | "Payout settlement timelock is active."                                                                                         | `reinvest_winnings`                                                                                                                                           |   `Time`    |
+| `6045` | `FeesAlreadyWithdrawn`                    | "Protocol fees from this cycle were already withdrawn."                                                                         | `admin_void_payout_registry`                                                                                                                                  | `Lifecycle` |
+| `6046` | `ZeroSharesMinted`                        | "Huma deposit produced zero PST shares."                                                                                        | `buy_bonds`, `recapitalize_pool`                                                                                                                              | `Boundary`  |
+| `6047` | `YieldVenueInsolvent`                     | "Yield venue is insolvent."                                                                                                     | Solvency Circuit Breakers, `crank_submit_redemption_batch`                                                                                                    | `Boundary`  |
+| `6048` | `Unauthorized`                            | "Unauthorized signer."                                                                                                          | `pause_pool`                                                                                                                                                  |  `Access`   |
+| `6049` | `WinnerMismatch`                          | "Winner account does not match the payout registry entry."                                                                      | `reinvest_winnings`, `validate_winner`                                                                                                                        |  `Access`   |
+| `6050` | `UnsupportedAccountVersion`               | "Account schema version is invalid or unsupported."                                                                             | Lazy Migration & Version Guards across all accounts                                                                                                           | `Lifecycle` |
+| `6051` | `SameRandomnessAccount`                   | "Cannot rebind to the same randomness account."                                                                                 | `crank_rebind_expired_randomness`                                                                                                                             |  `Access`   |
+| `6052` | `TooManyWinners`                          | "Winner count exceeds payout registry capacity"                                                                                 | `create_pool`, `set_prize_tiers`, `reveal_and_pick_winners`                                                                                                   | `Boundary`  |
+| `6053` | `InvalidHumaPoolData`                     | "Huma pool account data is truncated or malformed"                                                                              | Huma State Deserialization                                                                                                                                    |    `CPI`    |
+| `6054` | `InvalidRegistryState`                    | "Ticket registry buffer layout or alignment is invalid"                                                                         | Zero-Copy Buffer Access                                                                                                                                       |  `Realloc`  |
+| `6055` | `TransferFeeNotSupported`                 | "Token mint contains unsupported transfer fee extension."                                                                       | `create_pool`, `assert_supported_mint_extensions`                                                                                                             |    `CPI`    |
+| `6056` | `TransferHookNotSupported`                | "Token mint contains unsupported transfer hook extension."                                                                      | `create_pool`, `assert_supported_mint_extensions`                                                                                                             |    `CPI`    |
+| `6057` | `InvalidTokenMint`                        | "Token mint account data is malformed or invalid."                                                                              | `create_pool`, `assert_supported_mint_extensions`                                                                                                             |    `CPI`    |
+| `6058` | `NoPendingAdmin`                          | "No pending admin transfer nomination in progress."                                                                             | `cancel_admin_nomination`, `accept_admin`                                                                                                                     |  `Access`   |
+| `6059` | `NotPendingAdmin`                         | "Caller is not the nominated pending admin."                                                                                    | `accept_admin`                                                                                                                                                |  `Access`   |
+| `6060` | `InvalidAdminAddress`                     | "Admin address cannot be the default zero address."                                                                             | `initialize_global`, `nominate_admin`                                                                                                                         | `Boundary`  |
+| `6061` | `CannotNominateSelf`                      | "Cannot nominate current admin as pending admin."                                                                               | `nominate_admin`                                                                                                                                              |  `Access`   |
+| `6062` | `InvalidHumaPoolState`                    | "Provided Huma pool state is invalid or uninitialized."                                                                         | `create_pool`, `enable_impaired_mode`, `recapitalize_pool`, `crank_submit_redemption_batch`                                                                   |    `CPI`    |
+| `6063` | `PayoutsPending`                          | "Cannot close payout registry: payouts are still pending."                                                                      | `crank_close_payout_registry`                                                                                                                                 | `Lifecycle` |
+| `6064` | `InvalidRedemptionType`                   | "Invalid redemption type value."                                                                                                | `claim_redemption`, `PendingRedemption` Deserialization                                                                                                       | `Lifecycle` |
+| `6065` | `InvalidBatchSize`                        | "Draw preparation batch size must be greater than 0."                                                                           | `prepare_draw`                                                                                                                                                | `Boundary`  |
+| `6066` | `InsufficientVaultBalance`                | "Pool vault has insufficient balance to settle redemption."                                                                     | `claim_redemption`                                                                                                                                            |   `Math`    |
+| `6067` | `InvalidTokenDecimals`                    | "Token mint decimals must equal 6."                                                                                             | `create_pool`                                                                                                                                                 | `Boundary`  |
+| `6068` | `RandomnessNotCommitted`                  | "The Switchboard randomness account has not been committed yet (seed_slot is 0)."                                               | `harvest_yield_and_commit`, `crank_rebind_expired_randomness`                                                                                                 |   `Time`    |
+| `6069` | `RandomnessAlreadyRevealed`               | "The Switchboard randomness account has already been revealed on-chain and cannot be bound or rebound."                         | `harvest_yield_and_commit`, `crank_rebind_expired_randomness`                                                                                                 |   `Time`    |
+| `6070` | `RandomnessCommitmentTampered`            | "The bound randomness account no longer matches the committed seed slot (re-committed or closed). Admin force-unlock required." | `reveal_and_pick_winners`                                                                                                                                     |  `Access`   |
+| `6071` | `RebindLimitReached`                      | "The crank exhausted its rebind allowance for this cycle. Admin force-unlock required."                                         | `crank_rebind_expired_randomness`                                                                                                                             | `Boundary`  |
+| `6072` | `DrawSnapshotMismatch`                    | "The prepared registry cumulative ticket count does not match the harvest snapshot."                                            | `reveal_and_pick_winners`                                                                                                                                     |   `Math`    |
+| `6073` | `EmptyRedemptionBatch`                    | "Redemption batch is empty."                                                                                                    | `crank_submit_redemption_batch`                                                                                                                               | `Boundary`  |
+| `6074` | `InvalidBatchStatus`                      | "Invalid redemption batch lifecycle status."                                                                                    | `RedemptionBatch` State Machine                                                                                                                               | `Lifecycle` |
+| `6075` | `RedemptionBatchNotSettled`               | "Redemption batch has not been settled yet."                                                                                    | `claim_redemption`, `RedemptionBatch::calculate_payout`                                                                                                       | `Lifecycle` |
+| `6076` | `HumaQueueNotSettled`                     | "Huma redemption queue has not progressed past the submitted request."                                                          | `settle_redemption_batch`                                                                                                                                     |    `CPI`    |
+| `6077` | `MismatchedBatchId`                       | "Mismatched redemption batch ID."                                                                                               | `settle_redemption_batch`, `claim_redemption`, `PrizePool` pipeline                                                                                           | `Boundary`  |
+| `6078` | `MismatchedPoolId`                        | "Mismatched pool ID on batch account."                                                                                          | `crank_submit_redemption_batch`, `settle_redemption_batch`, `claim_redemption`                                                                                | `Boundary`  |
+| `6079` | `SubmittedBatchInFlight`                  | "A redemption batch is already in-flight in Huma queue."                                                                        | `crank_submit_redemption_batch`, `PrizePool::advance_submitted_batch`                                                                                         | `Lifecycle` |
+| `6080` | `BatchNotFullyClaimed`                    | "Redemption batch has not been fully claimed yet."                                                                              | `crank_close_redemption_batch`, `close_expired_redemption`                                                                                                    | `Lifecycle` |
+| `6081` | `ZeroSharesRedeemed`                      | "Batch submission derived zero PST shares."                                                                                     | `crank_submit_redemption_batch`                                                                                                                               | `Boundary`  |
+| `6082` | `BatchOverclaimed`                        | "Claim amount exceeds total requested principal in batch."                                                                      | `RedemptionBatch::claim`                                                                                                                                      |   `Math`    |
+| `6083` | `InvalidHumaLenderState`                  | "Huma lender state account is invalid."                                                                                         | `initialize_huma_lender`, `crank_submit_redemption_batch`, `settle_redemption_batch`                                                                          |    `CPI`    |
+| `6084` | `CannotImpairSolventPool`                 | "Cannot transition a solvent pool to impaired mode."                                                                            | `enable_impaired_mode`                                                                                                                                        | `Boundary`  |
+| `6085` | `PoolImpaired`                            | "Pool is in impaired mode."                                                                                                     | Impairment Status Guards                                                                                                                                      | `Lifecycle` |
+| `6086` | `ImpairmentTimelockActive`                | "90-day impairment workout timelock is still active for non-admin callers."                                                     | `enable_impaired_mode`                                                                                                                                        |   `Time`    |
+| `6087` | `InvalidRecapitalizeAmount`               | "Recapitalize deposit amount must be greater than zero."                                                                        | `recapitalize_pool`                                                                                                                                           | `Boundary`  |
+| `6088` | `PoolNotPaused`                           | "Pool is not currently paused."                                                                                                 | `unpause_pool`, `enable_impaired_mode`, `recapitalize_pool`                                                                                                   | `Lifecycle` |
 
 ---
 
 ## 7. Resolved Architectural & Code-Mining Decisions Matrix
 
-| ID       | Topic                          | Ambiguity / Edge Case                                       | Decision Status | Selected Formal Specification                                                                                                                                                                                                                                                                                                               |
-| :------- | :----------------------------- | :---------------------------------------------------------- | :-------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DEC-01` | Initial Pool Status            | Whether pools start in `Draft` or `Active`.                 | **Code Mined**  | `create_pool` validates prize tiers up-front and initializes directly to `PoolStatus::Active (0)`.                                                                                                                                                                                                                                          |
-| `DEC-02` | User Entry Size                | Exact byte width of `UserEntry` records.                    | **Code Mined**  | `UserEntry` is exactly 64 bytes (`owner`: 32, `active`: 4, `pending`: 4, `merged_through_cycle`: 4, `cumulative_active`: 4, `version`: 1, `_padding`: 3, `_reserved`: 12).                                                                                                                                                                  |
-| `DEC-03` | Registry Scaling               | Initial size and step increments.                           | **Code Mined**  | Initial allocation is 262,248 bytes (104 B header + 4,096 entries). Realloc step is 10,240 bytes (160 entries) up to 10,485,760 bytes (10 MB).                                                                                                                                                                                              |
-| `DEC-04` | Circuit Breakers               | Solvency and spike trip thresholds.                         | **Code Mined**  | Solvency guard trips when venue deficit $> 1,000$ base units (`HaltedInsolvent`). Yield spike guard trips when yield rate $> \text{max\_yield\_basis\_points}$ (`HaltedYieldSpike`).                                                                                                                                                        |
-| `DEC-05` | Draw Status Enum               | Phase count and enum variants.                              | **Code Mined**  | `DrawStatus` has 8 variants: `AwaitingYield`, `AwaitingRandomness`, `Complete`, `ForceUnlocked`, `Skipped`, `Voided`, `HaltedInsolvent`, `HaltedYieldSpike`.                                                                                                                                                                                |
-| `DEC-06` | Tail Slot Hygiene              | Memory sanitation upon full user exit.                      | **Code Mined**  | Swap-and-pop explicitly zeroes the vacated tail entry at index $N-1$ with `UserEntry::default()` (64 zero bytes).                                                                                                                                                                                                                           |
-| `DEC-07` | Exited Winner Fallback         | Exited user winning prize when registry is full.            | **Code Mined**  | In `reinvest_winnings`, if an exited user wins and registry is at 100% capacity, `bonds_to_buy` is set to 0, routing 100% to dust so crank completes cleanly.                                                                                                                                                                               |
-| `DEC-08` | Closed Pool Prizes             | Winner payout in sunsetting pools.                          | **Code Mined**  | In `reinvest_winnings`, if `pool.status == PoolStatus::Closed`, `bonds_to_buy` is forced to 0, routing 100% of prize to withdrawable dust.                                                                                                                                                                                                  |
-| `DEC-09` | Two-Step Admin                 | Single-step vs. two-step governance transfer.               | **Code Mined**  | Admin authority transfer requires `nominate_admin`, optional `cancel_admin_nomination`, and recipient `accept_admin` to eliminate key-loss risks.                                                                                                                                                                                           |
-| `DEC-10` | Dynamic Payout Sizing          | Fixed vs. dynamically allocated payout arrays.              | **Code Mined**  | `PayoutRegistry` dynamically allocates $104 + W \times 56$ B ($W \le 180 \implies \le 10,184$ B) and supports 100% rent reclaim via `crank_close_payout_registry`.                                                                                                                                                                          |
-| `DEC-11` | Token-2022 Whitelist           | Compatibility with fee/hook extensions.                     | **Code Mined**  | `create_pool` strictly rejects mints configured with `TransferFeeConfig`, `TransferHook`, `PermanentDelegate`, or `MintCloseAuthority` via `assert_supported_mint_extensions`.                                                                                                                                                              |
-| `DEC-12` | Schema Versioning              | State struct upgrade safety.                                | **Code Mined**  | Universal `check_version()` and `ensure_current_version()` enforced across `GlobalConfig`, `PrizePool`, `DrawCycle`, `TicketRegistry`, and `PendingRedemption` with reserved bytes.                                                                                                                                                         |
-| `DEC-13` | Permissionless Draw            | Permissioned vs. permissionless winner draw.                | **Code Mined**  | `reveal_and_pick_winners` is permissionless to eliminate crank censorship vulnerability while relying on Switchboard VRF for cryptographic unpredictability.                                                                                                                                                                                |
-| `DEC-14` | Winner Identification Immunity | Preventing swap-and-pop displacement during draw resolution | **Code Mined**  | `PayoutRegistry` stores the winner's `Pubkey` directly in the `Winner` struct (`draw.rs#L251`) instead of a registry `user_index`, making payout resolution and validation (`validate_winner` in `reinvest_winnings.rs#L140`) completely immune to user registry swap-and-pop index shifts that occur between draw reveal and reinvestment. |
+| ID       | Topic                                         | Ambiguity / Edge Case                                       | Decision Status | Selected Formal Specification                                                                                                                                                                                                            |
+| :------- | :-------------------------------------------- | :---------------------------------------------------------- | :-------------: | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEC-01` | Initial Pool Status                           | Whether pools start in `Draft` or `Active`.                 | **Code Mined**  | `create_pool` validates prize tiers up-front and initializes directly to `PoolStatus::Active (0)`.                                                                                                                                       |
+| `DEC-02` | User Entry Size                               | Exact byte width of `UserEntry` records.                    | **Code Mined**  | `UserEntry` is exactly 64 bytes (`owner`: 32, `active`: 4, `pending`: 4, `merged_through_cycle`: 4, `cumulative_active`: 4, `version`: 1, `_padding`: 3, `_reserved`: 12).                                                               |
+| `DEC-03` | Registry Scaling                              | Initial size and step increments.                           | **Code Mined**  | Initial allocation is 262,248 bytes (104 B header + 4,096 entries). Realloc step is 10,240 bytes (160 entries) up to 10,485,760 bytes (10 MB).                                                                                           |
+| `DEC-04` | Circuit Breakers                              | Solvency and spike trip thresholds.                         | **Code Mined**  | Solvency guard trips when venue deficit $> \text{dynamic tolerance}$ (`HaltedInsolvent`). Yield spike guard trips when yield rate $> \text{max\_yield\_basis\_points}$ (`HaltedYieldSpike`).                                             |
+| `DEC-05` | Draw Status Enum                              | Phase count and enum variants.                              | **Code Mined**  | `DrawStatus` has 8 variants: `AwaitingYield`, `AwaitingRandomness`, `Complete`, `ForceUnlocked`, `Skipped`, `Voided`, `HaltedInsolvent`, `HaltedYieldSpike`.                                                                             |
+| `DEC-06` | Tail Slot Hygiene                             | Memory sanitation upon full user exit.                      | **Code Mined**  | Swap-and-pop explicitly zeroes the vacated tail entry at index $N-1$ with `UserEntry::default()` (64 zero bytes).                                                                                                                        |
+| `DEC-07` | Exited Winner Fallback                        | Exited user winning prize when registry is full.            | **Code Mined**  | In `reinvest_winnings`, if an exited user wins and registry is at 100% capacity, `bonds_to_buy` is set to 0, routing 100% to dust so crank completes cleanly.                                                                            |
+| `DEC-08` | Closed Pool Prizes                            | Winner payout in sunsetting pools.                          | **Code Mined**  | In `reinvest_winnings`, if `pool.status == PoolStatus::Closed`, `bonds_to_buy` is forced to 0, routing 100% of prize to withdrawable dust.                                                                                               |
+| `DEC-09` | Two-Step Admin                                | Single-step vs. two-step governance transfer.               | **Code Mined**  | Admin authority transfer requires `nominate_admin`, optional `cancel_admin_nomination`, and recipient `accept_admin` to eliminate key-loss risks.                                                                                        |
+| `DEC-10` | Dynamic Payout Sizing                         | Fixed vs. dynamically allocated payout arrays.              | **Code Mined**  | `PayoutRegistry` dynamically allocates $104 + W \times 56$ B ($W \le 180 \implies \le 10,184$ B) and supports 100% rent reclaim via `crank_close_payout_registry`.                                                                       |
+| `DEC-11` | Token-2022 Whitelist                          | Compatibility with fee/hook extensions.                     | **Code Mined**  | `create_pool` strictly rejects mints configured with `TransferFeeConfig`, `TransferHook`, `PermanentDelegate`, or `MintCloseAuthority` via `assert_supported_mint_extensions`.                                                           |
+| `DEC-12` | Schema Versioning                             | State struct upgrade safety.                                | **Code Mined**  | Universal `check_version()` and `ensure_current_version()` enforced across `GlobalConfig`, `PrizePool`, `DrawCycle`, `TicketRegistry`, `PendingRedemption`, and `RedemptionBatch` with reserved bytes.                                   |
+| `DEC-13` | Permissionless Draw                           | Permissioned vs. permissionless winner draw.                | **Code Mined**  | `reveal_and_pick_winners` is permissionless to eliminate crank censorship vulnerability while relying on Switchboard VRF for cryptographic unpredictability.                                                                             |
+| `DEC-14` | Winner Identification Immunity                | Preventing swap-and-pop displacement during draw resolution | **Code Mined**  | `PayoutRegistry` stores the winner's `Pubkey` directly in the `Winner` struct (`draw.rs#L251`) instead of a registry `user_index`, making payout resolution and validation completely immune to user registry swap-and-pop index shifts. |
+| `DEC-15` | Unified Batch Queuing                         | Immediate individual CPI vs. batched redemption queue.      | **Code Mined**  | Redemptions from bond sales, prize claims, and fee withdrawals queue asynchronously into `RedemptionBatch` accounts, eliminating per-transaction external CPI overhead and decoupling user flows from Huma availability.                 |
+| `DEC-16` | Single In-Flight Pipeline                     | Concurrent vs. sequential Huma queue submissions.           | **Code Mined**  | Only one batch may be submitted to Huma at any given time (`submitted_batch_id == u64::MAX`). New redemptions accumulate in `next_batch` while the submitted batch matures.                                                              |
+| `DEC-17` | Pro-Rata Haircut Math                         | Fixed 1-to-1 conversion vs. actual disbursed ratio.         | **Code Mined**  | In `RedemptionBatch::calculate_payout`, payout is calculated as $\lfloor (p \times \text{settled\_usdc}) / \text{requested\_principal} \rfloor$, making the protocol immune to insolvency even under external lending venue defaults.    |
+| `DEC-18` | 180-Day Batch Sweeping                        | Indefinite rent lock vs. expiration reclamation.            | **Code Mined**  | After 180 days from batch settlement, `crank_close_redemption_batch` sweeps abandoned funds to `fee_wallet` and reclaims 100% rent SOL to crank. Receipt owners recover rent via `close_expired_redemption`.                             |
+| `DEC-19` | Dynamic Solvency Clamping                     | Fixed dust threshold vs. proportional tolerance.            | **Code Mined**  | Solvency tolerance scales at 1 bps of book value clamped between \$0.01 and \$20.00 USDC, absorbing integer division dust while capping absolute loss exposure.                                                                          |
+| `DEC-20` | Impairment Workout & Sponsor Recapitalization | Hard liquidation vs. workout state transitions.             | **Code Mined**  | Insolvent paused pools can transition to `PoolStatus::Impaired` (erasing junior fees/prizes for depositor priority) or be recapitalized by sponsors via `recapitalize_pool` (automatically unpausing once deficit is cured).             |
