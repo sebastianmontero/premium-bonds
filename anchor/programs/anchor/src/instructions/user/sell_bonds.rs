@@ -56,7 +56,8 @@ pub struct SellBonds<'info> {
             pool.load()?.pool_id.to_le_bytes().as_ref(),
             pool.load()?.accumulating_redemption_batch_id.to_le_bytes().as_ref()
         ],
-        bump = redemption_batch.bump
+        bump = redemption_batch.bump,
+        constraint = redemption_batch.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion
     )]
     pub redemption_batch: Box<Account<'info, RedemptionBatch>>,
 

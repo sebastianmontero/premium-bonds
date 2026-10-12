@@ -33,6 +33,7 @@ pub struct SettleRedemptionBatch<'info> {
             batch.batch_id.to_le_bytes().as_ref()
         ],
         bump = batch.bump,
+        constraint = batch.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = batch.pool_id == pool.load()?.pool_id @ PremiumBondsError::MismatchedPoolId,
         constraint = batch.status == RedemptionBatchStatus::Submitted @ PremiumBondsError::InvalidBatchStatus,
     )]

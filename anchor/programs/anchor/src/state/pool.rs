@@ -445,6 +445,7 @@ impl PrizePool {
     }
 
     pub fn complete_pending_redemption(&mut self, amount: u64) -> Result<()> {
+        self.ensure_current_version()?;
         self.total_pending_redemptions = self.total_pending_redemptions
             .checked_sub(amount)
             .ok_or(PremiumBondsError::MathOverflow)?;

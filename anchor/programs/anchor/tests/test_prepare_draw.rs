@@ -632,7 +632,7 @@ fn test_prepare_draw_large_batch_500_entries_no_oom() {
             UserEntryTestBuilder::new()
                 .with_owner(Keypair::new().pubkey())
                 .with_active((i % 5 + 1) * 2)
-                .with_pending((i % 10 + 1) as u32)
+                .with_pending(i % 10 + 1)
                 .build()
         })
         .collect::<Vec<_>>();

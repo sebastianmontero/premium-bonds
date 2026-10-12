@@ -931,3 +931,635 @@ fn test_unsupported_account_version_all_10_structs() {
         "RedemptionBatch ensure_current_version must fail with UnsupportedAccountVersion"
     );
 }
+
+// ─── 9-Vector Upgradeability Verification Suite ─────────────────────────────
+
+// 1. test_v1_rejection_of_unsupported_batch_version_all_entrypoints
+#[test]
+fn test_v1_rejection_of_unsupported_batch_version_all_entrypoints() {
+    use anchor::error::PremiumBondsError;
+    use anchor::state::{RedemptionBatch, RedemptionBatchStatus};
+
+    for bad_version in [RedemptionBatch::CURRENT_VERSION + 1, u8::MAX] {
+        // 1.1 sell_bonds
+        {
+            let mut ctx = setup_e2e();
+            send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+            mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+                rb.version = bad_version;
+            });
+            let user_kp = clone_keypair(&ctx.user);
+            ctx.svm.expire_blockhash();
+            let res = send_e2e_sell_bonds(&mut ctx, &user_kp, 0, 5);
+            assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
+        }
+
+        // 1.2 withdraw_fees
+        {
+            let mut ctx = setup_e2e();
+            mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+                rb.version = bad_version;
+            });
+            ctx.svm.expire_blockhash();
+            let res = WithdrawFeesBuilder::from_ctx(&ctx).send(&mut ctx.svm, &ctx.admin);
+            assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
+        }
+
+        // 1.3 claim_redemption
+        {
+            let mut ctx = setup_e2e();
+            inject_redemption_batch_with_state(
+                &mut ctx.svm,
+                1,
+                0,
+                RedemptionBatchStatus::Settled,
+                5_000_000,
+                5_000_000,
+            );
+            mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+                rb.version = bad_version;
+            });
+            inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 5_000_000, 0);
+            let user_token =
+                create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
+            let ix = ClaimRedemptionBuilder::new(&ctx)
+                .with_user(&ctx.user.pubkey(), user_token)
+                .with_caller(ctx.user.pubkey())
+                .with_redemption_id(0)
+                .build_ix();
+            ctx.svm.expire_blockhash();
+            let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
+            assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
+        }
+
+        // 1.4 claim_non_reinvested_winnings
+        {
+            let mut ctx = setup_e2e();
+            inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 1_000_000, 0, 0);
+            mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+                rb.version = bad_version;
+            });
+            ctx.svm.expire_blockhash();
+            let res = ClaimNonReinvestedWinningsBuilder::new(&ctx).send(&mut ctx.svm, &ctx.user);
+            assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
+        }
+
+        // 1.5 crank_submit_redemption_batch
+        {
+            let mut ctx = setup_e2e();
+            mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+                rb.version = bad_version;
+                rb.status = RedemptionBatchStatus::Accumulating;
+            });
+            ctx.svm.expire_blockhash();
+            let res = CrankSubmitRedemptionBatchBuilder::for_pool(1, 0, 1, ctx.admin.pubkey())
+                .with_huma_mode_mint(ctx.pst_mint)
+                .with_huma_pool_state(ctx.huma_pool_state)
+                .send(&mut ctx.svm, &ctx.admin);
+            assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
+        }
+
+        // 1.6 settle_redemption_batch
+        {
+            let mut ctx = setup_e2e();
+            inject_redemption_batch_with_state(
+                &mut ctx.svm,
+                1,
+                0,
+                RedemptionBatchStatus::Submitted,
+                5_000_000,
+                0,
+            );
+            mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+                rb.version = bad_version;
+            });
+            ctx.svm.expire_blockhash();
+            let res = SettleRedemptionBatchBuilder::for_pool(1, 0, ctx.admin.pubkey())
+                .with_token_mint(ctx.usdc_mint)
+                .with_huma_pool_state(ctx.huma_pool_state)
+                .send(&mut ctx.svm, &ctx.admin);
+            assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
+        }
+
+        // 1.7 crank_close_redemption_batch
+        {
+            let mut ctx = setup_e2e();
+            inject_redemption_batch_with_state(
+                &mut ctx.svm,
+                1,
+                0,
+                RedemptionBatchStatus::Settled,
+                5_000_000,
+                5_000_000,
+            );
+            mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+                rb.version = bad_version;
+                rb.claimed_principal = 5_000_000;
+            });
+            ctx.svm.expire_blockhash();
+            let res = CrankCloseRedemptionBatchBuilder::for_pool(1, 0, ctx.admin.pubkey())
+                .with_token_mint(ctx.usdc_mint)
+                .with_fee_wallet(ctx.fee_wallet)
+                .send(&mut ctx.svm, &ctx.admin);
+            assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
+        }
+    }
+}
+
+// 2. test_v1_reinvest_winnings_rejects_unsupported_ticket_registry_version
+#[test]
+fn test_v1_reinvest_winnings_rejects_unsupported_ticket_registry_version() {
+    for bad_version in [
+        anchor::state::TicketRegistry::CURRENT_VERSION + 1,
+        u8::MAX,
+    ] {
+        let (mut svm, _admin) = setup_global_config();
+        let crank = Keypair::new();
+        svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+        let winner = Keypair::new().pubkey();
+        let mint = Keypair::new().pubkey();
+        let reg = Keypair::new().pubkey();
+
+        let entries = vec![UserEntryTestBuilder::active(winner, 10)];
+        inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
+
+        mutate_ticket_registry_header(&mut svm, reg, |tr| {
+            tr.version = bad_version;
+        });
+
+        PrizePoolTestBuilder::new(1)
+            .with_token_mint(mint)
+            .with_ticket_registry(reg)
+            .with_status(anchor::PoolStatus::Active)
+            .with_frozen(false)
+            .with_bond_price(1_000_000)
+            .with_solvency_state(0, 1_000_000_000, 0)
+            .inject(&mut svm);
+
+        PayoutRegistryTestBuilder::new(1, 0)
+            .with_winners(vec![WinnerTestBuilder::unprocessed(winner, 3_000_000, 0)])
+            .inject(&mut svm);
+
+        inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
+
+        let res = ReinvestWinningsBuilder::for_pool(1, 0, crank.pubkey())
+            .with_winner(&winner)
+            .with_ticket_registry(reg)
+            .with_winner_index(0)
+            .send(&mut svm, &crank);
+
+        assert_custom_error(
+            res,
+            anchor::error::PremiumBondsError::UnsupportedAccountVersion,
+        );
+    }
+}
+
+// 3. test_domain_state_methods_reject_future_version_unit
+#[test]
+fn test_domain_state_methods_reject_future_version_unit() {
+    use anchor::error::PremiumBondsError;
+    use anchor::state::{PrizePool, RedemptionBatch, RedemptionBatchStatus};
+
+    for bad_version in [RedemptionBatch::CURRENT_VERSION + 1, u8::MAX] {
+        let mut rb = RedemptionBatch::new(1, 0, 255, 0);
+        rb.version = bad_version;
+
+        // accumulate
+        assert_eq!(
+            rb.accumulate(1_000).unwrap_err(),
+            PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // submit
+        assert_eq!(
+            rb.submit(1, 100, 1000).unwrap_err(),
+            PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // settle
+        rb.status = RedemptionBatchStatus::Submitted;
+        assert_eq!(
+            rb.settle(1_000, 1000).unwrap_err(),
+            PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // calculate_payout
+        rb.status = RedemptionBatchStatus::Settled;
+        rb.total_principal_requested = 1_000;
+        rb.settled_usdc_received = 1_000;
+        assert_eq!(
+            rb.calculate_payout(100).unwrap_err(),
+            PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // claim
+        assert_eq!(
+            rb.claim(100).unwrap_err(),
+            PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+    }
+
+    // PrizePool complete_pending_redemption
+    for bad_version in [PrizePool::CURRENT_VERSION + 1, u8::MAX] {
+        let mut pp = PrizePoolTestBuilder::new(1).build();
+        pp.version = bad_version;
+        pp.total_pending_redemptions = 1_000;
+        assert_eq!(
+            pp.complete_pending_redemption(100).unwrap_err(),
+            PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+    }
+}
+
+// 4. test_v2_redemption_batch_lazy_migration_on_withdraw_fees
+#[test]
+fn test_v2_redemption_batch_lazy_migration_on_withdraw_fees() {
+    let mut ctx = setup_e2e();
+    let pool_id = 1;
+
+    PrizePoolTestBuilder::from_state(&ctx.svm, pool_id)
+        .with_fees_accrued(1_000_000)
+        .inject(&mut ctx.svm);
+
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.version = 0;
+    });
+    assert_eq!(read_redemption_batch(&ctx.svm, pool_id, 0).version, 0);
+
+    send_e2e_withdraw_fees(&mut ctx, 100_000).unwrap();
+
+    assert_eq!(
+        read_redemption_batch(&ctx.svm, pool_id, 0).version,
+        anchor::state::RedemptionBatch::CURRENT_VERSION,
+        "withdraw_fees must lazily migrate redemption_batch to CURRENT_VERSION"
+    );
+}
+
+// 5. test_v2_pool_and_batch_lazy_migration_on_claim_redemption
+#[test]
+fn test_v2_pool_and_batch_lazy_migration_on_claim_redemption() {
+    let mut ctx = setup_e2e();
+    let pool_id = 1;
+    let redemption_amount = 5_000_000;
+
+    PrizePoolTestBuilder::from_state(&ctx.svm, pool_id)
+        .with_version(0)
+        .with_pending_redemptions(redemption_amount)
+        .inject(&mut ctx.svm);
+    assert_eq!(read_pool_state(&ctx.svm, pool_id).version, 0);
+
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        redemption_amount,
+        redemption_amount,
+    );
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.version = 0;
+    });
+    assert_eq!(read_redemption_batch(&ctx.svm, pool_id, 0).version, 0);
+
+    inject_pending_redemption(&mut ctx.svm, pool_id, 0, ctx.user.pubkey(), redemption_amount, 0);
+
+    inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, redemption_amount);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    let user_token =
+        create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
+
+    let user_kp = clone_keypair(&ctx.user);
+    send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_kp,
+        user_token,
+        0,
+        Pubkey::default(),
+        Pubkey::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        read_pool_state(&ctx.svm, pool_id).version,
+        anchor::state::PrizePool::CURRENT_VERSION,
+        "Pool must lazily migrate to CURRENT_VERSION on claim_redemption"
+    );
+    assert_eq!(
+        read_redemption_batch(&ctx.svm, pool_id, 0).version,
+        anchor::state::RedemptionBatch::CURRENT_VERSION,
+        "RedemptionBatch must lazily migrate to CURRENT_VERSION on claim_redemption"
+    );
+}
+
+// 6. test_v2_redemption_batch_lazy_migration_on_submit_and_settle
+#[test]
+fn test_v2_redemption_batch_lazy_migration_on_submit_and_settle() {
+    let mut batch_submit = anchor::state::RedemptionBatch::new(1, 0, 255, 1000);
+    batch_submit.version = 0;
+    batch_submit.total_principal_requested = 1_000_000;
+    batch_submit.submit(42, 100, 2000).unwrap();
+    assert_eq!(
+        batch_submit.version,
+        anchor::state::RedemptionBatch::CURRENT_VERSION,
+        "submit() must migrate batch to CURRENT_VERSION"
+    );
+
+    let mut batch_settle = anchor::state::RedemptionBatch::new(1, 0, 255, 1000);
+    batch_settle.version = 0;
+    batch_settle.status = anchor::state::RedemptionBatchStatus::Submitted;
+    batch_settle.settle(1_000_000, 3000).unwrap();
+    assert_eq!(
+        batch_settle.version,
+        anchor::state::RedemptionBatch::CURRENT_VERSION,
+        "settle() must migrate batch to CURRENT_VERSION"
+    );
+}
+
+// 7. test_v2_pool_lazy_migration_on_crank_close_redemption_batch
+#[test]
+fn test_v2_pool_lazy_migration_on_crank_close_redemption_batch() {
+    let mut ctx = setup_e2e();
+    let pool_id = 1;
+    let unclaimed = 1_000_000;
+
+    PrizePoolTestBuilder::from_state(&ctx.svm, pool_id)
+        .with_version(0)
+        .with_pending_redemptions(unclaimed)
+        .inject(&mut ctx.svm);
+    assert_eq!(read_pool_state(&ctx.svm, pool_id).version, 0);
+
+    let (pool_vault, _) = pool_vault_pda(pool_id);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &pool_vault,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        unclaimed,
+        unclaimed,
+    );
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.claimed_principal = 0;
+        rb.settled_at = 1_000;
+    });
+
+    set_clock_timestamp(
+        &mut ctx.svm,
+        1_000 + anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
+    );
+
+    CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, ctx.admin.pubkey())
+        .with_token_mint(ctx.usdc_mint)
+        .with_fee_wallet(ctx.fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin)
+        .unwrap();
+
+    assert_eq!(
+        read_pool_state(&ctx.svm, pool_id).version,
+        anchor::state::PrizePool::CURRENT_VERSION,
+        "Pool must lazily migrate to CURRENT_VERSION on crank_close_redemption_batch when unclaimed funds exist"
+    );
+}
+
+// 8. test_v2_read_only_instructions_do_not_mutate_legacy_version_zero
+#[test]
+fn test_v2_read_only_instructions_do_not_mutate_legacy_version_zero() {
+    let mut ctx = setup_e2e();
+    let pool_id = 1;
+
+    // Buy 5 bonds so that ticket registry has 5 active tickets matching locked_ticket_count
+    send_e2e_buy_bonds(&mut ctx, 5).unwrap();
+
+    let (draw_cycle_pda, _) = draw_cycle_pda(pool_id, 0);
+    let draw_cycle = anchor::state::DrawCycle {
+        prize_pot: 1_000_000,
+        cycle_fee_collected: 0,
+        vrf_seed_slot: 100,
+        initiated_at: 1000,
+        completed_at: 0,
+        randomness_account: Keypair::new().pubkey(),
+        pool_id,
+        cycle_id: 0,
+        locked_ticket_count: 5,
+        status: anchor::state::DrawStatus::AwaitingRandomness,
+        version: 0,
+        rebind_count: 0,
+        _padding: [0; 1],
+        randomness_seed: [0; 32],
+        _reserved: [0; 64],
+    };
+    let mut dc_data = vec![];
+    draw_cycle.try_serialize(&mut dc_data).unwrap();
+    dc_data.resize(8 + anchor::state::DrawCycle::INIT_SPACE, 0);
+    ctx.svm
+        .set_account(
+            draw_cycle_pda,
+            Account {
+                lamports: 1_000_000_000,
+                data: dc_data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    PrizePoolTestBuilder::from_state(&ctx.svm, pool_id)
+        .with_frozen(true)
+        .inject(&mut ctx.svm);
+
+    let crank = Keypair::new();
+    ctx.svm.airdrop(&crank.pubkey(), 1_000_000_000).unwrap();
+
+    PrepareDrawBuilder::for_pool(pool_id, 0, crank.pubkey())
+        .with_draw_cycle(draw_cycle_pda)
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_batch_size(1)
+        .send(&mut ctx.svm, &crank)
+        .unwrap();
+
+    let read_dc = read_draw_cycle_state(&ctx.svm, pool_id, 0);
+    assert_eq!(
+        read_dc.version, 0,
+        "Read-only borrow of draw_cycle must NOT mutate version on chain"
+    );
+}
+
+// 9. test_simulated_v2_struct_field_carving_zero_copy
+#[test]
+fn test_simulated_v2_struct_field_carving_zero_copy() {
+    use anchor::state::{PayoutRegistry, PrizePool, PrizeTier, RedemptionBatch, RedemptionBatchStatus, TicketRegistry, UserEntry, Winner};
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct PrizePoolV2 {
+        pub bond_price: u64,
+        pub stake_cycle_duration_hrs: i64,
+        pub min_yield_threshold: u64,
+        pub current_cycle_end_at: i64,
+        pub paused_at: i64,
+        pub total_deposited_principal: u64,
+        pub total_fees_accrued: u64,
+        pub total_fees_withdrawn: u64,
+        pub total_prizes_allocated: u64,
+        pub total_pending_redemptions: u64,
+        pub next_redemption_id: u64,
+        pub accumulating_redemption_batch_id: u64,
+        pub next_redemption_batch_id: u64,
+        pub submitted_batch_id: u64,
+        pub total_accumulating_redemptions: u64,
+        pub pool_id: u32,
+        pub current_draw_cycle_id: u32,
+        pub payout_timelock_seconds: u32,
+        pub fee_basis_points: u16,
+        pub max_yield_basis_points: u16,
+        pub vault_authority_bump: u8,
+        pub status: u8,
+        pub is_frozen_for_draw: u8,
+        pub version: u8,
+        pub prize_tiers_count: u8,
+        pub _padding: [u8; 3],
+        pub token_mint: Pubkey,
+        pub ticket_registry: Pubkey,
+        pub fee_wallet: Pubkey,
+        pub huma_pool_state: Pubkey,
+        pub prize_tiers: [PrizeTier; 10],
+        pub tier_bonus_bps: u64,
+        pub _reserved: [u8; 120],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct RedemptionBatchV2 {
+        pub huma_request_id: u128,
+        pub batch_id: u64,
+        pub total_principal_requested: u64,
+        pub total_pst_shares_locked: u64,
+        pub settled_usdc_received: u64,
+        pub claimed_principal: u64,
+        pub created_at: i64,
+        pub submitted_at: i64,
+        pub settled_at: i64,
+        pub pool_id: u32,
+        pub status: RedemptionBatchStatus,
+        pub bump: u8,
+        pub version: u8,
+        pub _padding: [u8; 1],
+        pub settlement_epoch: u64,
+        pub _reserved: [u8; 64],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+    struct TicketRegistryV2 {
+        pub pool_id: u32,
+        pub capacity: u32,
+        pub user_count: u32,
+        pub total_active_tickets: u32,
+        pub total_pending_tickets: u32,
+        pub draw_cycle_id: u32,
+        pub draw_prepared_up_to: u32,
+        pub version: u8,
+        pub _padding: [u8; 3],
+        pub feature_flags: u64,
+        pub _reserved: [u64; 7],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+    struct PayoutRegistryV2 {
+        pub pool_id: u32,
+        pub cycle_id: u32,
+        pub winners_count: u32,
+        pub payouts_completed: u32,
+        pub revealed_at: i64,
+        pub status: u8,
+        pub version: u8,
+        pub _padding: [u8; 6],
+        pub claim_expiry_ts: i64,
+        pub _reserved: [u64; 7],
+    }
+
+    // 1. Verify exact struct sizes
+    assert_eq!(std::mem::size_of::<PrizePoolV2>(), 480);
+    assert_eq!(std::mem::size_of::<PrizePool>(), 480);
+
+    assert_eq!(std::mem::size_of::<RedemptionBatchV2>(), 160);
+    assert_eq!(std::mem::size_of::<RedemptionBatch>(), 160);
+
+    assert_eq!(std::mem::size_of::<TicketRegistryV2>(), 96);
+    assert_eq!(std::mem::size_of::<TicketRegistry>(), 96);
+
+    assert_eq!(std::mem::size_of::<PayoutRegistryV2>(), 96);
+    assert_eq!(std::mem::size_of::<PayoutRegistry>(), 96);
+
+    // 2. Zero memory shifts & alignment
+    assert_eq!(
+        core::mem::offset_of!(PrizePoolV2, tier_bonus_bps),
+        core::mem::offset_of!(PrizePool, _reserved)
+    );
+    assert_eq!(
+        core::mem::offset_of!(RedemptionBatchV2, settlement_epoch),
+        core::mem::offset_of!(RedemptionBatch, _reserved)
+    );
+    assert_eq!(
+        core::mem::offset_of!(TicketRegistryV2, feature_flags),
+        core::mem::offset_of!(TicketRegistry, _reserved)
+    );
+    assert_eq!(
+        core::mem::offset_of!(PayoutRegistryV2, claim_expiry_ts),
+        core::mem::offset_of!(PayoutRegistry, _reserved)
+    );
+
+    // 3. Prove trailing raw dynamic slices remain byte-exact at offset 104
+    let mut reg_bytes = vec![0u8; 104 + std::mem::size_of::<UserEntry>()];
+    reg_bytes[0..8].copy_from_slice(TicketRegistry::DISCRIMINATOR);
+    let sample_user = Pubkey::new_unique();
+    let entry_slice = &mut reg_bytes[104..104 + 64];
+    let entry = UserEntry {
+        owner: sample_user,
+        active: 42,
+        pending: 10,
+        merged_through_cycle: 1,
+        cumulative_active: 52,
+        version: 1,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    };
+    entry_slice.copy_from_slice(bytemuck::bytes_of(&entry));
+
+    let _v2_header = bytemuck::try_from_bytes::<TicketRegistryV2>(&reg_bytes[8..104]).unwrap();
+    let v2_entries = bytemuck::try_cast_slice::<u8, UserEntry>(&reg_bytes[104..]).unwrap();
+    assert_eq!(v2_entries[0].owner, sample_user);
+    assert_eq!(v2_entries[0].active, 42);
+
+    let mut payout_bytes = vec![0u8; 104 + std::mem::size_of::<Winner>()];
+    payout_bytes[0..8].copy_from_slice(PayoutRegistry::DISCRIMINATOR);
+    let winner = Winner {
+        winner: sample_user,
+        amount_owed: 1_000_000,
+        bonds_bought: 1,
+        processed: 0,
+        tier_index: 0,
+        version: 1,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+    payout_bytes[104..104 + 56].copy_from_slice(bytemuck::bytes_of(&winner));
+
+    let _v2_payout_header = bytemuck::try_from_bytes::<PayoutRegistryV2>(&payout_bytes[8..104]).unwrap();
+    let v2_winners = bytemuck::try_cast_slice::<u8, Winner>(&payout_bytes[104..]).unwrap();
+    assert_eq!(v2_winners[0].winner, sample_user);
+    assert_eq!(v2_winners[0].amount_owed, 1_000_000);
+}

@@ -42,9 +42,35 @@ pub fn check_version(account_version: u8, current_version: u8) -> Result<()> {
     }
 }
 
+pub trait Versioned {
+    const CURRENT_VERSION: u8;
+    fn version(&self) -> u8;
+    fn check_version(&self) -> anchor_lang::Result<()>;
+    fn ensure_current_version(&mut self) -> anchor_lang::Result<()>;
+}
+
 #[macro_export]
 macro_rules! impl_versioned {
     ($ty:ident, $ver:expr) => {
+        impl $crate::utils::Versioned for $ty {
+            const CURRENT_VERSION: u8 = $ver;
+
+            #[inline(always)]
+            fn version(&self) -> u8 {
+                self.version
+            }
+
+            #[inline(always)]
+            fn check_version(&self) -> anchor_lang::Result<()> {
+                $crate::utils::check_version(self.version, Self::CURRENT_VERSION)
+            }
+
+            #[inline(always)]
+            fn ensure_current_version(&mut self) -> anchor_lang::Result<()> {
+                $crate::utils::ensure_current_version(&mut self.version, Self::CURRENT_VERSION)
+            }
+        }
+
         impl $ty {
             pub const CURRENT_VERSION: u8 = $ver;
 
@@ -1514,7 +1540,7 @@ mod tests {
 
     fn make_valid_entry_data(capacity: usize) -> Vec<u8> {
         let mut data = vec![0u8; USER_ENTRY_REGISTRY_HEADER_SIZE + capacity * USER_ENTRY_SIZE];
-        data[0..8].copy_from_slice(&crate::state::TicketRegistry::DISCRIMINATOR);
+        data[0..8].copy_from_slice(crate::state::TicketRegistry::DISCRIMINATOR);
         let header = bytemuck::from_bytes_mut::<crate::state::TicketRegistry>(
             &mut data[8..USER_ENTRY_REGISTRY_HEADER_SIZE],
         );

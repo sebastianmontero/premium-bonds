@@ -46,6 +46,7 @@ pub struct CrankCloseRedemptionBatch<'info> {
             batch.batch_id.to_le_bytes().as_ref()
         ],
         bump = batch.bump,
+        constraint = batch.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = batch.pool_id == pool.load()?.pool_id @ PremiumBondsError::MismatchedPoolId,
         close = crank
     )]
@@ -93,7 +94,6 @@ pub struct CrankCloseRedemptionBatch<'info> {
 /// If expired with unclaimed funds, sweeps the unclaimed pro-rata USDC to `fee_wallet`
 /// and decrements pool liabilities. Rent SOL is 100% refunded to the crank bot.
 pub fn handle(ctx: Context<CrankCloseRedemptionBatch>) -> Result<()> {
-    ctx.accounts.batch.ensure_current_version()?;
     let now = Clock::get()?.unix_timestamp;
     require!(ctx.accounts.batch.can_close(now), PremiumBondsError::BatchNotFullyClaimed);
 
@@ -102,6 +102,7 @@ pub fn handle(ctx: Context<CrankCloseRedemptionBatch>) -> Result<()> {
 
     let (pool_id_bytes, authority_bump, pool_id) = {
         let pool = ctx.accounts.pool.load()?;
+        pool.check_version()?;
         (pool.pool_id.to_le_bytes(), pool.vault_authority_bump, pool.pool_id)
     };
 

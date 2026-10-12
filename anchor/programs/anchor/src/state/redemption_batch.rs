@@ -90,6 +90,7 @@ impl RedemptionBatch {
     }
 
     pub fn accumulate(&mut self, principal_amount: u64) -> Result<()> {
+        self.ensure_current_version()?;
         require!(self.status == RedemptionBatchStatus::Accumulating, PremiumBondsError::InvalidBatchStatus);
         self.total_principal_requested = self.total_principal_requested
             .checked_add(principal_amount)
@@ -98,6 +99,7 @@ impl RedemptionBatch {
     }
 
     pub fn submit(&mut self, huma_request_id: u128, pst_shares: u64, timestamp: i64) -> Result<()> {
+        self.ensure_current_version()?;
         require!(self.status == RedemptionBatchStatus::Accumulating, PremiumBondsError::InvalidBatchStatus);
         require!(self.total_principal_requested > 0, PremiumBondsError::EmptyRedemptionBatch);
         self.huma_request_id = huma_request_id;
@@ -108,6 +110,7 @@ impl RedemptionBatch {
     }
 
     pub fn settle(&mut self, usdc_received: u64, timestamp: i64) -> Result<()> {
+        self.ensure_current_version()?;
         require!(self.status == RedemptionBatchStatus::Submitted, PremiumBondsError::InvalidBatchStatus);
         self.settled_usdc_received = usdc_received;
         self.settled_at = timestamp;
@@ -116,6 +119,7 @@ impl RedemptionBatch {
     }
 
     pub fn calculate_payout(&self, principal_amount: u64) -> Result<u64> {
+        self.check_version()?;
         require!(self.status == RedemptionBatchStatus::Settled, PremiumBondsError::RedemptionBatchNotSettled);
         let payout = (principal_amount as u128)
             .checked_mul(self.settled_usdc_received as u128)
@@ -126,6 +130,7 @@ impl RedemptionBatch {
     }
 
     pub fn claim(&mut self, principal_amount: u64) -> Result<u64> {
+        self.ensure_current_version()?;
         let payout = self.calculate_payout(principal_amount)?;
         self.claimed_principal = self.claimed_principal
             .checked_add(principal_amount)

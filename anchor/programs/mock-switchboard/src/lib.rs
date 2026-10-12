@@ -7,6 +7,8 @@
 //! and integration tests can execute the full atomic `[reveal, reveal_and_pick_winners]`
 //! transaction bundle with exact slot matching.
 
+#![allow(clippy::diverging_sub_expression)]
+
 use anchor_lang::prelude::*;
 
 declare_id!("Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2");
@@ -16,6 +18,7 @@ pub const SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN: usize = 408;
 pub const SB_REVEAL_SLOT_OFFSET: usize = 144;
 pub const SB_VALUE_OFFSET: usize = 152;
 
+#[allow(clippy::diverging_sub_expression)]
 #[program]
 pub mod mock_switchboard {
     use super::*;
@@ -43,7 +46,7 @@ pub mod mock_switchboard {
         // Update 32-byte randomness value
         if let Some(val) = value {
             data[SB_VALUE_OFFSET..SB_VALUE_OFFSET + 32].copy_from_slice(&val);
-        } else if &data[SB_VALUE_OFFSET..SB_VALUE_OFFSET + 32] == &[0u8; 32] {
+        } else if data[SB_VALUE_OFFSET..SB_VALUE_OFFSET + 32] == [0u8; 32] {
             // Generate deterministic non-zero seed if unpopulated
             let mut pseudo = [0u8; 32];
             pseudo[0..8].copy_from_slice(&clock.slot.to_le_bytes());

@@ -41,6 +41,7 @@ pub struct ClaimRedemption<'info> {
             batch.batch_id.to_le_bytes().as_ref()
         ],
         bump = batch.bump,
+        constraint = batch.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = batch.pool_id == pool.load()?.pool_id @ PremiumBondsError::MismatchedPoolId,
         constraint = batch.batch_id == pending_redemption.batch_id @ PremiumBondsError::MismatchedBatchId,
     )]
@@ -130,6 +131,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     };
 
     // Pro-rata claim calculation & mutation on batch
+    ctx.accounts.batch.ensure_current_version()?;
     let payout = ctx.accounts.batch.claim(principal_amount)?;
 
     // Zero out amount on pending receipt to prevent re-entrancy

@@ -164,9 +164,10 @@ pub fn handle(ctx: Context<ReinvestWinnings>, cycle_id: u32, winner_index: u32) 
     // This routes 100% of their prize to unclaimed_non_reinvested_winnings (dust) and marks the winner as processed
     // so crank operations complete cleanly without reverting with RegistryFull.
     let is_new_user = user_winnings.needs_registry_slot();
-    if is_new_user && bonds_to_buy > 0 {
+    if bonds_to_buy > 0 {
         let registry = ctx.accounts.ticket_registry.load()?;
-        if registry.user_count >= registry.capacity {
+        registry.check_version()?;
+        if is_new_user && registry.user_count >= registry.capacity {
             bonds_to_buy = 0;
         }
     }

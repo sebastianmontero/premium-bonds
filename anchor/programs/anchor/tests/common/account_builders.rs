@@ -1878,11 +1878,11 @@ impl AdminForceUnlockDrawBuilder {
 
     pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
         let mut current_randomness_account = self.accounts.current_randomness_account;
-        if current_randomness_account == Pubkey::default() {
-            if svm.get_account(&self.accounts.current_draw_cycle).is_some() {
-                let dc = read_draw_cycle_state(svm, self.pool_id, self.cycle_id);
-                current_randomness_account = dc.randomness_account;
-            }
+        if current_randomness_account == Pubkey::default()
+            && svm.get_account(&self.accounts.current_draw_cycle).is_some()
+        {
+            let dc = read_draw_cycle_state(svm, self.pool_id, self.cycle_id);
+            current_randomness_account = dc.randomness_account;
         }
         let mut accounts = self.build_metas();
         accounts[4] = solana_program::instruction::AccountMeta::new_readonly(current_randomness_account, false);
@@ -1901,11 +1901,11 @@ impl AdminForceUnlockDrawBuilder {
         additional_signers: &[&Keypair],
     ) -> TxResult {
         let mut current_randomness_account = self.accounts.current_randomness_account;
-        if current_randomness_account == Pubkey::default() {
-            if svm.get_account(&self.accounts.current_draw_cycle).is_some() {
-                let dc = read_draw_cycle_state(svm, self.pool_id, self.cycle_id);
-                current_randomness_account = dc.randomness_account;
-            }
+        if current_randomness_account == Pubkey::default()
+            && svm.get_account(&self.accounts.current_draw_cycle).is_some()
+        {
+            let dc = read_draw_cycle_state(svm, self.pool_id, self.cycle_id);
+            current_randomness_account = dc.randomness_account;
         }
         let mut accounts = self.build_metas();
         accounts[4] = solana_program::instruction::AccountMeta::new_readonly(current_randomness_account, false);
@@ -2478,6 +2478,246 @@ impl InitializeGlobalBuilder {
             program_id: anchor::id(),
             accounts: self.build_metas(),
             data: anchor::instruction::InitializeGlobal {}.data(),
+        }
+    }
+
+    pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
+        send_user_tx(svm, payer, self.build_ix())
+    }
+}
+
+// ─── 22. CrankSubmitRedemptionBatchBuilder ──────────────────────────────────
+
+pub struct CrankSubmitRedemptionBatchBuilder {
+    pub accounts: anchor::accounts::CrankSubmitRedemptionBatch,
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+impl CrankSubmitRedemptionBatchBuilder {
+    pub fn for_pool(pool_id: u32, batch_id: u64, next_batch_id: u64, crank: Pubkey) -> Self {
+        let (global_config, _) = global_config_pda();
+        let (pool_pda_addr, _) = pool_pda(pool_id);
+        let (batch, _) = redemption_batch_pda(pool_id, batch_id);
+        let (next_batch, _) = redemption_batch_pda(pool_id, next_batch_id);
+        let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+        let dummy = Keypair::new().pubkey();
+
+        Self {
+            accounts: anchor::accounts::CrankSubmitRedemptionBatch {
+                crank,
+                global_config,
+                pool: pool_pda_addr,
+                batch,
+                next_batch,
+                pool_pst_vault,
+                huma_program: huma_program_id(),
+                huma_config: dummy,
+                huma_pool_config: dummy,
+                huma_pool_state: dummy,
+                huma_mode_config: dummy,
+                huma_mode_mint: dummy,
+                huma_redemption_request: dummy,
+                huma_lender_state: dummy,
+                huma_pool_authority: dummy,
+                huma_pool_mode_token: dummy,
+                pst_token_program: anchor_spl::token::ID,
+                system_program: anchor_lang::system_program::ID,
+                event_authority: event_authority_pda(),
+                program: anchor::id(),
+            },
+            remaining_accounts: Vec::new(),
+        }
+    }
+
+    pub fn with_batch(mut self, batch: Pubkey) -> Self {
+        self.accounts.batch = batch;
+        self
+    }
+
+    pub fn with_next_batch(mut self, next_batch: Pubkey) -> Self {
+        self.accounts.next_batch = next_batch;
+        self
+    }
+
+    pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
+        self.accounts.huma_pool_state = huma_pool_state;
+        self
+    }
+
+    pub fn with_huma_mode_mint(mut self, huma_mode_mint: Pubkey) -> Self {
+        self.accounts.huma_mode_mint = huma_mode_mint;
+        self
+    }
+
+    pub fn with_huma_redemption_request(mut self, req: Pubkey) -> Self {
+        self.accounts.huma_redemption_request = req;
+        self
+    }
+
+    pub fn with_huma_lender_state(mut self, state: Pubkey) -> Self {
+        self.accounts.huma_lender_state = state;
+        self
+    }
+
+    pub fn with_huma_pool_authority(mut self, auth: Pubkey) -> Self {
+        self.accounts.huma_pool_authority = auth;
+        self
+    }
+
+    pub fn with_huma_pool_mode_token(mut self, token: Pubkey) -> Self {
+        self.accounts.huma_pool_mode_token = token;
+        self
+    }
+
+    pub fn build_metas(&self) -> Vec<AccountMeta> {
+        let mut metas = self.accounts.to_account_metas(None);
+        metas.extend(self.remaining_accounts.clone());
+        metas
+    }
+
+    pub fn build_ix(&self) -> Instruction {
+        Instruction {
+            program_id: anchor::id(),
+            accounts: self.build_metas(),
+            data: anchor::instruction::CrankSubmitRedemptionBatch {}.data(),
+        }
+    }
+
+    pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
+        send_user_tx(svm, payer, self.build_ix())
+    }
+}
+
+// ─── 23. SettleRedemptionBatchBuilder ───────────────────────────────────────
+
+pub struct SettleRedemptionBatchBuilder {
+    pub accounts: anchor::accounts::SettleRedemptionBatch,
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+impl SettleRedemptionBatchBuilder {
+    pub fn for_pool(pool_id: u32, batch_id: u64, caller: Pubkey) -> Self {
+        let (pool_pda_addr, _) = pool_pda(pool_id);
+        let (batch, _) = redemption_batch_pda(pool_id, batch_id);
+        let (pool_vault, _) = pool_vault_pda(pool_id);
+        let dummy = Keypair::new().pubkey();
+
+        Self {
+            accounts: anchor::accounts::SettleRedemptionBatch {
+                caller,
+                pool: pool_pda_addr,
+                batch,
+                token_mint: dummy,
+                pool_vault_account: pool_vault,
+                huma_program: huma_program_id(),
+                huma_config: dummy,
+                huma_pool_config: dummy,
+                huma_pool_state: dummy,
+                huma_mode_config: dummy,
+                huma_lender_state: dummy,
+                huma_pool_authority: dummy,
+                huma_pool_underlying_token: dummy,
+                token_program: anchor_spl::token::ID,
+                event_authority: event_authority_pda(),
+                program: anchor::id(),
+            },
+            remaining_accounts: Vec::new(),
+        }
+    }
+
+    pub fn with_batch(mut self, batch: Pubkey) -> Self {
+        self.accounts.batch = batch;
+        self
+    }
+
+    pub fn with_token_mint(mut self, mint: Pubkey) -> Self {
+        self.accounts.token_mint = mint;
+        self
+    }
+
+    pub fn with_huma_pool_state(mut self, state: Pubkey) -> Self {
+        self.accounts.huma_pool_state = state;
+        self
+    }
+
+    pub fn build_metas(&self) -> Vec<AccountMeta> {
+        let mut metas = self.accounts.to_account_metas(None);
+        metas.extend(self.remaining_accounts.clone());
+        metas
+    }
+
+    pub fn build_ix(&self) -> Instruction {
+        Instruction {
+            program_id: anchor::id(),
+            accounts: self.build_metas(),
+            data: anchor::instruction::SettleRedemptionBatch {}.data(),
+        }
+    }
+
+    pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
+        send_user_tx(svm, payer, self.build_ix())
+    }
+}
+
+// ─── 24. CrankCloseRedemptionBatchBuilder ───────────────────────────────────
+
+pub struct CrankCloseRedemptionBatchBuilder {
+    pub accounts: anchor::accounts::CrankCloseRedemptionBatch,
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+impl CrankCloseRedemptionBatchBuilder {
+    pub fn for_pool(pool_id: u32, batch_id: u64, crank: Pubkey) -> Self {
+        let (global_config, _) = global_config_pda();
+        let (pool_pda_addr, _) = pool_pda(pool_id);
+        let (batch, _) = redemption_batch_pda(pool_id, batch_id);
+        let (pool_vault, _) = pool_vault_pda(pool_id);
+        let dummy = Keypair::new().pubkey();
+
+        Self {
+            accounts: anchor::accounts::CrankCloseRedemptionBatch {
+                crank,
+                global_config,
+                pool: pool_pda_addr,
+                batch,
+                token_mint: dummy,
+                pool_vault_account: pool_vault,
+                fee_wallet: dummy,
+                token_program: anchor_spl::token::ID,
+                system_program: anchor_lang::system_program::ID,
+                event_authority: event_authority_pda(),
+                program: anchor::id(),
+            },
+            remaining_accounts: Vec::new(),
+        }
+    }
+
+    pub fn with_batch(mut self, batch: Pubkey) -> Self {
+        self.accounts.batch = batch;
+        self
+    }
+
+    pub fn with_token_mint(mut self, mint: Pubkey) -> Self {
+        self.accounts.token_mint = mint;
+        self
+    }
+
+    pub fn with_fee_wallet(mut self, fee_wallet: Pubkey) -> Self {
+        self.accounts.fee_wallet = fee_wallet;
+        self
+    }
+
+    pub fn build_metas(&self) -> Vec<AccountMeta> {
+        let mut metas = self.accounts.to_account_metas(None);
+        metas.extend(self.remaining_accounts.clone());
+        metas
+    }
+
+    pub fn build_ix(&self) -> Instruction {
+        Instruction {
+            program_id: anchor::id(),
+            accounts: self.build_metas(),
+            data: anchor::instruction::CrankCloseRedemptionBatch {}.data(),
         }
     }
 

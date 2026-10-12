@@ -42,6 +42,7 @@ pub struct CrankSubmitRedemptionBatch<'info> {
             batch.batch_id.to_le_bytes().as_ref()
         ],
         bump = batch.bump,
+        constraint = batch.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = batch.pool_id == pool.load()?.pool_id @ PremiumBondsError::MismatchedPoolId,
         constraint = batch.batch_id == pool.load()?.accumulating_redemption_batch_id @ PremiumBondsError::MismatchedBatchId,
         constraint = batch.status == RedemptionBatchStatus::Accumulating @ PremiumBondsError::InvalidBatchStatus,
