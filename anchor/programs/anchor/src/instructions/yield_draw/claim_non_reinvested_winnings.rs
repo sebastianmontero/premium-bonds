@@ -99,6 +99,8 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
 
     let clock = Clock::get()?;
 
+    ctx.accounts.redemption_batch.ensure_current_version()?;
+
     let (pool_id, batch_id, current_redemption_id) = {
         let mut pool_mut = ctx.accounts.pool.load_mut()?;
         pool_mut.ensure_current_version()?;

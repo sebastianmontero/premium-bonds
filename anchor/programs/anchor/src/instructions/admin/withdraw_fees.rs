@@ -36,6 +36,7 @@ pub struct WithdrawFees<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
+        has_one = fee_wallet @ PremiumBondsError::InvalidFeeWallet
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
@@ -67,10 +68,7 @@ pub struct WithdrawFees<'info> {
     )]
     pub pending_redemption: Box<Account<'info, PendingRedemption>>,
 
-    /// The designated fee wallet. Verified to match the fee wallet configured on the prize pool.
-    #[account(
-        constraint = fee_wallet.key() == pool.load()?.fee_wallet @ PremiumBondsError::InvalidFeeWallet
-    )]
+    /// The designated fee wallet. Verified to match the fee wallet configured on the prize pool via has_one.
     pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// Solana System Program.

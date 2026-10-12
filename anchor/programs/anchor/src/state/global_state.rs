@@ -9,6 +9,7 @@ use anchor_lang::prelude::*;
 /// PDA seeds: [b"global_config"]
 #[account]
 #[derive(InitSpace)]
+#[repr(C)]
 pub struct GlobalConfig {
     /// Public key of the protocol administrator who can create pools and update configs.
     pub admin: Pubkey,
@@ -20,14 +21,19 @@ pub struct GlobalConfig {
     pub pending_admin: Pubkey,
     /// Schema version of the struct.
     pub version: u8,
+    /// Explicit padding to maintain 8-byte alignment for _reserved.
+    pub _padding: [u8; 7],
     /// Reserved space for future upgrades.
     pub _reserved: [u8; 64],
 }
 
-impl GlobalConfig {
-    /// Current schema version of the GlobalConfig account.
-    pub const CURRENT_VERSION: u8 = 1;
+const _: () = assert!(std::mem::size_of::<GlobalConfig>() == 200);
+const _: () = assert!(GlobalConfig::INIT_SPACE == 200);
+const _: () = assert!(core::mem::offset_of!(GlobalConfig, _reserved) == 136);
 
+crate::impl_versioned!(GlobalConfig, 1);
+
+impl GlobalConfig {
     /// Initializes a new GlobalConfig account with default version and zeroed reserved space.
     pub fn init(&mut self, admin: Pubkey, guardian: Pubkey, jobs_account: Pubkey) {
         self.admin = admin;
@@ -35,26 +41,7 @@ impl GlobalConfig {
         self.jobs_account = jobs_account;
         self.pending_admin = Pubkey::default();
         self.version = Self::CURRENT_VERSION;
+        self._padding = [0; 7];
         self._reserved = [0; 64];
-    }
-
-    /// Checks that the account version is supported.
-    #[inline]
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
-        Ok(())
-    }
-
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
     }
 }

@@ -71,30 +71,9 @@ impl From<InitPendingRedemptionParams> for PendingRedemption {
     }
 }
 
+crate::impl_versioned!(PendingRedemption, 1);
+
 impl PendingRedemption {
-    /// Current schema version of the PendingRedemption account.
-    pub const CURRENT_VERSION: u8 = 1;
-
-    /// Checks that the account version is supported.
-    #[inline]
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            crate::error::PremiumBondsError::UnsupportedAccountVersion
-        );
-        Ok(())
-    }
-
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
-    }
-
     /// Constructs a new PendingRedemption struct from initialization parameters.
     pub fn new(params: InitPendingRedemptionParams) -> Self {
         Self {

@@ -29,6 +29,7 @@ pub struct CrankSubmitRedemptionBatch<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
+        has_one = huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
@@ -84,8 +85,7 @@ pub struct CrankSubmitRedemptionBatch<'info> {
     /// CHECK: Validated by Huma program owner and pinned to pool.huma_pool_state.
     #[account(
         mut,
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
-        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
@@ -130,6 +130,7 @@ pub struct CrankSubmitRedemptionBatch<'info> {
 
 /// Aggregates all pending redemptions in the active batch and submits a single Huma CPI request.
 pub fn handle(ctx: Context<CrankSubmitRedemptionBatch>) -> Result<()> {
+    ctx.accounts.batch.ensure_current_version()?;
     let principal_requested = ctx.accounts.batch.total_principal_requested;
     require!(principal_requested > 0, PremiumBondsError::EmptyRedemptionBatch);
 

@@ -19,6 +19,8 @@ pub struct SettleRedemptionBatch<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
+        has_one = huma_pool_state @ PremiumBondsError::InvalidHumaPoolState,
+        has_one = token_mint @ PremiumBondsError::InvalidTokenMint
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
@@ -38,7 +40,6 @@ pub struct SettleRedemptionBatch<'info> {
 
     /// Underlying USDC token mint.
     #[account(
-        address = pool.load()?.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -67,8 +68,7 @@ pub struct SettleRedemptionBatch<'info> {
     /// CHECK: Validated by Huma program owner and pinned to pool.huma_pool_state.
     #[account(
         mut,
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
-        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
@@ -99,6 +99,7 @@ pub struct SettleRedemptionBatch<'info> {
 
 /// Settles a submitted redemption batch by invoking Huma disburse and recording exact USDC disbursed.
 pub fn handle(ctx: Context<SettleRedemptionBatch>) -> Result<()> {
+    ctx.accounts.batch.ensure_current_version()?;
     let batch_id = ctx.accounts.batch.batch_id;
     let huma_request_id = ctx.accounts.batch.huma_request_id;
     let total_principal_requested = ctx.accounts.batch.total_principal_requested;

@@ -143,6 +143,23 @@ fn test_v1_on_chain_unsupported_account_version_rejection() {
         sell_res,
         anchor::error::PremiumBondsError::UnsupportedAccountVersion,
     );
+
+    // Restore user_winnings version
+    mutate_user_winnings(&mut ctx.svm, 1, &ctx.user.pubkey(), |uw| {
+        uw.version = anchor::state::UserWinnings::CURRENT_VERSION;
+    });
+
+    // 3. Test declarative ensure_current_version() constraint rejection on RedemptionBatch (SellBonds)
+    mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+        rb.version = anchor::state::RedemptionBatch::CURRENT_VERSION + 1;
+    });
+
+    ctx.svm.expire_blockhash();
+    let sell_res_rb = send_e2e_sell_bonds(&mut ctx, &user_kp, 0, 5);
+    assert_custom_error(
+        sell_res_rb,
+        anchor::error::PremiumBondsError::UnsupportedAccountVersion,
+    );
 }
 
 // ─── Vector 2: State Lifecycle & Lazy Migration ─────────────────────────────
@@ -195,6 +212,34 @@ fn test_v2_user_winnings_lazy_migration_on_sell_bonds() {
     assert_eq!(
         read_uw_after.version,
         anchor::state::UserWinnings::CURRENT_VERSION
+    );
+}
+
+#[test]
+fn test_v2_redemption_batch_lazy_migration_on_sell_bonds() {
+    let mut ctx = setup_e2e();
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    // Forge redemption_batch 0 to version 0
+    mutate_redemption_batch(&mut ctx.svm, 1, 0, |rb| {
+        rb.version = 0;
+    });
+
+    // Verify version is 0
+    let read_rb = read_redemption_batch(&ctx.svm, 1, 0);
+    assert_eq!(read_rb.version, 0);
+
+    // Clone user keypair for sell_bonds
+    let user_kp = clone_keypair(&ctx.user);
+
+    // Sell bonds (partial sell, remaining > 0)
+    send_e2e_sell_bonds(&mut ctx, &user_kp, 0, 5).unwrap();
+
+    // Verify redemption_batch migrated to CURRENT_VERSION in-place
+    let read_rb_after = read_redemption_batch(&ctx.svm, 1, 0);
+    assert_eq!(
+        read_rb_after.version,
+        anchor::state::RedemptionBatch::CURRENT_VERSION
     );
 }
 
@@ -268,6 +313,7 @@ fn test_v2_batch_boundary_slice_version_migration() {
         status: anchor::state::DrawStatus::AwaitingRandomness,
         version: 0, // Test read-only draw_cycle with version 0
         rebind_count: 0,
+        _padding: [0; 1],
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     };
@@ -541,6 +587,7 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
         status: anchor::state::DrawStatus::AwaitingRandomness,
         version: 1,
         rebind_count: 0,
+        _padding: [0; 1],
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     };
@@ -620,14 +667,14 @@ fn test_v7_claim_redemption_rejects_mismatched_batch() {
     assert_custom_error(res, anchor::error::PremiumBondsError::MismatchedBatchId);
 }
 
-// ─── 100% Error Code Coverage: UnsupportedAccountVersion Across 9 Structs ───
+// ─── 100% Error Code Coverage: UnsupportedAccountVersion Across 10 Structs ──
 
 #[test]
-fn test_unsupported_account_version_all_9_structs() {
+fn test_unsupported_account_version_all_10_structs() {
     use anchor::error::PremiumBondsError;
     use anchor::state::{
-        DrawCycle, GlobalConfig, PayoutRegistry, PendingRedemption, PrizePool, TicketRegistry,
-        UserEntry, UserWinnings, Winner,
+        DrawCycle, GlobalConfig, PayoutRegistry, PendingRedemption, PrizePool, RedemptionBatch,
+        TicketRegistry, UserEntry, UserWinnings, Winner,
     };
 
     // 1. GlobalConfig
@@ -637,6 +684,7 @@ fn test_unsupported_account_version_all_9_structs() {
         jobs_account: Pubkey::default(),
         pending_admin: Pubkey::default(),
         version: GlobalConfig::CURRENT_VERSION + 1,
+        _padding: [0; 7],
         _reserved: [0; 64],
     };
     assert_eq!(
@@ -782,6 +830,7 @@ fn test_unsupported_account_version_all_9_structs() {
         status: anchor::state::DrawStatus::AwaitingYield,
         version: DrawCycle::CURRENT_VERSION + 1,
         rebind_count: 0,
+        _padding: [0; 1],
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     };
@@ -806,6 +855,7 @@ fn test_unsupported_account_version_all_9_structs() {
         user: Pubkey::default(),
         bump: 0,
         version: UserWinnings::CURRENT_VERSION + 1,
+        _padding: [0; 6],
         _reserved: [0; 64],
     };
     assert_eq!(
@@ -865,5 +915,19 @@ fn test_unsupported_account_version_all_9_structs() {
         pred.ensure_current_version().unwrap_err(),
         PremiumBondsError::UnsupportedAccountVersion.into(),
         "PendingRedemption ensure_current_version must fail with UnsupportedAccountVersion"
+    );
+
+    // 10. RedemptionBatch
+    let mut rb = RedemptionBatch::new(1, 1, 255, 0);
+    rb.version = RedemptionBatch::CURRENT_VERSION + 1;
+    assert_eq!(
+        rb.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "RedemptionBatch check_version must fail with UnsupportedAccountVersion"
+    );
+    assert_eq!(
+        rb.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "RedemptionBatch ensure_current_version must fail with UnsupportedAccountVersion"
     );
 }

@@ -59,7 +59,11 @@ pub struct PrepareDraw<'info> {
 /// indicator `draw_prepared_up_to`.
 pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     require!(batch_size > 0, PremiumBondsError::InvalidBatchSize);
-    ctx.accounts.pool.load()?.check_version()?;
+    let pool_id = {
+        let pool = ctx.accounts.pool.load()?;
+        pool.check_version()?;
+        pool.pool_id
+    };
 
     let progress = {
         let registry_ai = ctx.accounts.ticket_registry.to_account_info();
@@ -69,7 +73,7 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     };
 
     emit!(DrawPreparationProgress {
-        pool_id: ctx.accounts.pool.load()?.pool_id,
+        pool_id,
         cycle_id: ctx.accounts.draw_cycle.cycle_id,
         crank: ctx.accounts.crank.key(),
         batch_start: progress.start,

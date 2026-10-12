@@ -21,6 +21,46 @@ pub fn calculate_percentage_fee(amount: u64, fee_basis_points: u16) -> Result<u6
         .map_err(|_| PremiumBondsError::MathOverflow.into())
 }
 
+#[inline(always)]
+pub fn ensure_current_version(account_version: &mut u8, current_version: u8) -> Result<()> {
+    if *account_version == current_version {
+        return Ok(());
+    }
+    if *account_version < current_version {
+        *account_version = current_version;
+        return Ok(());
+    }
+    Err(crate::error::PremiumBondsError::UnsupportedAccountVersion.into())
+}
+
+#[inline(always)]
+pub fn check_version(account_version: u8, current_version: u8) -> Result<()> {
+    if account_version <= current_version {
+        Ok(())
+    } else {
+        Err(crate::error::PremiumBondsError::UnsupportedAccountVersion.into())
+    }
+}
+
+#[macro_export]
+macro_rules! impl_versioned {
+    ($ty:ident, $ver:expr) => {
+        impl $ty {
+            pub const CURRENT_VERSION: u8 = $ver;
+
+            #[inline(always)]
+            pub fn check_version(&self) -> anchor_lang::Result<()> {
+                $crate::utils::check_version(self.version, Self::CURRENT_VERSION)
+            }
+
+            #[inline(always)]
+            pub fn ensure_current_version(&mut self) -> anchor_lang::Result<()> {
+                $crate::utils::ensure_current_version(&mut self.version, Self::CURRENT_VERSION)
+            }
+        }
+    };
+}
+
 /// Derive a deterministic random ticket index from a seed and contextual inputs.
 /// Uses SHA-256 hashing to produce uniform entropy scoped per tier, winner slot, and cycle.
 ///
@@ -701,15 +741,15 @@ mod tests {
         assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 96);
         assert_eq!(
             crate::state::GlobalConfig::INIT_SPACE,
-            32 + 32 + 32 + 32 + 1 + 64
+            32 + 32 + 32 + 32 + 1 + 7 + 64
         );
         assert_eq!(
             crate::state::UserWinnings::INIT_SPACE,
-            8 + 8 + 8 + 4 + 4 + 32 + 1 + 1 + 64
+            8 + 8 + 8 + 4 + 4 + 32 + 1 + 1 + 6 + 64
         );
         assert_eq!(
             crate::state::DrawCycle::INIT_SPACE,
-            8 + 8 + 8 + 8 + 8 + 32 + 4 + 4 + 4 + crate::state::DrawStatus::INIT_SPACE + 1 + 1 + 32 + 64
+            8 + 8 + 8 + 8 + 8 + 32 + 4 + 4 + 4 + crate::state::DrawStatus::INIT_SPACE + 1 + 1 + 1 + 32 + 64
         );
         assert_eq!(
             crate::state::PendingRedemption::INIT_SPACE,
@@ -717,6 +757,10 @@ mod tests {
         );
         assert_eq!(crate::state::PendingRedemption::INIT_SPACE, 136);
         assert_eq!(8 + crate::state::PendingRedemption::INIT_SPACE, 144);
+        assert_eq!(crate::state::DrawCycle::INIT_SPACE, 184);
+        assert_eq!(8 + crate::state::DrawCycle::INIT_SPACE, 192);
+        assert_eq!(crate::state::RedemptionBatch::INIT_SPACE, 160);
+        assert_eq!(8 + crate::state::RedemptionBatch::INIT_SPACE, 168);
     }
 
     #[test]
@@ -734,6 +778,27 @@ mod tests {
             core::mem::offset_of!(crate::state::PendingRedemption, _reserved),
             72
         );
+        assert_eq!(
+            core::mem::offset_of!(crate::state::UserWinnings, _reserved),
+            72
+        );
+        assert_eq!(
+            core::mem::offset_of!(crate::state::GlobalConfig, _reserved),
+            136
+        );
+        assert_eq!(
+            core::mem::offset_of!(crate::state::DrawCycle, randomness_seed),
+            88
+        );
+        assert_eq!(
+            core::mem::offset_of!(crate::state::DrawCycle, _reserved),
+            120
+        );
+        assert_eq!(
+            core::mem::offset_of!(crate::state::RedemptionBatch, _reserved),
+            88
+        );
+        assert_eq!((8 + crate::state::DrawCycle::INIT_SPACE) % 8, 0);
     }
 
     #[test]
@@ -951,6 +1016,7 @@ mod tests {
             jobs_account: Pubkey::default(),
             pending_admin: Pubkey::default(),
             version: GlobalConfig::CURRENT_VERSION,
+            _padding: [0; 7],
             _reserved: [0; 64],
         };
         assert!(config.check_version().is_ok());
@@ -1116,6 +1182,7 @@ mod tests {
             status: crate::state::DrawStatus::AwaitingYield,
             version: DrawCycle::CURRENT_VERSION,
             rebind_count: 0,
+            _padding: [0; 1],
             randomness_seed: [0; 32],
             _reserved: [0; 64],
         };
@@ -1144,6 +1211,7 @@ mod tests {
             user: Pubkey::default(),
             bump: 0,
             version: UserWinnings::CURRENT_VERSION,
+            _padding: [0; 6],
             _reserved: [0; 64],
         };
         assert!(uw.check_version().is_ok());
@@ -1214,6 +1282,23 @@ mod tests {
         );
         assert_eq!(
             pred.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // 10. RedemptionBatch
+        let mut batch = crate::state::RedemptionBatch::new(1, 1, 255, 0);
+        assert!(batch.check_version().is_ok());
+        assert!(batch.ensure_current_version().is_ok());
+        batch.version = 0;
+        assert!(batch.ensure_current_version().is_ok());
+        assert_eq!(batch.version, crate::state::RedemptionBatch::CURRENT_VERSION);
+        batch.version = crate::state::RedemptionBatch::CURRENT_VERSION + 1;
+        assert_eq!(
+            batch.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+        assert_eq!(
+            batch.ensure_current_version().unwrap_err(),
             crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
         );
     }

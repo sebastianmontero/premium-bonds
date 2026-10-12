@@ -63,6 +63,8 @@ export type GlobalConfig = {
   pendingAdmin: Address;
   /** Schema version of the struct. */
   version: number;
+  /** Explicit padding to maintain 8-byte alignment for _reserved. */
+  padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
 };
@@ -78,6 +80,8 @@ export type GlobalConfigArgs = {
   pendingAdmin: Address;
   /** Schema version of the struct. */
   version: number;
+  /** Explicit padding to maintain 8-byte alignment for _reserved. */
+  padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
 };
@@ -92,6 +96,7 @@ export function getGlobalConfigEncoder(): FixedSizeEncoder<GlobalConfigArgs> {
       ["jobsAccount", getAddressEncoder()],
       ["pendingAdmin", getAddressEncoder()],
       ["version", getU8Encoder()],
+      ["padding", fixEncoderSize(getBytesEncoder(), 7)],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
     (value) => ({ ...value, discriminator: GLOBAL_CONFIG_DISCRIMINATOR })
@@ -107,6 +112,7 @@ export function getGlobalConfigDecoder(): FixedSizeDecoder<GlobalConfig> {
     ["jobsAccount", getAddressDecoder()],
     ["pendingAdmin", getAddressDecoder()],
     ["version", getU8Decoder()],
+    ["padding", fixDecoderSize(getBytesDecoder(), 7)],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
 }
@@ -173,5 +179,5 @@ export async function fetchAllMaybeGlobalConfig(
 }
 
 export function getGlobalConfigSize(): number {
-  return 201;
+  return 208;
 }

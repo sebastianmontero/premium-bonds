@@ -37,7 +37,8 @@ pub struct BuyBonds<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
-        has_one = ticket_registry
+        has_one = ticket_registry,
+        has_one = huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
@@ -102,8 +103,7 @@ pub struct BuyBonds<'info> {
     /// to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI.
     #[account(
         mut,
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
-        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
@@ -156,8 +156,8 @@ pub struct BuyBonds<'info> {
 /// * `bonds_to_buy` - The number of bonds/tickets the user wants to purchase.
 pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let (amount, pool_id, pool_id_bytes, authority_bump) = {
-        let mut pool = ctx.accounts.pool.load_mut()?;
-        pool.ensure_current_version()?;
+        let pool = ctx.accounts.pool.load()?;
+        pool.check_version()?;
         let amount = pool.validate_buy_bonds(bonds_to_buy)?;
         let pool_id = pool.pool_id;
         let pool_id_bytes = pool_id.to_le_bytes();
@@ -223,6 +223,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     // 3. Update State
     let new_total_deposited_principal = {
         let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.ensure_current_version()?;
         pool.total_deposited_principal = pool
             .total_deposited_principal
             .checked_add(amount)
@@ -233,11 +234,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let user_key = ctx.accounts.user.key();
     let user_winnings = &mut ctx.accounts.user_winnings;
     if is_uninit {
-        user_winnings.pool_id = pool_id;
-        user_winnings.user = user_key;
-        user_winnings.bump = ctx.bumps.user_winnings;
-        user_winnings.registry_entry_index = crate::state::UserWinnings::UNASSIGNED_ENTRY_INDEX;
-        user_winnings.version = crate::state::UserWinnings::CURRENT_VERSION;
+        user_winnings.init(pool_id, user_key, ctx.bumps.user_winnings);
     }
 
     let slot_hint = if needs_slot {

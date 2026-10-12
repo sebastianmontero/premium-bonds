@@ -38,8 +38,8 @@ describe("Settlement & PendingRedemption Invariants", () => {
       );
       assert.strictEqual(
         USER_WINNINGS_ACCOUNT_SIZE,
-        138n,
-        "UserWinnings account size must be exactly 138 bytes"
+        144n,
+        "UserWinnings account size must be exactly 144 bytes"
       );
     });
 

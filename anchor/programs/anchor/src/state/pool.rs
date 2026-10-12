@@ -153,9 +153,6 @@ pub fn sum_tier_winners(tiers: &[PrizeTier]) -> Result<u32> {
 }
 
 impl PrizePool {
-    /// Current schema version of the PrizePool account.
-    pub const CURRENT_VERSION: u8 = 1;
-
     #[inline]
     pub fn active_prize_tiers(&self) -> &[PrizeTier] {
         let count = (self.prize_tiers_count as usize).min(self.prize_tiers.len());
@@ -166,27 +163,11 @@ impl PrizePool {
     pub fn total_winners(&self) -> Result<u32> {
         sum_tier_winners(self.active_prize_tiers())
     }
+}
 
-    /// Read-only version check to guard against unsupported account versions.
-    #[inline]
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
-        Ok(())
-    }
+crate::impl_versioned!(PrizePool, 1);
 
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
-    }
-
+impl PrizePool {
     /// Gets the strongly-typed PoolStatus enum.
     pub fn status(&self) -> PoolStatus {
         PoolStatus::try_from(self.status).unwrap_or(PoolStatus::Closed)
@@ -357,9 +338,10 @@ impl PrizePool {
             .checked_div(10_000)
             .ok_or(PremiumBondsError::MathOverflow)? as u64;
 
-        Ok(dynamic
-            .max(crate::constants::MIN_SOLVENCY_TOLERANCE)
-            .min(crate::constants::MAX_SOLVENCY_TOLERANCE))
+        Ok(dynamic.clamp(
+            crate::constants::MIN_SOLVENCY_TOLERANCE,
+            crate::constants::MAX_SOLVENCY_TOLERANCE,
+        ))
     }
 
     pub fn is_solvent(&self, current_asset_value: u64) -> Result<bool> {
@@ -681,6 +663,7 @@ impl PrizePool {
 /// PDA seeds: [b"user_winnings", pool_id.to_le_bytes(), user.key().as_ref()]
 #[account]
 #[derive(InitSpace)]
+#[repr(C)]
 pub struct UserWinnings {
     /// Unclaimed non-reinvested cash-out winnings (in lamports).
     pub unclaimed_non_reinvested_winnings: u64,
@@ -698,15 +681,41 @@ pub struct UserWinnings {
     pub bump: u8,
     /// Schema version of the struct.
     pub version: u8,
+    /// Explicit padding to maintain 8-byte alignment for _reserved.
+    pub _padding: [u8; 6],
     /// Reserved space for future upgrades.
     pub _reserved: [u8; 64],
 }
 
+const _: () = assert!(std::mem::size_of::<UserWinnings>() == 136);
+const _: () = assert!(std::mem::align_of::<UserWinnings>() == 8);
+const _: () = assert!(UserWinnings::INIT_SPACE == 136);
+const _: () = assert!(core::mem::offset_of!(UserWinnings, _reserved) == 72);
+
+crate::impl_versioned!(UserWinnings, 1);
+
 impl UserWinnings {
-    /// Current schema version of the UserWinnings account.
-    pub const CURRENT_VERSION: u8 = 1;
     /// Sentinel value indicating the user has no active slot in the TicketRegistry.
     pub const UNASSIGNED_ENTRY_INDEX: u32 = u32::MAX;
+
+    pub fn new(pool_id: u32, user: Pubkey, bump: u8) -> Self {
+        Self {
+            unclaimed_non_reinvested_winnings: 0,
+            total_claimed: 0,
+            total_reinvested: 0,
+            pool_id,
+            registry_entry_index: Self::UNASSIGNED_ENTRY_INDEX,
+            user,
+            bump,
+            version: Self::CURRENT_VERSION,
+            _padding: [0; 6],
+            _reserved: [0; 64],
+        }
+    }
+
+    pub fn init(&mut self, pool_id: u32, user: Pubkey, bump: u8) {
+        *self = Self::new(pool_id, user, bump);
+    }
 
     /// Returns true if this account was just created via `init_if_needed`
     /// and has never been populated with user data.
@@ -721,26 +730,6 @@ impl UserWinnings {
     #[inline]
     pub fn needs_registry_slot(&self) -> bool {
         self.is_uninitialized() || self.registry_entry_index == Self::UNASSIGNED_ENTRY_INDEX
-    }
-
-    /// Read-only version check to guard against unsupported account versions.
-    #[inline]
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
-        Ok(())
-    }
-
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
     }
 
     /// Finds, verifies, and updates the swapped user's winnings PDA from remaining accounts during a swap-and-pop exit.
@@ -1229,6 +1218,7 @@ mod tests {
             user: Pubkey::default(),
             bump: 254,
             version: UserWinnings::CURRENT_VERSION,
+            _padding: [0; 6],
             _reserved: [0; 64],
         };
         assert!(winnings.is_uninitialized());
@@ -1246,6 +1236,7 @@ mod tests {
             user: Pubkey::new_unique(),
             bump: 254,
             version: UserWinnings::CURRENT_VERSION,
+            _padding: [0; 6],
             _reserved: [0; 64],
         };
         assert!(!winnings.is_uninitialized());
@@ -1263,6 +1254,7 @@ mod tests {
             user: Pubkey::new_unique(),
             bump: 254,
             version: UserWinnings::CURRENT_VERSION,
+            _padding: [0; 6],
             _reserved: [0; 64],
         };
         assert!(!winnings.is_uninitialized());

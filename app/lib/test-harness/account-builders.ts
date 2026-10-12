@@ -193,6 +193,7 @@ export function buildMockDrawCycle(
     status: DrawStatus.Complete,
     rebindCount: 0,
     version: 1,
+    padding: new Uint8Array(1),
     randomnessSeed: new Uint8Array(32),
     reserved: new Uint8Array(64),
     ...overrides,
@@ -215,6 +216,7 @@ export function buildMockDrawCycleArgs(
     status: DrawStatus.Complete,
     rebindCount: 0,
     version: 1,
+    padding: new Uint8Array(1),
     randomnessSeed: new Uint8Array(32),
     reserved: new Uint8Array(64),
     ...overrides,
@@ -345,6 +347,7 @@ export function buildMockDrawCycleInfo(
     lockedTicketCount: 500,
     rebindCount: 0,
     version: 1,
+    padding: new Uint8Array(1),
     randomnessSeed: new Uint8Array(32).fill(7),
     reserved: new Uint8Array(64),
     ...overrides,
@@ -406,8 +409,9 @@ export function buildMockRedemptionBatch(
     poolId: 1,
     status: RedemptionBatchStatus.Accumulating,
     bump: 255,
-    padding: new Uint8Array(4),
-    reserved: new Uint8Array(64),
+    version: 1,
+    padding: new Uint8Array(1),
+    reserved: new Uint8Array(72),
     ...overrides,
   };
 }
@@ -430,8 +434,9 @@ export function buildMockRedemptionBatchEncoded(
       poolId: 1,
       status: RedemptionBatchStatus.Accumulating,
       bump: 255,
-      padding: new Uint8Array(4),
-      reserved: new Uint8Array(64),
+      version: 1,
+      padding: new Uint8Array(1),
+      reserved: new Uint8Array(72),
       ...overrides,
     })
   );

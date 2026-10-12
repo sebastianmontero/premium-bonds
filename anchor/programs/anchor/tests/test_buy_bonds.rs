@@ -935,3 +935,17 @@ fn test_mtr001_deposit_linearity_and_scale_invariance() {
     assert_eq!(result_a.user_pending_tickets, 10, "User pending tickets must accumulate to 10");
 }
 
+#[test]
+fn test_buy_bonds_fails_invalid_huma_pool_state() {
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 100, 0, 0);
+    let spoofed_huma = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut ctx.svm, spoofed_huma);
+
+    let ix = ctx
+        .buy_builder(1)
+        .with_huma_pool_state(spoofed_huma)
+        .build_default_ix();
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
+    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
+}
+

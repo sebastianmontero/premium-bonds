@@ -32,6 +32,8 @@ pub struct CrankCloseRedemptionBatch<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
+        has_one = fee_wallet @ PremiumBondsError::InvalidFeeWallet,
+        has_one = token_mint @ PremiumBondsError::InvalidTokenMint
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
@@ -51,7 +53,6 @@ pub struct CrankCloseRedemptionBatch<'info> {
 
     /// The underlying token mint (e.g. USDC).
     #[account(
-        address = pool.load()?.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -70,8 +71,7 @@ pub struct CrankCloseRedemptionBatch<'info> {
     #[account(
         mut,
         token::mint = token_mint,
-        token::token_program = token_program,
-        constraint = fee_wallet.key() == pool.load()?.fee_wallet @ PremiumBondsError::InvalidFeeWallet
+        token::token_program = token_program
     )]
     pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -93,6 +93,7 @@ pub struct CrankCloseRedemptionBatch<'info> {
 /// If expired with unclaimed funds, sweeps the unclaimed pro-rata USDC to `fee_wallet`
 /// and decrements pool liabilities. Rent SOL is 100% refunded to the crank bot.
 pub fn handle(ctx: Context<CrankCloseRedemptionBatch>) -> Result<()> {
+    ctx.accounts.batch.ensure_current_version()?;
     let now = Clock::get()?.unix_timestamp;
     require!(ctx.accounts.batch.can_close(now), PremiumBondsError::BatchNotFullyClaimed);
 

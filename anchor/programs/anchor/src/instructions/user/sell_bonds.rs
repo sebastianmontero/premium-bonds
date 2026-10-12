@@ -159,6 +159,8 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
     let clock = Clock::get()?;
 
+    ctx.accounts.redemption_batch.ensure_current_version()?;
+
     // Queue redemption into the active batch and update pool accounting
     let (pool_id, batch_id, current_redemption_id, new_total_deposited_principal) = {
         let mut pool = ctx.accounts.pool.load_mut()?;

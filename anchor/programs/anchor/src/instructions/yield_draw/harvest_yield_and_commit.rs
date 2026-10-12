@@ -62,7 +62,8 @@ pub struct HarvestYieldAndCommit<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
-        has_one = ticket_registry
+        has_one = ticket_registry,
+        has_one = huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
@@ -98,8 +99,7 @@ pub struct HarvestYieldAndCommit<'info> {
     // ── Huma Finance read-only account ──────────────────────────────────────
     /// CHECK: This is the raw Huma PoolState account. It is unchecked because it is a foreign program account that is deserialized manually inside the instruction handler using the `huma::read_mode_assets` and `huma::read_huma_redemption_queue` helpers. To ensure safety, it is validated using an ownership constraint check (`huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID`) and pinned to pool.huma_pool_state.
     #[account(
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
-        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
@@ -197,13 +197,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
 
     // ── Base Draw Cycle metadata (unconditionally initialized) ───────────────
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
-    draw_cycle.pool_id = pool.pool_id;
-    draw_cycle.cycle_id = pool.current_draw_cycle_id;
-    draw_cycle.randomness_account = Pubkey::default();
-    draw_cycle.vrf_seed_slot = 0;
-    draw_cycle.initiated_at = current_time;
-    draw_cycle.completed_at = 0;
-    draw_cycle.version = DrawCycle::CURRENT_VERSION;
+    draw_cycle.init(pool.pool_id, pool.current_draw_cycle_id, current_time);
 
     // ── Circuit Breaker 1: On-Chain Solvency Guard ───────────────────────────
     if !pool.is_solvent(current_value)? {

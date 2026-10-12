@@ -17,13 +17,13 @@ describe("Solana Fee Estimation & Protocol Constants", () => {
     );
     assert.strictEqual(
       USER_WINNINGS_SPACE_BYTES,
-      138,
-      `Expected UserWinnings space 138 bytes, got ${USER_WINNINGS_SPACE_BYTES}`
+      144,
+      `Expected UserWinnings space 144 bytes, got ${USER_WINNINGS_SPACE_BYTES}`
     );
     assert.strictEqual(
       USER_WINNINGS_RENT_EXEMPTION_SOL,
-      0.00185136,
-      `Expected UserWinnings rent 0.00185136, got ${USER_WINNINGS_RENT_EXEMPTION_SOL}`
+      0.00189312,
+      `Expected UserWinnings rent 0.00189312, got ${USER_WINNINGS_RENT_EXEMPTION_SOL}`
     );
   });
 
@@ -36,14 +36,14 @@ describe("Solana Fee Estimation & Protocol Constants", () => {
     );
     assert.strictEqual(
       fees.storageFeeSol,
-      0.00185136,
-      `Expected storageFeeSol 0.00185136, got ${fees.storageFeeSol}`
+      0.00189312,
+      `Expected storageFeeSol 0.00189312, got ${fees.storageFeeSol}`
     );
     assertAlmostEqual(
       fees.totalSolFee,
-      0.00185636,
+      0.00189812,
       1e-8,
-      `Expected totalSolFee ~0.00185636, got ${fees.totalSolFee}`
+      `Expected totalSolFee ~0.00189812, got ${fees.totalSolFee}`
     );
   });
 
@@ -97,12 +97,12 @@ describe("Solana Fee Estimation & Protocol Constants", () => {
     );
     assert.strictEqual(
       fees.storageFeeSol,
-      0.00185136,
-      `Expected storageFeeSol 0.00185136, got ${fees.storageFeeSol}`
+      0.00189312,
+      `Expected storageFeeSol 0.00189312, got ${fees.storageFeeSol}`
     );
     assert.ok(
-      Math.abs(fees.totalSolFee - 0.00186136) < 1e-8,
-      `Expected totalSolFee ~0.00186136, got ${fees.totalSolFee}`
+      Math.abs(fees.totalSolFee - 0.00190312) < 1e-8,
+      `Expected totalSolFee ~0.00190312, got ${fees.totalSolFee}`
     );
   });
 });

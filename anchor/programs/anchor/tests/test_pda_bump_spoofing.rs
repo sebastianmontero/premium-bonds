@@ -20,32 +20,10 @@ fn test_off_canonical_pda_rejection_on_bump_constraint() {
     let (off_canonical_pda, off_bump) = find_off_canonical_bump(&seeds, &anchor::id());
 
     // Inject valid UserWinnings account data at the off-canonical PDA
-    let uw = anchor::state::UserWinnings {
-        pool_id,
-        user: ctx.user.pubkey(),
-        unclaimed_non_reinvested_winnings: 0,
-        total_claimed: 0,
-        total_reinvested: 0,
-        registry_entry_index: 0,
-        bump: off_bump,
-        version: anchor::state::UserWinnings::CURRENT_VERSION,
-        _reserved: [0; 64],
-    };
-    let mut d = vec![];
-    uw.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
-    ctx.svm
-        .set_account(
-            off_canonical_pda,
-            Account {
-                lamports: 10_000_000,
-                data: d,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    UserWinningsBuilder::new(pool_id, ctx.user.pubkey())
+        .with_bump(off_bump)
+        .with_registry_entry_index(0)
+        .inject_at(&mut ctx.svm, off_canonical_pda);
 
     // BuyBonds enforces canonical bump derivation: `seeds = [...], bump`
     let ix = BuyBondsBuilder::new(&ctx)

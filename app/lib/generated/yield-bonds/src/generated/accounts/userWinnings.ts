@@ -73,6 +73,8 @@ export type UserWinnings = {
   bump: number;
   /** Schema version of the struct. */
   version: number;
+  /** Explicit padding to maintain 8-byte alignment for _reserved. */
+  padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
 };
@@ -94,6 +96,8 @@ export type UserWinningsArgs = {
   bump: number;
   /** Schema version of the struct. */
   version: number;
+  /** Explicit padding to maintain 8-byte alignment for _reserved. */
+  padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
 };
@@ -111,6 +115,7 @@ export function getUserWinningsEncoder(): FixedSizeEncoder<UserWinningsArgs> {
       ["user", getAddressEncoder()],
       ["bump", getU8Encoder()],
       ["version", getU8Encoder()],
+      ["padding", fixEncoderSize(getBytesEncoder(), 6)],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
     (value) => ({ ...value, discriminator: USER_WINNINGS_DISCRIMINATOR })
@@ -129,6 +134,7 @@ export function getUserWinningsDecoder(): FixedSizeDecoder<UserWinnings> {
     ["user", getAddressDecoder()],
     ["bump", getU8Decoder()],
     ["version", getU8Decoder()],
+    ["padding", fixDecoderSize(getBytesDecoder(), 6)],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
 }
@@ -195,5 +201,5 @@ export async function fetchAllMaybeUserWinnings(
 }
 
 export function getUserWinningsSize(): number {
-  return 138;
+  return 144;
 }

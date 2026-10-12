@@ -262,7 +262,8 @@ fn test_v6_batch_settlement_full_solvency_100_percent() {
         pool_id: 1,
         status: RedemptionBatchStatus::Submitted,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -293,7 +294,8 @@ fn test_v7_batch_settlement_with_huma_haircut_pro_rata() {
         pool_id: 1,
         status: RedemptionBatchStatus::Submitted,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -336,7 +338,8 @@ fn test_v8_payout_zero_on_extreme_haircut() {
         pool_id: 1,
         status: RedemptionBatchStatus::Submitted,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -370,7 +373,8 @@ fn test_v9_huma_partial_disburse_settles_without_deadlock() {
         pool_id: 1,
         status: RedemptionBatchStatus::Submitted,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -401,7 +405,8 @@ fn test_v10_settlement_surplus_distributed_pro_rata() {
         pool_id: 1,
         status: RedemptionBatchStatus::Submitted,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -441,7 +446,8 @@ fn test_v11_prize_and_fee_batch_queueing_conserves_liabilities() {
         pool_id: 1,
         status: RedemptionBatchStatus::Accumulating,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -490,7 +496,8 @@ fn test_v12_batch_closure_early_attempt_fails() {
         pool_id: 1,
         status: RedemptionBatchStatus::Settled,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -519,7 +526,8 @@ fn test_v13_batch_closure_after_100_percent_claimed() {
         pool_id: 1,
         status: RedemptionBatchStatus::Settled,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -549,7 +557,8 @@ fn test_v14_batch_closure_180d_expiry_sweeps_to_fee_wallet() {
         pool_id: 1,
         status: RedemptionBatchStatus::Settled,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
 
@@ -1027,7 +1036,8 @@ fn test_v22_full_error_code_coverage_commitment() {
         pool_id: 1,
         status: RedemptionBatchStatus::Accumulating,
         bump: 255,
-        _padding: [0; 2],
+        version: 1,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
     assert_eq!(

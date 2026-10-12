@@ -5,11 +5,11 @@
 /** Base Solana transaction execution fee for 1 signature (5,000 lamports = 0.000005 SOL) */
 export const SOLANA_BASE_SIGNATURE_FEE_SOL = 0.000005;
 
-/** Rent exemption cost for UserWinnings PDA (138 bytes = 1,851,360 lamports = 0.00185136 SOL) */
-export const USER_WINNINGS_RENT_EXEMPTION_SOL = 0.00185136;
+/** Rent exemption cost for UserWinnings PDA (144 bytes = 1,893,120 lamports = 0.00189312 SOL) */
+export const USER_WINNINGS_RENT_EXEMPTION_SOL = 0.00189312;
 
-/** Data space for UserWinnings PDA (8 byte discriminator + 130 byte INIT_SPACE) */
-export const USER_WINNINGS_SPACE_BYTES = 138;
+/** Data space for UserWinnings PDA (8 byte discriminator + 136 byte INIT_SPACE) */
+export const USER_WINNINGS_SPACE_BYTES = 144;
 
 export interface FeeEstimateResult {
   networkFeeSol: number;

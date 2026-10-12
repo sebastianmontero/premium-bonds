@@ -100,7 +100,7 @@ function mockAccount(data: Uint8Array) {
 
 describe("Codama SDK Parsers & Account Deserialization", () => {
   it("should decode UserWinnings account correctly", () => {
-    const buffer = new Uint8Array(138);
+    const buffer = new Uint8Array(144);
     const view = new DataView(buffer.buffer);
 
     view.setBigUint64(8, 5_000_000n, true); // unclaimed_non_reinvested_winnings
@@ -124,7 +124,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should decode GlobalConfig account correctly", () => {
-    const buffer = new Uint8Array(201);
+    const buffer = new Uint8Array(208);
     const parsed = decodeGlobalConfig(mockAccount(buffer)).data;
     assert.ok(parsed.admin, "GlobalConfig must contain admin address");
     assert.ok(parsed.guardian, "GlobalConfig must contain guardian address");
@@ -160,7 +160,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should decode DrawCycle account and handle status variants correctly", () => {
-    const buffer = new Uint8Array(191);
+    const buffer = new Uint8Array(192);
     const view = new DataView(buffer.buffer);
 
     view.setBigUint64(8, 500_000_000n, true);

@@ -175,7 +175,7 @@ export type WithdrawFeesAsyncInput<
    * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`.
    */
   pendingRedemption: Address<TAccountPendingRedemption>;
-  /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool. */
+  /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool via has_one. */
   feeWallet: Address<TAccountFeeWallet>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
@@ -329,7 +329,7 @@ export type WithdrawFeesInput<
    * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`.
    */
   pendingRedemption: Address<TAccountPendingRedemption>;
-  /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool. */
+  /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool via has_one. */
   feeWallet: Address<TAccountFeeWallet>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
@@ -470,7 +470,7 @@ export type ParsedWithdrawFeesInstruction<
      * PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`.
      */
     pendingRedemption: TAccountMetas[4];
-    /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool. */
+    /** The designated fee wallet. Verified to match the fee wallet configured on the prize pool via has_one. */
     feeWallet: TAccountMetas[5];
     /** Solana System Program. */
     systemProgram: TAccountMetas[6];

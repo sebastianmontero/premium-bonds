@@ -25,6 +25,7 @@ pub struct EnableImpairedMode<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
+        has_one = huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
@@ -45,8 +46,7 @@ pub struct EnableImpairedMode<'info> {
 
     /// CHECK: Validated against HUMA_PROGRAM_ID and pinned to pool.huma_pool_state.
     #[account(
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
-        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 

@@ -1343,33 +1343,9 @@ fn test_sell_bonds_decoy_accounts_rejected() {
     // Subcase 4: Mismatched user in UserWinnings
     {
         let decoy_user = Keypair::new().pubkey();
-        let (decoy_pda, bump) = user_winnings_pda(1, &decoy_user);
-        let decoy_winnings = anchor::state::UserWinnings {
-            unclaimed_non_reinvested_winnings: 0,
-            total_claimed: 0,
-            total_reinvested: 0,
-            pool_id: 1,
-            registry_entry_index: 1,
-            user: decoy_user,
-            bump,
-            version: anchor::state::UserWinnings::CURRENT_VERSION,
-            _reserved: [0; 64],
-        };
-        let mut data = vec![];
-        decoy_winnings.try_serialize(&mut data).unwrap();
-        data.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
-        ctx.svm
-            .set_account(
-                decoy_pda,
-                Account {
-                    lamports: 1_000_000_000,
-                    data,
-                    owner: anchor::id(),
-                    executable: false,
-                    rent_epoch: 0,
-                },
-            )
-            .unwrap();
+        let (decoy_pda, _) = UserWinningsBuilder::new(1, decoy_user)
+            .with_registry_entry_index(1)
+            .inject(&mut ctx.svm);
 
         let res = SellBondsBuilder::from_ctx(&ctx)
             .with_user(&user_a.pubkey())

@@ -988,7 +988,7 @@ export const PENDING_REDEMPTION_ACCOUNT_SIZE = BigInt(
 
 export const REDEMPTION_BATCH_ACCOUNT_SIZE = BigInt(getRedemptionBatchSize()); // 168n (8 discriminator + 160 struct)
 
-export const USER_WINNINGS_ACCOUNT_SIZE = BigInt(getUserWinningsSize()); // 138n
+export const USER_WINNINGS_ACCOUNT_SIZE = BigInt(getUserWinningsSize()); // 144n (8 discriminator + 136 struct)
 
 export const PENDING_REDEMPTION_OFFSETS = {
   DISCRIMINATOR: 0,

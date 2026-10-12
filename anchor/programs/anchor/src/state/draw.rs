@@ -4,6 +4,7 @@ use anchor_lang::prelude::*;
 
 /// Status phases of an active or completed draw cycle.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+#[repr(u8)]
 pub enum DrawStatus {
     /// Awaiting yield harvest and commit from the yield-bearing reserve (Huma).
     AwaitingYield,
@@ -57,6 +58,7 @@ pub enum PayoutRegistryStatus {
 /// PDA seeds: [b"draw_cycle", pool_id.to_le_bytes(), cycle_id.to_le_bytes()]
 #[account]
 #[derive(InitSpace)]
+#[repr(C)]
 pub struct DrawCycle {
     /// Total prize pot (USDC lamports equivalent) generated from yield for this cycle.
     pub prize_pot: u64,
@@ -82,34 +84,45 @@ pub struct DrawCycle {
     pub version: u8,
     /// Number of times expired randomness has been rebound by the crank for this cycle.
     pub rebind_count: u8,
+    /// Explicit padding to maintain 8-byte alignment for randomness_seed and _reserved.
+    pub _padding: [u8; 1],
     /// The resolved 32-byte randomness seed provided by Switchboard.
     pub randomness_seed: [u8; 32],
     /// Reserved space for future upgrades.
     pub _reserved: [u8; 64],
 }
 
-impl DrawCycle {
-    /// Current schema version of the DrawCycle account.
-    pub const CURRENT_VERSION: u8 = 1;
+const _: () = assert!(std::mem::size_of::<DrawCycle>() == 184);
+const _: () = assert!(std::mem::align_of::<DrawCycle>() == 8);
+const _: () = assert!(DrawCycle::INIT_SPACE == 184);
+const _: () = assert!(core::mem::offset_of!(DrawCycle, randomness_seed) == 88);
+const _: () = assert!(core::mem::offset_of!(DrawCycle, _reserved) == 120);
 
-    /// Checks that the account version is supported.
-    #[inline]
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
-        Ok(())
+crate::impl_versioned!(DrawCycle, 1);
+
+impl DrawCycle {
+    pub fn new(pool_id: u32, cycle_id: u32, initiated_at: i64) -> Self {
+        Self {
+            prize_pot: 0,
+            cycle_fee_collected: 0,
+            vrf_seed_slot: 0,
+            initiated_at,
+            completed_at: 0,
+            randomness_account: Pubkey::default(),
+            pool_id,
+            cycle_id,
+            locked_ticket_count: 0,
+            status: DrawStatus::AwaitingYield,
+            version: Self::CURRENT_VERSION,
+            rebind_count: 0,
+            _padding: [0; 1],
+            randomness_seed: [0; 32],
+            _reserved: [0; 64],
+        }
     }
 
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
+    pub fn init(&mut self, pool_id: u32, cycle_id: u32, initiated_at: i64) {
+        *self = Self::new(pool_id, cycle_id, initiated_at);
     }
 
     /// Checks whether a Switchboard seed slot matches the committed VRF seed slot.
@@ -352,29 +365,9 @@ pub struct Winner {
     pub _reserved: [u8; 8],
 }
 
+crate::impl_versioned!(Winner, 1);
+
 impl Winner {
-    /// Current schema version of the Winner struct.
-    pub const CURRENT_VERSION: u8 = 1;
-
-    /// Lazily migrates this winner entry to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
-    }
-
-    #[inline]
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
-        Ok(())
-    }
-
     #[inline]
     pub fn is_processed(&self) -> bool {
         self.processed != 0
@@ -399,10 +392,9 @@ impl Winner {
     }
 }
 
-impl PayoutRegistry {
-    /// Current schema version of the PayoutRegistry account.
-    pub const CURRENT_VERSION: u8 = 1;
+crate::impl_versioned!(PayoutRegistry, 1);
 
+impl PayoutRegistry {
     /// Initializes a new PayoutRegistry account header.
     pub fn init(&mut self, pool_id: u32, cycle_id: u32, revealed_at: i64) {
         self.pool_id = pool_id;
@@ -435,25 +427,6 @@ impl PayoutRegistry {
         );
         require!(self.is_active(), PremiumBondsError::DrawAlreadyVoided);
         self.status = PayoutRegistryStatus::Voided as u8;
-        Ok(())
-    }
-
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
-    }
-
-    #[inline]
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
         Ok(())
     }
 

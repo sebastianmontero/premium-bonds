@@ -47,8 +47,10 @@ pub struct RedemptionBatch {
     pub status: RedemptionBatchStatus,      // 1 byte  (offset 84..85)
     /// PDA bump seed.
     pub bump: u8,                           // 1 byte  (offset 85..86)
+    /// Schema version of the struct.
+    pub version: u8,                        // 1 byte  (offset 86..87)
     /// Explicit padding to maintain 8-byte alignment for _reserved.
-    pub _padding: [u8; 2],                  // 2 bytes (offset 86..88)
+    pub _padding: [u8; 1],                  // 1 byte  (offset 87..88)
 
     // Upgrade buffer (72 bytes ensures total struct size == 160 bytes, cleanly divisible by 16)
     /// Reserved space for future upgrades.
@@ -57,24 +59,34 @@ pub struct RedemptionBatch {
 
 const _: () = assert!(std::mem::size_of::<RedemptionBatch>() == 160);
 const _: () = assert!(std::mem::align_of::<RedemptionBatch>() == 8 || std::mem::align_of::<RedemptionBatch>() == 16);
+const _: () = assert!(RedemptionBatch::INIT_SPACE == 160);
 const _: () = assert!(core::mem::offset_of!(RedemptionBatch, _reserved) == 88);
 
+crate::impl_versioned!(RedemptionBatch, 1);
+
 impl RedemptionBatch {
+    pub fn new(pool_id: u32, batch_id: u64, bump: u8, created_at: i64) -> Self {
+        Self {
+            huma_request_id: 0,
+            batch_id,
+            total_principal_requested: 0,
+            total_pst_shares_locked: 0,
+            settled_usdc_received: 0,
+            claimed_principal: 0,
+            created_at,
+            submitted_at: 0,
+            settled_at: 0,
+            pool_id,
+            status: RedemptionBatchStatus::Accumulating,
+            bump,
+            version: Self::CURRENT_VERSION,
+            _padding: [0; 1],
+            _reserved: [0; 72],
+        }
+    }
+
     pub fn init_accumulating(&mut self, pool_id: u32, batch_id: u64, bump: u8, created_at: i64) {
-        self.huma_request_id = 0;
-        self.batch_id = batch_id;
-        self.total_principal_requested = 0;
-        self.total_pst_shares_locked = 0;
-        self.settled_usdc_received = 0;
-        self.claimed_principal = 0;
-        self.created_at = created_at;
-        self.submitted_at = 0;
-        self.settled_at = 0;
-        self.pool_id = pool_id;
-        self.status = RedemptionBatchStatus::Accumulating;
-        self.bump = bump;
-        self._padding = [0; 2];
-        self._reserved = [0; 72];
+        *self = Self::new(pool_id, batch_id, bump, created_at);
     }
 
     pub fn accumulate(&mut self, principal_amount: u64) -> Result<()> {

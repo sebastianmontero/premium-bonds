@@ -1,5 +1,5 @@
 use {
-    crate::common::{constants::*, pda::*},
+    crate::common::{constants::*, pda::*, state_builders::{DrawCycleTestBuilder, UserWinningsBuilder}},
     anchor_lang::{AccountSerialize, AnchorSerialize, Discriminator, Space},
     anchor_spl::token::spl_token::state::{Account as SplAccount, Mint as SplMint},
     litesvm::LiteSVM,
@@ -228,30 +228,23 @@ pub fn default_draw_cycle(
     status: anchor::DrawStatus,
 ) -> anchor::DrawCycle {
     let now = 1_700_000_000;
-    anchor::DrawCycle {
-        prize_pot: 100_000_000,
-        cycle_fee_collected: 0,
-        vrf_seed_slot: 100,
-        initiated_at: now,
-        completed_at: match status {
-            anchor::DrawStatus::Complete
-            | anchor::DrawStatus::Skipped
-            | anchor::DrawStatus::ForceUnlocked
-            | anchor::DrawStatus::Voided
-            | anchor::DrawStatus::HaltedInsolvent
-            | anchor::DrawStatus::HaltedYieldSpike => now,
-            _ => 0,
-        },
-        randomness_account: Pubkey::default(),
-        pool_id,
-        cycle_id,
-        locked_ticket_count: 100,
-        status,
-        version: anchor::DrawCycle::CURRENT_VERSION,
-        rebind_count: 0,
-        randomness_seed: [0; 32],
-        _reserved: [0; 64],
-    }
+    let mut cycle = DrawCycleTestBuilder::new(pool_id, cycle_id)
+        .with_status(status)
+        .with_prize_pot(100_000_000)
+        .with_locked_tickets(100)
+        .build();
+    cycle.vrf_seed_slot = 100;
+    cycle.initiated_at = now;
+    cycle.completed_at = match status {
+        anchor::DrawStatus::Complete
+        | anchor::DrawStatus::Skipped
+        | anchor::DrawStatus::ForceUnlocked
+        | anchor::DrawStatus::Voided
+        | anchor::DrawStatus::HaltedInsolvent
+        | anchor::DrawStatus::HaltedYieldSpike => now,
+        _ => 0,
+    };
+    cycle
 }
 
 pub fn inject_draw_cycle(
@@ -551,22 +544,7 @@ pub fn inject_redemption_batch(
     batch_id: u64,
 ) -> Pubkey {
     let (pda, bump) = redemption_batch_pda(pool_id, batch_id);
-    let mut batch = anchor::state::RedemptionBatch {
-        huma_request_id: 0,
-        batch_id,
-        total_principal_requested: 0,
-        total_pst_shares_locked: 0,
-        settled_usdc_received: 0,
-        claimed_principal: 0,
-        created_at: 0,
-        submitted_at: 0,
-        settled_at: 0,
-        pool_id,
-        status: anchor::state::RedemptionBatchStatus::Accumulating,
-        bump,
-        _padding: [0; 2],
-        _reserved: [0; 72],
-    };
+    let mut batch = anchor::state::RedemptionBatch::new(pool_id, batch_id, bump, 0);
     batch.init_accumulating(pool_id, batch_id, bump, 0);
     let mut data = vec![];
     data.extend_from_slice(anchor::state::RedemptionBatch::DISCRIMINATOR);
@@ -608,7 +586,8 @@ pub fn inject_redemption_batch_with_state(
         pool_id,
         status,
         bump,
-        _padding: [0; 2],
+        version: anchor::state::RedemptionBatch::CURRENT_VERSION,
+        _padding: [0; 1],
         _reserved: [0; 72],
     };
     let mut data = vec![];
@@ -638,32 +617,12 @@ pub fn inject_user_winnings_with_index(
     total_reinvested: u64,
     registry_entry_index: u32,
 ) {
-    let (pda, bump) = user_winnings_pda(pool_id, &user);
-    let uw = anchor::state::UserWinnings {
-        pool_id,
-        user,
-        unclaimed_non_reinvested_winnings: unclaimed,
-        total_claimed,
-        total_reinvested,
-        registry_entry_index,
-        bump,
-        version: anchor::state::UserWinnings::CURRENT_VERSION,
-        _reserved: [0; 64],
-    };
-    let mut d = vec![];
-    uw.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 10_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    UserWinningsBuilder::new(pool_id, user)
+        .with_unclaimed(unclaimed)
+        .with_claimed(total_claimed)
+        .with_reinvested(total_reinvested)
+        .with_registry_entry_index(registry_entry_index)
+        .inject(svm);
 }
 
 pub fn inject_user_winnings(

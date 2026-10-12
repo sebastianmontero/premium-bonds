@@ -400,23 +400,13 @@ pub struct DrawCycleTestBuilder {
 impl DrawCycleTestBuilder {
     pub fn new(pool_id: u32, cycle_id: u32) -> Self {
         Self {
-            cycle: anchor::DrawCycle {
-                prize_pot: 0,
-                cycle_fee_collected: 0,
-                vrf_seed_slot: 0,
-                initiated_at: 1_700_000_000,
-                completed_at: 0,
-                randomness_account: Pubkey::default(),
-                pool_id,
-                cycle_id,
-                locked_ticket_count: 0,
-                status: anchor::DrawStatus::AwaitingYield,
-                version: anchor::DrawCycle::CURRENT_VERSION,
-                rebind_count: 0,
-                randomness_seed: [0u8; 32],
-                _reserved: [0; 64],
-            },
+            cycle: anchor::DrawCycle::new(pool_id, cycle_id, 1_700_000_000),
         }
+    }
+
+    pub fn with_version(mut self, version: u8) -> Self {
+        self.cycle.version = version;
+        self
     }
 
     pub fn with_rebind_count(mut self, count: u8) -> Self {
@@ -635,7 +625,10 @@ pub struct UserWinningsTestBuilder {
     reinvested: u64,
     registry_entry_index: u32,
     custom_bump: Option<u8>,
+    version: Option<u8>,
 }
+
+pub type UserWinningsBuilder = UserWinningsTestBuilder;
 
 impl UserWinningsTestBuilder {
     pub fn new(pool_id: u32, user: Pubkey) -> Self {
@@ -647,7 +640,13 @@ impl UserWinningsTestBuilder {
             reinvested: 0,
             registry_entry_index: anchor::UserWinnings::UNASSIGNED_ENTRY_INDEX,
             custom_bump: None,
+            version: None,
         }
+    }
+
+    pub fn with_version(mut self, version: u8) -> Self {
+        self.version = Some(version);
+        self
     }
 
     pub fn with_bump(mut self, bump: u8) -> Self {
@@ -679,34 +678,19 @@ impl UserWinningsTestBuilder {
         let bump = self
             .custom_bump
             .unwrap_or_else(|| user_winnings_pda(self.pool_id, &self.user).1);
-        anchor::UserWinnings {
-            unclaimed_non_reinvested_winnings: self.unclaimed,
-            total_claimed: self.claimed,
-            total_reinvested: self.reinvested,
-            pool_id: self.pool_id,
-            registry_entry_index: self.registry_entry_index,
-            user: self.user,
-            bump,
-            version: anchor::UserWinnings::CURRENT_VERSION,
-            _reserved: [0; 64],
+        let mut winnings = anchor::UserWinnings::new(self.pool_id, self.user, bump);
+        winnings.unclaimed_non_reinvested_winnings = self.unclaimed;
+        winnings.total_claimed = self.claimed;
+        winnings.total_reinvested = self.reinvested;
+        winnings.registry_entry_index = self.registry_entry_index;
+        if let Some(v) = self.version {
+            winnings.version = v;
         }
+        winnings
     }
 
     pub fn inject_at(self, svm: &mut LiteSVM, address: Pubkey) -> (Pubkey, anchor::UserWinnings) {
-        let bump = self
-            .custom_bump
-            .unwrap_or_else(|| user_winnings_pda(self.pool_id, &self.user).1);
-        let winnings = anchor::UserWinnings {
-            unclaimed_non_reinvested_winnings: self.unclaimed,
-            total_claimed: self.claimed,
-            total_reinvested: self.reinvested,
-            pool_id: self.pool_id,
-            registry_entry_index: self.registry_entry_index,
-            user: self.user,
-            bump,
-            version: anchor::UserWinnings::CURRENT_VERSION,
-            _reserved: [0; 64],
-        };
+        let winnings = self.build();
         let mut data = Vec::new();
         winnings
             .try_serialize(&mut data)

@@ -32,29 +32,9 @@ pub struct TicketRegistry {
     pub _reserved: [u8; 64],
 }
 
+crate::impl_versioned!(TicketRegistry, 1);
+
 impl TicketRegistry {
-    /// Current schema version of the TicketRegistry account.
-    pub const CURRENT_VERSION: u8 = 1;
-
-    /// Read-only version check to guard against unsupported account versions.
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
-        Ok(())
-    }
-
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
-    }
-
     /// Validates that the registry has remaining user slot capacity.
     /// Caller is responsible for version checks.
     #[inline]
@@ -123,30 +103,9 @@ pub struct UserEntry {
     pub _reserved: [u8; 12],
 }
 
+crate::impl_versioned!(UserEntry, 1);
+
 impl UserEntry {
-    /// Current schema version of the UserEntry struct.
-    pub const CURRENT_VERSION: u8 = 1;
-
-    /// Checks that the account version is supported.
-    #[inline]
-    pub fn check_version(&self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
-        Ok(())
-    }
-
-    /// Lazily migrates this entry to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
-        self.check_version()?;
-        if self.version < Self::CURRENT_VERSION {
-            // Future schema migrations will be handled here.
-            self.version = Self::CURRENT_VERSION;
-        }
-        Ok(())
-    }
-
     /// Merges any pending tickets into active tickets if they belong to a past cycle.
     ///
     /// This is called lazily on user actions (e.g. buying or selling bonds)

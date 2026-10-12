@@ -86,6 +86,8 @@ export type RedemptionBatch = {
   status: RedemptionBatchStatus;
   /** PDA bump seed. */
   bump: number;
+  /** Schema version of the struct. */
+  version: number;
   /** Explicit padding to maintain 8-byte alignment for _reserved. */
   padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
@@ -117,6 +119,8 @@ export type RedemptionBatchArgs = {
   status: RedemptionBatchStatusArgs;
   /** PDA bump seed. */
   bump: number;
+  /** Schema version of the struct. */
+  version: number;
   /** Explicit padding to maintain 8-byte alignment for _reserved. */
   padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
@@ -140,7 +144,8 @@ export function getRedemptionBatchEncoder(): FixedSizeEncoder<RedemptionBatchArg
       ["poolId", getU32Encoder()],
       ["status", getRedemptionBatchStatusEncoder()],
       ["bump", getU8Encoder()],
-      ["padding", fixEncoderSize(getBytesEncoder(), 2)],
+      ["version", getU8Encoder()],
+      ["padding", fixEncoderSize(getBytesEncoder(), 1)],
       ["reserved", fixEncoderSize(getBytesEncoder(), 72)],
     ]),
     (value) => ({ ...value, discriminator: REDEMPTION_BATCH_DISCRIMINATOR })
@@ -163,7 +168,8 @@ export function getRedemptionBatchDecoder(): FixedSizeDecoder<RedemptionBatch> {
     ["poolId", getU32Decoder()],
     ["status", getRedemptionBatchStatusDecoder()],
     ["bump", getU8Decoder()],
-    ["padding", fixDecoderSize(getBytesDecoder(), 2)],
+    ["version", getU8Decoder()],
+    ["padding", fixDecoderSize(getBytesDecoder(), 1)],
     ["reserved", fixDecoderSize(getBytesDecoder(), 72)],
   ]);
 }

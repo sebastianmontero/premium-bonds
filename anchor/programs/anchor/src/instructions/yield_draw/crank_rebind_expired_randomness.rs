@@ -86,7 +86,11 @@ pub struct CrankRebindExpiredRandomness<'info> {
 /// This instruction allows the crank bot to specify a new Switchboard randomness account and
 /// reset the vrf seed slot, enabling the draw cycle resolution flow to be retried.
 pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
-    ctx.accounts.pool.load()?.check_version()?;
+    let pool_id = {
+        let pool = ctx.accounts.pool.load()?;
+        pool.check_version()?;
+        pool.pool_id
+    };
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.ensure_current_version()?;
 
@@ -111,8 +115,6 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
 
     // 4. State mutation and event emission
     draw_cycle.rebind_randomness(ctx.accounts.new_randomness_account.key(), new_seed_slot)?;
-
-    let pool_id = ctx.accounts.pool.load()?.pool_id;
 
     #[cfg(feature = "debug-logs")]
     msg!(

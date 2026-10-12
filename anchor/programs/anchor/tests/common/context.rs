@@ -654,6 +654,14 @@ where
     mutate_anchor_account(svm, pda, mutator);
 }
 
+pub fn mutate_redemption_batch<F>(svm: &mut LiteSVM, pool_id: u32, batch_id: u64, mutator: F)
+where
+    F: FnOnce(&mut anchor::state::RedemptionBatch),
+{
+    let (pda, _) = redemption_batch_pda(pool_id, batch_id);
+    mutate_anchor_account(svm, pda, mutator);
+}
+
 pub fn mutate_ticket_registry_header<F>(svm: &mut LiteSVM, address: Pubkey, f: F)
 where
     F: FnOnce(&mut anchor::state::TicketRegistry),

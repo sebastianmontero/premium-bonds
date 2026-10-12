@@ -32,6 +32,7 @@ pub struct InitializeHumaLender<'info> {
     #[account(
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
+        has_one = huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
@@ -62,8 +63,7 @@ pub struct InitializeHumaLender<'info> {
     /// CHECK: This is the Huma pool state account. It is validated via the owner constraint
     /// to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI.
     #[account(
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
-        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
