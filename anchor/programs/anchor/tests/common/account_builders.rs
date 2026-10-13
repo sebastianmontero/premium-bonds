@@ -2088,6 +2088,16 @@ impl CreatePoolBuilder {
         self
     }
 
+    pub fn with_pool_vault_account(mut self, pool_vault: Pubkey) -> Self {
+        self.config.pool_vault_override = Some(pool_vault);
+        self
+    }
+
+    pub fn with_pool(mut self, pool: Pubkey) -> Self {
+        self.config.pool_override = Some(pool);
+        self
+    }
+
     pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
         self.config.huma_pool_state = huma_pool_state;
         self
@@ -2118,8 +2128,14 @@ impl CreatePoolBuilder {
 
     pub fn build_ix_with_admin(&self, admin: &Pubkey) -> Instruction {
         let (global_config, _) = global_config_pda();
-        let (pool, _) = pool_pda(self.config.pool_id);
-        let (pool_vault, _) = pool_vault_pda(self.config.pool_id);
+        let pool = self
+            .config
+            .pool_override
+            .unwrap_or_else(|| pool_pda(self.config.pool_id).0);
+        let pool_vault = self
+            .config
+            .pool_vault_override
+            .unwrap_or_else(|| pool_vault_pda(self.config.pool_id).0);
         let (pool_pst_vault, _) = pool_pst_vault_pda(self.config.pool_id);
         let (initial_redemption_batch, _) = redemption_batch_pda(self.config.pool_id, 0);
 
@@ -2249,6 +2265,16 @@ impl UpdatePoolConfigBuilder {
 
     pub fn with_fee_wallet(mut self, wallet: Pubkey) -> Self {
         self.new_fee_wallet = Some(wallet);
+        self
+    }
+
+    pub fn with_token_mint(mut self, mint: Pubkey) -> Self {
+        self.remaining_accounts.push(AccountMeta::new_readonly(mint, false));
+        self
+    }
+
+    pub fn with_remaining_account(mut self, meta: AccountMeta) -> Self {
+        self.remaining_accounts.push(meta);
         self
     }
 

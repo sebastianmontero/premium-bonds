@@ -1,6 +1,6 @@
 use anchor::error::PremiumBondsError;
 use litesvm::LiteSVM;
-use solana_program::pubkey::Pubkey;
+use solana_program::{program_pack::Pack, pubkey::Pubkey};
 use solana_sdk::{signature::Keypair, signer::Signer};
 
 mod common;
@@ -38,7 +38,7 @@ fn setup_create_pool_context() -> TestContext {
 
     inject_mint(&mut svm, token_mint, 6);
     inject_mint(&mut svm, pst_mint, 6);
-    inject_token_account(&mut svm, fee_wallet, token_mint, fee_wallet, 0);
+    let fee_wallet = inject_canonical_ata(&mut svm, &admin.pubkey(), &token_mint, 0);
     inject_huma_pool_state(&mut svm, huma_pool_state);
 
     // Inject the ticket registry with the minimum initial size
@@ -437,4 +437,72 @@ fn test_create_pool_fails_on_invalid_pst_mint_decimals() {
         .send(&mut ctx.svm, &ctx.admin);
     assert_custom_error(res_low, PremiumBondsError::InvalidTokenDecimals);
 }
+
+#[test]
+fn test_create_pool_fails_frozen_fee_wallet() {
+    let mut ctx = setup_create_pool_context();
+
+    // Freeze fee_wallet
+    let mut fee_acc = ctx.svm.get_account(&ctx.fee_wallet).unwrap();
+    let mut state = anchor_spl::token::spl_token::state::Account::unpack(&fee_acc.data).unwrap();
+    state.state = anchor_spl::token::spl_token::state::AccountState::Frozen;
+    anchor_spl::token::spl_token::state::Account::pack_into_slice(&state, &mut fee_acc.data);
+    ctx.svm.set_account(ctx.fee_wallet, fee_acc).unwrap();
+
+    let res = ctx.pool_builder(1).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::FeeWalletFrozen);
+}
+
+#[test]
+fn test_create_pool_fails_vault_collision() {
+    let mut ctx = setup_create_pool_context();
+    let (pool_vault, _) = pool_vault_pda(1);
+
+    // Provide the pool vault address as the fee_wallet: at pool creation, the vault is being
+    // initialized in the same instruction and cannot simultaneously be an initialized token account.
+    let res = ctx
+        .pool_builder(1)
+        .with_fee_wallet(pool_vault)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
+}
+
+#[test]
+fn test_create_pool_fails_pool_pda_owner() {
+    let mut ctx = setup_create_pool_context();
+    let (pool_pda, _) = pool_pda(1);
+
+    // Provide the canonical ATA of the pool PDA as the fee_wallet
+    // This passes the canonical ATA check, but fails validate_fee_wallet's check:
+    // require_keys_neq!(fee_wallet.owner, *ctx.pool_key, FeeWalletInvalidOwner);
+    let pool_ata = inject_canonical_ata(&mut ctx.svm, &pool_pda, &ctx.token_mint, 0);
+
+    let res = ctx
+        .pool_builder(1)
+        .with_fee_wallet(pool_ata)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::FeeWalletInvalidOwner);
+}
+
+#[test]
+fn test_create_pool_fails_non_canonical_ata() {
+    let mut ctx = setup_create_pool_context();
+    let random_keypair_token_account = Keypair::new().pubkey();
+
+    // Inject non-ATA token account
+    inject_token_account(
+        &mut ctx.svm,
+        random_keypair_token_account,
+        ctx.token_mint,
+        ctx.admin.pubkey(),
+        0,
+    );
+
+    let res = ctx
+        .pool_builder(1)
+        .with_fee_wallet(random_keypair_token_account)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::FeeWalletNotAssociatedTokenAccount);
+}
+
 

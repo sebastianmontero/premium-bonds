@@ -143,6 +143,103 @@ use crate::error::PremiumBondsError;
 use crate::state::RedemptionBatch;
 use crate::utils::calculate_percentage_fee;
 
+use anchor_spl::token_interface::TokenAccount;
+
+/// Parameter object bundling pool coordinates for fee wallet invariant validation.
+#[derive(Clone, Copy)]
+pub struct FeeWalletValidationContext<'a> {
+    pub token_mint: &'a Pubkey,
+    pub token_program: &'a Pubkey,
+    pub pool_key: &'a Pubkey,
+    pub pool_vault_key: &'a Pubkey,
+}
+
+impl PrizePool {
+    /// Validates that a candidate fee wallet is an authentic, non-frozen canonical Associated Token Account (ATA)
+    /// matching the pool's token mint and token program, with no delegation, no third-party close authority,
+    /// strictly approved Token-2022 account extensions, and no aliasing with pool vaults or pool PDA.
+    pub fn validate_fee_wallet(
+        fee_wallet: &InterfaceAccount<TokenAccount>,
+        ctx: &FeeWalletValidationContext,
+    ) -> Result<()> {
+        let fee_wallet_info = fee_wallet.to_account_info();
+
+        // 1. Verify token program ownership
+        require_keys_eq!(
+            *fee_wallet_info.owner,
+            *ctx.token_program,
+            PremiumBondsError::InvalidTokenProgram
+        );
+
+        // 2. Verify token mint alignment
+        require_keys_eq!(
+            fee_wallet.mint,
+            *ctx.token_mint,
+            PremiumBondsError::InvalidFeeWallet
+        );
+
+        // 3. Verify state: strictly Initialized (fail-fast scalar check)
+        require!(
+            matches!(fee_wallet.state, anchor_spl::token_2022::spl_token_2022::state::AccountState::Initialized),
+            PremiumBondsError::FeeWalletFrozen
+        );
+
+        // 4. Aliasing checks: cannot alias pool PDA or pool vault account
+        require_keys_neq!(
+            fee_wallet.key(),
+            *ctx.pool_vault_key,
+            PremiumBondsError::FeeWalletAliasedToVault
+        );
+        require_keys_neq!(
+            fee_wallet.key(),
+            *ctx.pool_key,
+            PremiumBondsError::FeeWalletAliasedToVault
+        );
+
+        // 5. Owner checks: cannot be pool PDA, default zero, or system program
+        require_keys_neq!(
+            fee_wallet.owner,
+            *ctx.pool_key,
+            PremiumBondsError::FeeWalletInvalidOwner
+        );
+        require_keys_neq!(
+            fee_wallet.owner,
+            Pubkey::default(),
+            PremiumBondsError::FeeWalletInvalidOwner
+        );
+        require_keys_neq!(
+            fee_wallet.owner,
+            anchor_lang::system_program::ID,
+            PremiumBondsError::FeeWalletInvalidOwner
+        );
+
+        // 6. Authority hygiene: no close authority or delegate
+        require!(
+            fee_wallet.close_authority.is_none() && fee_wallet.delegate.is_none(),
+            PremiumBondsError::FeeWalletHasAuthority
+        );
+
+        // 7. Canonical ATA enforcement
+        let expected_ata = anchor_spl::associated_token::get_associated_token_address_with_program_id(
+            &fee_wallet.owner,
+            ctx.token_mint,
+            ctx.token_program,
+        );
+        require_keys_eq!(
+            fee_wallet.key(),
+            expected_ata,
+            PremiumBondsError::FeeWalletNotAssociatedTokenAccount
+        );
+
+        // 8. Token-2022 Account Extension allowlist
+        if fee_wallet_info.owner == &anchor_spl::token_2022::ID {
+            crate::utils::assert_supported_account_extensions(&fee_wallet_info)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Computes total winners across all prize tiers with checked arithmetic.
 #[inline]
 pub fn sum_tier_winners(tiers: &[PrizeTier]) -> Result<u32> {
@@ -1620,5 +1717,507 @@ mod tests {
         // Deficit exceeds dynamic tolerance (10_001)
         let err = pool.assert_solvent(89_999).unwrap_err(); // deficit = 10_001 > 10_000
         assert_eq!(err, PremiumBondsError::YieldVenueInsolvent.into());
+    }
+
+    // ── Fee Wallet Validation Unit Tests ────────────────────────────────────
+
+    fn mock_token_account_info<'a>(
+        key: &'a Pubkey,
+        owner: &'a Pubkey,
+        data: &'a mut [u8],
+        lamports: &'a mut u64,
+    ) -> AccountInfo<'a> {
+        AccountInfo::new(
+            key,
+            false,
+            false,
+            lamports,
+            data,
+            owner,
+            false,
+        )
+    }
+
+    fn serialize_spl_token_account(
+        mint: &Pubkey,
+        owner: &Pubkey,
+        state: anchor_spl::token::spl_token::state::AccountState,
+        delegate: Option<Pubkey>,
+        close_authority: Option<Pubkey>,
+    ) -> Vec<u8> {
+        use anchor_spl::token::spl_token::state::Account as SplAccount;
+        use solana_program::program_pack::Pack;
+        use solana_program::program_option::COption;
+
+        let acc = SplAccount {
+            mint: *mint,
+            owner: *owner,
+            amount: 0,
+            delegate: delegate.map(COption::Some).unwrap_or(COption::None),
+            state,
+            is_native: COption::None,
+            delegated_amount: 0,
+            close_authority: close_authority.map(COption::Some).unwrap_or(COption::None),
+        };
+        let mut data = vec![0u8; SplAccount::LEN];
+        SplAccount::pack(acc, &mut data).unwrap();
+        data
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_frozen() {
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address(&owner, &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Frozen,
+            None,
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletFrozen.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_uninitialized() {
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address(&owner, &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Uninitialized,
+            None,
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        // Anchor's InterfaceAccount/Account deserialization rejects uninitialized token accounts with ProgramError::UninitializedAccount
+        let res = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_pool_vault_collision() {
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        // Construct ATA matching pool_vault_key
+        let pool_vault_key = anchor_spl::associated_token::get_associated_token_address(&owner, &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&pool_vault_key, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletAliasedToVault.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_pool_pda_owner() {
+        let mint = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address(&pool_key, &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &pool_key,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletInvalidOwner.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_default_owner() {
+        let mint = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address(&Pubkey::default(), &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &Pubkey::default(),
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletInvalidOwner.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_system_program_owner() {
+        let mint = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address(&anchor_lang::system_program::ID, &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &anchor_lang::system_program::ID,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletInvalidOwner.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_close_authority() {
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address(&owner, &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            Some(Pubkey::new_unique()),
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletHasAuthority.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_delegate() {
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address(&owner, &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            Some(Pubkey::new_unique()),
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletHasAuthority.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_non_ata() {
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let non_ata = Pubkey::new_unique(); // Arbitrary address, not canonical ATA
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&non_ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletNotAssociatedTokenAccount.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_token2022_memo_transfer() {
+        use anchor_spl::token_2022::spl_token_2022::extension::{
+            BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut,
+        };
+
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token_2022::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address_with_program_id(
+            &owner,
+            &mint,
+            &token_program,
+        );
+
+        let space = ExtensionType::try_calculate_account_len::<
+            anchor_spl::token_2022::spl_token_2022::state::Account,
+        >(&[ExtensionType::MemoTransfer])
+        .unwrap();
+
+        let mut data = vec![0u8; space];
+        let mut state = StateWithExtensionsMut::<
+            anchor_spl::token_2022::spl_token_2022::state::Account,
+        >::unpack_uninitialized(&mut data)
+        .unwrap();
+        state.init_account_type().unwrap();
+        let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::memo_transfer::MemoTransfer>(true);
+
+        let base_data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        data[..base_data.len()].copy_from_slice(&base_data);
+
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletUnsupportedExtension.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_rejects_token2022_cpi_guard() {
+        use anchor_spl::token_2022::spl_token_2022::extension::{
+            BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut,
+        };
+
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token_2022::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address_with_program_id(
+            &owner,
+            &mint,
+            &token_program,
+        );
+
+        let space = ExtensionType::try_calculate_account_len::<
+            anchor_spl::token_2022::spl_token_2022::state::Account,
+        >(&[ExtensionType::CpiGuard])
+        .unwrap();
+
+        let mut data = vec![0u8; space];
+        let mut state = StateWithExtensionsMut::<
+            anchor_spl::token_2022::spl_token_2022::state::Account,
+        >::unpack_uninitialized(&mut data)
+        .unwrap();
+        state.init_account_type().unwrap();
+        let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::cpi_guard::CpiGuard>(true);
+
+        let base_data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        data[..base_data.len()].copy_from_slice(&base_data);
+
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        let err = PrizePool::validate_fee_wallet(&fee_wallet, &ctx).unwrap_err();
+        assert_eq!(err, PremiumBondsError::FeeWalletUnsupportedExtension.into());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_accepts_token2022_immutable_owner() {
+        use anchor_spl::token_2022::spl_token_2022::extension::{
+            BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut,
+        };
+
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token_2022::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address_with_program_id(
+            &owner,
+            &mint,
+            &token_program,
+        );
+
+        let space = ExtensionType::try_calculate_account_len::<
+            anchor_spl::token_2022::spl_token_2022::state::Account,
+        >(&[ExtensionType::ImmutableOwner])
+        .unwrap();
+
+        let mut data = vec![0u8; space];
+        let mut state = StateWithExtensionsMut::<
+            anchor_spl::token_2022::spl_token_2022::state::Account,
+        >::unpack_uninitialized(&mut data)
+        .unwrap();
+        state.init_account_type().unwrap();
+        let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::immutable_owner::ImmutableOwner>(true);
+
+        let base_data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        data[..base_data.len()].copy_from_slice(&base_data);
+
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        assert!(PrizePool::validate_fee_wallet(&fee_wallet, &ctx).is_ok());
+    }
+
+    #[test]
+    fn test_validate_fee_wallet_accepts_valid_canonical_ata() {
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let pool_key = Pubkey::new_unique();
+        let pool_vault_key = Pubkey::new_unique();
+        let token_program = anchor_spl::token::ID;
+        let ata = anchor_spl::associated_token::get_associated_token_address(&owner, &mint);
+
+        let mut data = serialize_spl_token_account(
+            &mint,
+            &owner,
+            anchor_spl::token::spl_token::state::AccountState::Initialized,
+            None,
+            None,
+        );
+        let mut lamports = 1_000_000;
+        let acc_info = mock_token_account_info(&ata, &token_program, &mut data, &mut lamports);
+        let fee_wallet = InterfaceAccount::<anchor_spl::token_interface::TokenAccount>::try_from(&acc_info).unwrap();
+
+        let ctx = FeeWalletValidationContext {
+            token_mint: &mint,
+            token_program: &token_program,
+            pool_key: &pool_key,
+            pool_vault_key: &pool_vault_key,
+        };
+
+        assert!(PrizePool::validate_fee_wallet(&fee_wallet, &ctx).is_ok());
     }
 }

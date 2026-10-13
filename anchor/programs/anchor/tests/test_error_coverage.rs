@@ -212,8 +212,7 @@ fn test_err_registry_too_small() {
     inject_mint(&mut svm, token_mint, 6);
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, pst_mint, 6);
-    let fee_wallet = Keypair::new().pubkey();
-    inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
+    let fee_wallet = inject_canonical_ata(&mut svm, &admin.pubkey(), &token_mint, 0);
     let registry = Keypair::new().pubkey();
     // Inject registry with size smaller than REGISTRY_INITIAL_SIZE
     svm.set_account(
@@ -865,8 +864,7 @@ fn test_err_invalid_huma_pool_state() {
     inject_mint(&mut svm, token_mint, 6);
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, pst_mint, 6);
-    let fee_wallet = Keypair::new().pubkey();
-    inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
+    let fee_wallet = inject_canonical_ata(&mut svm, &admin.pubkey(), &token_mint, 0);
     let ticket_registry = Keypair::new().pubkey();
     svm.set_account(
         ticket_registry,
@@ -909,8 +907,7 @@ fn test_err_invalid_token_decimals() {
     inject_mint(&mut svm, token_mint, 9);
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, pst_mint, 6);
-    let fee_wallet = Keypair::new().pubkey();
-    inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
+    let fee_wallet = inject_canonical_ata(&mut svm, &admin.pubkey(), &token_mint, 0);
     let ticket_registry = Keypair::new().pubkey();
     inject_zero_account(
         &mut svm,

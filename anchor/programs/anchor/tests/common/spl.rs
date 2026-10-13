@@ -259,3 +259,95 @@ pub fn assert_token_balance(svm: &LiteSVM, account: &Pubkey, expected: u64) {
         account, expected, actual
     );
 }
+
+pub fn inject_canonical_ata(
+    svm: &mut LiteSVM,
+    owner: &Pubkey,
+    mint: &Pubkey,
+    amount: u64,
+) -> Pubkey {
+    let ata = anchor_spl::associated_token::get_associated_token_address(owner, mint);
+    let token_state = SplAccount {
+        mint: *mint,
+        owner: *owner,
+        amount,
+        delegate: solana_program::program_option::COption::None,
+        state: anchor_spl::token::spl_token::state::AccountState::Initialized,
+        is_native: solana_program::program_option::COption::None,
+        delegated_amount: 0,
+        close_authority: solana_program::program_option::COption::None,
+    };
+    let mut data = vec![0u8; SplAccount::get_packed_len()];
+    Pack::pack_into_slice(&token_state, &mut data);
+
+    svm.set_account(
+        ata,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor_spl::token::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    ata
+}
+
+pub fn inject_canonical_token_2022_ata(
+    svm: &mut LiteSVM,
+    owner: &Pubkey,
+    mint: &Pubkey,
+    amount: u64,
+) -> Pubkey {
+    use anchor_spl::token_2022::spl_token_2022::extension::{
+        ExtensionType, StateWithExtensionsMut,
+    };
+    let ata = anchor_spl::associated_token::get_associated_token_address_with_program_id(
+        owner,
+        mint,
+        &anchor_spl::token_2022::ID,
+    );
+    let space = ExtensionType::try_calculate_account_len::<
+        anchor_spl::token_2022::spl_token_2022::state::Account,
+    >(&[ExtensionType::ImmutableOwner])
+    .unwrap();
+
+    let mut data = vec![0u8; space];
+    let mut state = StateWithExtensionsMut::<
+        anchor_spl::token_2022::spl_token_2022::state::Account,
+    >::unpack_uninitialized(&mut data)
+    .unwrap();
+    state.init_account_type().unwrap();
+    state
+        .init_extension::<anchor_spl::token_2022::spl_token_2022::extension::immutable_owner::ImmutableOwner>(
+            true,
+        )
+        .unwrap();
+
+    let token_state = SplAccount {
+        mint: *mint,
+        owner: *owner,
+        amount,
+        delegate: solana_program::program_option::COption::None,
+        state: anchor_spl::token::spl_token::state::AccountState::Initialized,
+        is_native: solana_program::program_option::COption::None,
+        delegated_amount: 0,
+        close_authority: solana_program::program_option::COption::None,
+    };
+    Pack::pack_into_slice(&token_state, &mut data[..SplAccount::LEN]);
+
+    svm.set_account(
+        ata,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor_spl::token_2022::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    ata
+}
+

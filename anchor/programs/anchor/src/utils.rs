@@ -320,6 +320,27 @@ pub fn assert_supported_mint_extensions(mint_info: &AccountInfo) -> Result<()> {
     Ok(())
 }
 
+/// Validates that a Token-2022 token account configures only approved extensions (strictly ImmutableOwner).
+/// Rejects MemoTransfer, CpiGuard, or any unapproved custom account extensions.
+pub fn assert_supported_account_extensions(account_info: &AccountInfo) -> Result<()> {
+    if account_info.owner == &anchor_spl::token_2022::ID {
+        use anchor_spl::token_2022::spl_token_2022::extension::{
+            BaseStateWithExtensions, ExtensionType, StateWithExtensions,
+        };
+        let account_data = account_info.try_borrow_data()?;
+        let state = StateWithExtensions::<anchor_spl::token_2022::spl_token_2022::state::Account>::unpack(&account_data)
+            .map_err(|_| PremiumBondsError::FeeWalletUnsupportedExtension)?;
+        let ext_types = state.get_extension_types().map_err(|_| PremiumBondsError::FeeWalletUnsupportedExtension)?;
+        for ext in ext_types {
+            require!(
+                ext == ExtensionType::ImmutableOwner,
+                PremiumBondsError::FeeWalletUnsupportedExtension
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Byte size of the PayoutRegistry header including Anchor discriminator (8 + 96 = 104 bytes).
 pub const PAYOUT_REGISTRY_HEADER_SIZE: usize =
     8 + std::mem::size_of::<crate::state::PayoutRegistry>();

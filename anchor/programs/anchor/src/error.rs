@@ -280,5 +280,32 @@ pub enum PremiumBondsError {
     /// Jobs account address cannot be the default zero address.
     #[msg("Jobs account address cannot be the default zero address.")]
     InvalidJobsAccountAddress,
+    /// Required remaining account for new fee wallet is missing.
+    #[msg("Required remaining account for new fee wallet is missing.")]
+    MissingFeeWalletAccount,
+    /// Required remaining account for token mint is missing in fee wallet update.
+    #[msg("Required remaining account for token mint is missing.")]
+    MissingTokenMintAccount,
+    /// Fee wallet account is frozen or uninitialized.
+    #[msg("Fee wallet account is frozen or uninitialized.")]
+    FeeWalletFrozen,
+    /// Fee wallet cannot alias the prize pool PDA or the pool vault account.
+    #[msg("Fee wallet cannot alias the pool PDA or vault account.")]
+    FeeWalletAliasedToVault,
+    /// Fee wallet owner cannot be the default key, the system program, or the pool PDA.
+    #[msg("Fee wallet owner address is invalid.")]
+    FeeWalletInvalidOwner,
+    /// Fee wallet must not have a delegate or close authority configured.
+    #[msg("Fee wallet cannot have a delegate or close authority.")]
+    FeeWalletHasAuthority,
+    /// Fee wallet must be the canonical Associated Token Account (ATA) of its owner.
+    #[msg("Fee wallet must be the canonical Associated Token Account (ATA).")]
+    FeeWalletNotAssociatedTokenAccount,
+    /// Fee wallet configures unsupported Token-2022 account extensions.
+    #[msg("Fee wallet configures unsupported Token-2022 account extensions.")]
+    FeeWalletUnsupportedExtension,
+    /// Invalid token program provided.
+    #[msg("Invalid token program provided.")]
+    InvalidTokenProgram,
 }
 

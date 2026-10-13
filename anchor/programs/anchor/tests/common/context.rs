@@ -41,6 +41,8 @@ pub struct TestPoolConfig {
     pub huma_pool_state: Pubkey,
     pub token_program: Pubkey,
     pub pst_token_program: Pubkey,
+    pub pool_vault_override: Option<Pubkey>,
+    pub pool_override: Option<Pubkey>,
 }
 
 impl Default for TestPoolConfig {
@@ -61,6 +63,8 @@ impl Default for TestPoolConfig {
             huma_pool_state: Pubkey::default(),
             token_program: anchor_spl::token::ID,
             pst_token_program: anchor_spl::token::ID,
+            pool_vault_override: None,
+            pool_override: None,
         }
     }
 }
@@ -243,8 +247,8 @@ pub fn setup_e2e() -> E2eContext {
     );
     let pst_mint = pst_mint_kp.pubkey();
 
-    // 6. Create fee wallet (token account for USDC owned by admin)
-    let fee_wallet = create_spl_token_account(&mut svm, &admin, &usdc_mint, &admin.pubkey());
+    // 6. Create fee wallet (canonical ATA for USDC owned by admin)
+    let fee_wallet = inject_canonical_ata(&mut svm, &admin.pubkey(), &usdc_mint, 0);
 
     // 7. Create TicketRegistry
     let ticket_registry = Keypair::new().pubkey();
@@ -435,8 +439,7 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
     .unwrap();
     let ticket_registry = ticket_registry_kp.pubkey();
 
-    let fee_wallet = Keypair::new().pubkey();
-    inject_token_account(&mut svm, fee_wallet, usdc_mint, admin.pubkey(), 0);
+    let fee_wallet = inject_canonical_ata(&mut svm, &admin.pubkey(), &usdc_mint, 0);
 
     let pool_id = 1;
     let tiers = vec![

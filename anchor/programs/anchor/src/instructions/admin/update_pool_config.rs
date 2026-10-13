@@ -107,16 +107,37 @@ pub fn handle(
                 .remaining_accounts
                 .iter()
                 .find(|acc| acc.key() == v)
-                .ok_or(PremiumBondsError::InvalidFeeWallet)?;
+                .ok_or(PremiumBondsError::MissingFeeWalletAccount)?;
+
+            let token_mint_account_info = ctx
+                .remaining_accounts
+                .iter()
+                .find(|acc| acc.key() == pool.token_mint)
+                .ok_or(PremiumBondsError::MissingTokenMintAccount)?;
+
+            require!(
+                token_mint_account_info.owner == &anchor_spl::token::ID
+                    || token_mint_account_info.owner == &anchor_spl::token_2022::ID,
+                PremiumBondsError::InvalidTokenProgram
+            );
 
             let fee_token_account =
                 InterfaceAccount::<TokenAccount>::try_from(fee_wallet_account_info)
                     .map_err(|_| PremiumBondsError::InvalidFeeWallet)?;
 
-            require!(
-                fee_token_account.mint == pool.token_mint,
-                PremiumBondsError::InvalidFeeWallet
+            let (pool_vault_pda, _) = Pubkey::find_program_address(
+                &[crate::constants::POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
+                ctx.program_id,
             );
+
+            let validation_ctx = crate::state::FeeWalletValidationContext {
+                token_mint: &pool.token_mint,
+                token_program: token_mint_account_info.owner,
+                pool_key: &ctx.accounts.pool.key(),
+                pool_vault_key: &pool_vault_pda,
+            };
+
+            PrizePool::validate_fee_wallet(&fee_token_account, &validation_ctx)?;
 
             pool.fee_wallet = v;
         }

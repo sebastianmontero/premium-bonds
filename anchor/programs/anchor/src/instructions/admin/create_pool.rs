@@ -106,7 +106,8 @@ pub struct CreatePool<'info> {
     /// The token account designated to receive protocol fees.
     #[account(
         token::mint = token_mint,
-        token::token_program = token_program
+        token::token_program = token_program,
+        constraint = fee_wallet.key() != pool_vault_account.key() @ PremiumBondsError::FeeWalletAliasedToVault
     )]
     pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -155,6 +156,15 @@ pub fn handle(
     // Verify neither mint configures unsupported extensions
     crate::utils::assert_supported_mint_extensions(&ctx.accounts.token_mint.to_account_info())?;
     crate::utils::assert_supported_mint_extensions(&ctx.accounts.pst_mint.to_account_info())?;
+
+    // Validate fee wallet invariants
+    let validation_ctx = crate::state::FeeWalletValidationContext {
+        token_mint: &ctx.accounts.token_mint.key(),
+        token_program: &ctx.accounts.token_program.key(),
+        pool_key: &ctx.accounts.pool.key(),
+        pool_vault_key: &ctx.accounts.pool_vault_account.key(),
+    };
+    PrizePool::validate_fee_wallet(&ctx.accounts.fee_wallet, &validation_ctx)?;
 
     let clock = Clock::get()?;
 

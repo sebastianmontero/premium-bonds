@@ -1,14 +1,18 @@
 use anchor::error::PremiumBondsError;
 use anchor_lang::AccountDeserialize;
 use litesvm::LiteSVM;
-use solana_program::pubkey::Pubkey;
+use solana_program::{program_pack::Pack, pubkey::Pubkey};
 use solana_sdk::{signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
 
+pub const TEST_TOKEN_MINT: Pubkey = solana_program::pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+
 fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
+    inject_mint(svm, TEST_TOKEN_MINT, 6);
     PrizePoolTestBuilder::new(pool_id)
+        .with_token_mint(TEST_TOKEN_MINT)
         .with_payout_timelock_seconds(300)
         .inject(svm)
         .0
@@ -60,12 +64,12 @@ fn test_update_pool_config_succeeds_all_fields() {
     let (mut svm, admin) = setup_global_config();
     let pool_pda = inject_pool(&mut svm, 1);
 
-    let new_fee_wallet = Keypair::new().pubkey();
-    inject_token_account(
+    let new_owner = Keypair::new();
+    svm.airdrop(&new_owner.pubkey(), 1_000_000_000).unwrap();
+    let new_fee_wallet = inject_canonical_ata(
         &mut svm,
-        new_fee_wallet,
-        Pubkey::default(),
-        admin.pubkey(),
+        &new_owner.pubkey(),
+        &TEST_TOKEN_MINT,
         0,
     );
 
@@ -73,6 +77,7 @@ fn test_update_pool_config_succeeds_all_fields() {
         .with_fee_basis_points(50)
         .with_bond_price(2_000_000)
         .with_fee_wallet(new_fee_wallet)
+        .with_token_mint(TEST_TOKEN_MINT)
         .with_min_yield_threshold(1_000_000)
         .with_stake_cycle_duration_hrs(168)
         .send(&mut svm, &admin)
@@ -359,7 +364,7 @@ fn test_update_pool_config_fails_missing_fee_wallet_account() {
         .without_fee_wallet_account()
         .send(&mut svm, &admin);
 
-    assert_custom_error(res, PremiumBondsError::InvalidFeeWallet);
+    assert_custom_error(res, PremiumBondsError::MissingFeeWalletAccount);
 }
 
 #[test]
@@ -372,9 +377,9 @@ fn test_update_pool_config_fails_invalid_fee_wallet_mint() {
     let new_fee_wallet = Keypair::new().pubkey();
     inject_token_account(&mut svm, new_fee_wallet, wrong_mint, admin.pubkey(), 0);
 
-    // Pool's token_mint is Pubkey::default() in inject_pool, which does not match wrong_mint
     let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
         .with_fee_wallet(new_fee_wallet)
+        .with_token_mint(TEST_TOKEN_MINT)
         .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidFeeWallet);
 }
@@ -468,4 +473,98 @@ fn test_update_pool_config_bond_price_change_after_full_exit() {
     let mut data_slice: &[u8] = &pool_acc.data;
     let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
     assert_eq!(pool_state.bond_price, 5_000_000);
+}
+
+#[test]
+fn test_update_pool_config_fails_pool_vault_alias() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+    let (pool_vault, _) = pool_vault_pda(1);
+
+    // Inject pool_vault as a token account
+    inject_token_account(&mut svm, pool_vault, TEST_TOKEN_MINT, admin.pubkey(), 0);
+
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_wallet(pool_vault)
+        .with_token_mint(TEST_TOKEN_MINT)
+        .send(&mut svm, &admin);
+
+    assert_custom_error(res, PremiumBondsError::FeeWalletAliasedToVault);
+}
+
+#[test]
+fn test_update_pool_config_fails_frozen_fee_wallet() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let new_owner = Keypair::new();
+    svm.airdrop(&new_owner.pubkey(), 1_000_000_000).unwrap();
+    let new_fee_wallet = inject_canonical_ata(&mut svm, &new_owner.pubkey(), &TEST_TOKEN_MINT, 0);
+
+    // Freeze fee wallet
+    let mut fee_acc = svm.get_account(&new_fee_wallet).unwrap();
+    let mut state = anchor_spl::token::spl_token::state::Account::unpack(&fee_acc.data).unwrap();
+    state.state = anchor_spl::token::spl_token::state::AccountState::Frozen;
+    anchor_spl::token::spl_token::state::Account::pack_into_slice(&state, &mut fee_acc.data);
+    svm.set_account(new_fee_wallet, fee_acc).unwrap();
+
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_wallet(new_fee_wallet)
+        .with_token_mint(TEST_TOKEN_MINT)
+        .send(&mut svm, &admin);
+
+    assert_custom_error(res, PremiumBondsError::FeeWalletFrozen);
+}
+
+#[test]
+fn test_update_pool_config_fails_mismatched_token_program() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let new_owner = Keypair::new();
+    svm.airdrop(&new_owner.pubkey(), 1_000_000_000).unwrap();
+    let new_fee_wallet = inject_canonical_ata(&mut svm, &new_owner.pubkey(), &TEST_TOKEN_MINT, 0);
+
+    // Inject invalid program owner for token_mint
+    let invalid_mint = Keypair::new().pubkey();
+    svm.set_account(
+        invalid_mint,
+        solana_sdk::account::Account {
+            lamports: 1_000_000,
+            data: vec![0u8; 82],
+            owner: anchor_lang::system_program::ID, // invalid token program owner
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+
+    // Mutate pool's token_mint to invalid_mint
+    common::mutate_pool_state(&mut svm, 1, |p| {
+        p.token_mint = invalid_mint;
+    });
+
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_wallet(new_fee_wallet)
+        .with_token_mint(invalid_mint)
+        .send(&mut svm, &admin);
+
+    assert_custom_error(res, PremiumBondsError::InvalidTokenProgram);
+}
+
+#[test]
+fn test_update_pool_config_fails_missing_token_mint_account() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let new_owner = Keypair::new();
+    svm.airdrop(&new_owner.pubkey(), 1_000_000_000).unwrap();
+    let new_fee_wallet = inject_canonical_ata(&mut svm, &new_owner.pubkey(), &TEST_TOKEN_MINT, 0);
+
+    // Call update_pool_config with fee_wallet but WITHOUT token_mint in remaining_accounts
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_wallet(new_fee_wallet)
+        .send(&mut svm, &admin);
+
+    assert_custom_error(res, PremiumBondsError::MissingTokenMintAccount);
 }

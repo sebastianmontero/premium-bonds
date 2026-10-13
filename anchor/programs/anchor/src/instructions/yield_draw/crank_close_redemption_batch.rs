@@ -112,6 +112,11 @@ pub fn handle(ctx: Context<CrankCloseRedemptionBatch>) -> Result<()> {
     if unclaimed_principal > 0 {
         unclaimed_usdc = ctx.accounts.batch.calculate_unclaimed_payout()?;
         if unclaimed_usdc > 0 {
+            require!(
+                matches!(ctx.accounts.fee_wallet.state, anchor_spl::token_2022::spl_token_2022::state::AccountState::Initialized),
+                PremiumBondsError::FeeWalletFrozen
+            );
+
             let signer_seeds: &[&[&[u8]]] =
                 &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 

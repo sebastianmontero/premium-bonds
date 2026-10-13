@@ -267,8 +267,7 @@ fn test_create_pool_accepts_standard_spl_and_token_2022() {
     let pst_mint = Keypair::new().pubkey();
     inject_token_2022_mint(&mut svm, pst_mint, 6, None);
 
-    let fee_wallet = Keypair::new().pubkey();
-    inject_token_account(&mut svm, fee_wallet, usdc_mint, admin.pubkey(), 0);
+    let fee_wallet = inject_canonical_ata(&mut svm, &admin.pubkey(), &usdc_mint, 0);
 
     let ticket_registry = Keypair::new().pubkey();
     svm.set_account(

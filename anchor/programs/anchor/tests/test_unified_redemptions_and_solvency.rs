@@ -41,7 +41,7 @@ use {
     litesvm::LiteSVM,
     solana_keypair::Keypair,
     solana_message::{Message, VersionedMessage},
-    solana_program::{instruction::Instruction, pubkey::Pubkey},
+    solana_program::{instruction::Instruction, program_pack::Pack, pubkey::Pubkey},
     solana_sdk::{account::Account, signature::Signer},
     solana_transaction::versioned::VersionedTransaction,
 };
@@ -1235,4 +1235,191 @@ fn test_v22_full_error_code_coverage_commitment() {
 
     // 21. InvalidJobsAccountAddress
     assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidJobsAccountAddress), 6091);
+
+    // 22. MissingFeeWalletAccount
+    assert_eq!(err_code(anchor::error::PremiumBondsError::MissingFeeWalletAccount), 6092);
+
+    // 23. MissingTokenMintAccount
+    assert_eq!(err_code(anchor::error::PremiumBondsError::MissingTokenMintAccount), 6093);
+
+    // 24. FeeWalletFrozen
+    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletFrozen), 6094);
+
+    // 25. FeeWalletAliasedToVault
+    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletAliasedToVault), 6095);
+
+    // 26. FeeWalletInvalidOwner
+    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletInvalidOwner), 6096);
+
+    // 27. FeeWalletHasAuthority
+    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletHasAuthority), 6097);
+
+    // 28. FeeWalletNotAssociatedTokenAccount
+    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletNotAssociatedTokenAccount), 6098);
+
+    // 29. FeeWalletUnsupportedExtension
+    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletUnsupportedExtension), 6099);
+
+    // 30. InvalidTokenProgram
+    assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidTokenProgram), 6100);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fee Wallet Hardening on crank_close_redemption_batch
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_crank_close_batch_frozen_fee_wallet_fails_when_unclaimed_funds_exist() {
+    let mut ctx = setup_e2e();
+    let pool_id = 1;
+    let unclaimed = 1_000_000;
+
+    let (pool_vault, _) = pool_vault_pda(pool_id);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &pool_vault,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        unclaimed,
+        unclaimed,
+    );
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.claimed_principal = 0;
+        rb.settled_at = 1_000;
+    });
+
+    set_clock_timestamp(
+        &mut ctx.svm,
+        1_000 + anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
+    );
+
+    // Freeze fee_wallet
+    let mut fee_acc = ctx.svm.get_account(&ctx.fee_wallet).unwrap();
+    let mut state = anchor_spl::token::spl_token::state::Account::unpack(&fee_acc.data).unwrap();
+    state.state = anchor_spl::token::spl_token::state::AccountState::Frozen;
+    anchor_spl::token::spl_token::state::Account::pack_into_slice(&state, &mut fee_acc.data);
+    ctx.svm.set_account(ctx.fee_wallet, fee_acc).unwrap();
+
+    let res = CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, ctx.admin.pubkey())
+        .with_token_mint(ctx.usdc_mint)
+        .with_fee_wallet(ctx.fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+
+    assert_custom_error(res, PremiumBondsError::FeeWalletFrozen);
+}
+
+#[test]
+fn test_crank_close_batch_frozen_fee_wallet_succeeds_when_zero_unclaimed_funds() {
+    let mut ctx = setup_e2e();
+    let pool_id = 1;
+    let total_principal = 1_000_000;
+
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        total_principal,
+        total_principal,
+    );
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        // All claimed! unclaimed_principal = 0, unclaimed_usdc = 0
+        rb.claimed_principal = total_principal;
+        rb.settled_at = 1_000;
+    });
+
+    set_clock_timestamp(
+        &mut ctx.svm,
+        1_000 + anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
+    );
+
+    // Freeze fee_wallet
+    let mut fee_acc = ctx.svm.get_account(&ctx.fee_wallet).unwrap();
+    let mut state = anchor_spl::token::spl_token::state::Account::unpack(&fee_acc.data).unwrap();
+    state.state = anchor_spl::token::spl_token::state::AccountState::Frozen;
+    anchor_spl::token::spl_token::state::Account::pack_into_slice(&state, &mut fee_acc.data);
+    ctx.svm.set_account(ctx.fee_wallet, fee_acc).unwrap();
+
+    // With 0 unclaimed funds, no transfer is performed, so frozen fee wallet does NOT cause revert
+    let res = CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, ctx.admin.pubkey())
+        .with_token_mint(ctx.usdc_mint)
+        .with_fee_wallet(ctx.fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+
+    assert!(res.is_ok(), "crank_close_redemption_batch should succeed when zero unclaimed funds even if fee_wallet is frozen");
+}
+
+#[test]
+fn test_crank_close_batch_succeeds_after_admin_updates_frozen_wallet() {
+    let mut ctx = setup_e2e();
+    let pool_id = 1;
+    let unclaimed = 1_000_000;
+
+    PrizePoolTestBuilder::from_state(&ctx.svm, pool_id)
+        .with_pending_redemptions(unclaimed)
+        .inject(&mut ctx.svm);
+
+    let (pool_vault, _) = pool_vault_pda(pool_id);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &pool_vault,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        anchor::state::RedemptionBatchStatus::Settled,
+        unclaimed,
+        unclaimed,
+    );
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.claimed_principal = 0;
+        rb.settled_at = 1_000;
+    });
+
+    set_clock_timestamp(
+        &mut ctx.svm,
+        1_000 + anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
+    );
+
+    // 1. Freeze initial fee_wallet
+    let mut fee_acc = ctx.svm.get_account(&ctx.fee_wallet).unwrap();
+    let mut state = anchor_spl::token::spl_token::state::Account::unpack(&fee_acc.data).unwrap();
+    state.state = anchor_spl::token::spl_token::state::AccountState::Frozen;
+    anchor_spl::token::spl_token::state::Account::pack_into_slice(&state, &mut fee_acc.data);
+    ctx.svm.set_account(ctx.fee_wallet, fee_acc).unwrap();
+
+    // 2. Admin creates and sets a new healthy fee wallet
+    let new_owner = Keypair::new();
+    ctx.svm.airdrop(&new_owner.pubkey(), 1_000_000_000).unwrap();
+    let new_fee_wallet = inject_canonical_ata(&mut ctx.svm, &new_owner.pubkey(), &ctx.usdc_mint, 0);
+
+    UpdatePoolConfigBuilder::for_pool(pool_id, ctx.admin.pubkey())
+        .with_fee_wallet(new_fee_wallet)
+        .with_token_mint(ctx.usdc_mint)
+        .send(&mut ctx.svm, &ctx.admin)
+        .expect("admin update_pool_config should succeed updating fee wallet");
+
+    // 3. Crank close batch now succeeds sweeping unclaimed funds to new_fee_wallet
+    let res = CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, ctx.admin.pubkey())
+        .with_token_mint(ctx.usdc_mint)
+        .with_fee_wallet(new_fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+
+    res.expect("crank_close_redemption_batch must succeed after admin updates frozen fee wallet");
+    assert_token_balance(&ctx.svm, &new_fee_wallet, unclaimed);
 }
