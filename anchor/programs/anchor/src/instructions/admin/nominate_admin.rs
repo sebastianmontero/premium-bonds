@@ -35,10 +35,7 @@ pub struct NominateAdmin<'info> {
 /// * `ctx` - The context of the nominate admin instruction.
 /// * `pending_admin` - The address of the nominated pending admin.
 pub fn handle(ctx: Context<NominateAdmin>, pending_admin: Pubkey) -> Result<()> {
-    require!(
-        pending_admin != Pubkey::default(),
-        PremiumBondsError::InvalidAdminAddress
-    );
+    crate::state::GlobalConfig::validate_admin(&pending_admin)?;
     let global_config = &mut ctx.accounts.global_config;
     global_config.ensure_current_version()?;
     require!(

@@ -1,10 +1,15 @@
-use crate::constants::{BATCH_CLAIM_EXPIRY_SECONDS, PENDING_REDEMPTION_SEED};
+use crate::constants::{PENDING_REDEMPTION_SEED, REDEMPTION_BATCH_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::ExpiredRedemptionClosed;
-use crate::state::PendingRedemption;
+use crate::state::{PendingRedemption, RedemptionBatch};
 use anchor_lang::prelude::*;
 
 /// Accounts required to close an abandoned/expired PendingRedemption receipt after batch closure.
+///
+/// ADVISORY: Users should prefer calling `claim_redemption` while the redemption batch remains open
+/// to receive their USDC principal and prize yield. Closing an expired redemption receipt is intended
+/// for rent reclamation when the batch is either fully expired (180+ days settled) or has already been
+/// closed/swept by the protocol crank.
 #[derive(Accounts)]
 pub struct CloseExpiredRedemption<'info> {
     /// CHECK: The redemption owner receiving 100% of their SOL rent back.
@@ -13,6 +18,19 @@ pub struct CloseExpiredRedemption<'info> {
         address = pending_redemption.user @ PremiumBondsError::InvalidRedemptionOwner
     )]
     pub beneficiary: Signer<'info>,
+
+    /// CHECK: The redemption batch PDA. Validated strictly by PDA seeds.
+    /// May be closed (0 data, SystemProgram-owned) if already swept by crank,
+    /// or open on-chain.
+    #[account(
+        seeds = [
+            REDEMPTION_BATCH_SEED,
+            pending_redemption.pool_id.to_le_bytes().as_ref(),
+            pending_redemption.batch_id.to_le_bytes().as_ref()
+        ],
+        bump
+    )]
+    pub batch: UncheckedAccount<'info>,
 
     /// The expired PendingRedemption PDA to close.
     #[account(
@@ -42,18 +60,21 @@ pub struct CloseExpiredRedemption<'info> {
 /// Allows a user to close an expired PendingRedemption whose batch was already swept and closed after 180 days.
 pub fn handle(ctx: Context<CloseExpiredRedemption>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
-    let requested_at = ctx.accounts.pending_redemption.requested_at;
-    let expiry_threshold = requested_at.saturating_add(BATCH_CLAIM_EXPIRY_SECONDS);
+    let pending = &ctx.accounts.pending_redemption;
 
-    require!(now >= expiry_threshold, PremiumBondsError::BatchNotFullyClaimed);
+    RedemptionBatch::verify_expired_for_receipt(
+        &ctx.accounts.batch.to_account_info(),
+        pending,
+        now,
+    )?;
 
     let rent_reclaimed_lamports = ctx.accounts.pending_redemption.to_account_info().lamports();
-    let pool_id = ctx.accounts.pending_redemption.pool_id;
-    let batch_id = ctx.accounts.pending_redemption.batch_id;
-    let redemption_id = ctx.accounts.pending_redemption.redemption_id;
+    let pool_id = pending.pool_id;
+    let batch_id = pending.batch_id;
+    let redemption_id = pending.redemption_id;
     let beneficiary = ctx.accounts.beneficiary.key();
-    let expired_principal = ctx.accounts.pending_redemption.amount;
-    let redemption_type = ctx.accounts.pending_redemption.redemption_type;
+    let expired_principal = pending.amount;
+    let redemption_type = pending.redemption_type;
 
     #[cfg(feature = "debug-logs")]
     msg!(

@@ -50,11 +50,11 @@ pub fn handle(
     let old_jobs_account = global_config.jobs_account;
 
     if let Some(guardian) = new_guardian {
-        global_config.guardian = guardian;
+        global_config.set_guardian(guardian)?;
     }
 
     if let Some(jobs_account) = new_jobs_account {
-        global_config.jobs_account = jobs_account;
+        global_config.set_jobs_account(jobs_account)?;
     }
 
     emit_cpi!(GlobalConfigUpdated {

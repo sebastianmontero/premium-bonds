@@ -192,6 +192,12 @@ export const ANCHOR_ERROR__IMPAIRMENT_TIMELOCK_ACTIVE = 0x17c6; // 6086
 export const ANCHOR_ERROR__INVALID_RECAPITALIZE_AMOUNT = 0x17c7; // 6087
 /** PoolNotPaused: Pool is not currently paused. */
 export const ANCHOR_ERROR__POOL_NOT_PAUSED = 0x17c8; // 6088
+/** RedemptionNotExpired: Redemption receipt has not expired yet. */
+export const ANCHOR_ERROR__REDEMPTION_NOT_EXPIRED = 0x17c9; // 6089
+/** InvalidGuardianAddress: Guardian address cannot be the default zero address. */
+export const ANCHOR_ERROR__INVALID_GUARDIAN_ADDRESS = 0x17ca; // 6090
+/** InvalidJobsAccountAddress: Jobs account address cannot be the default zero address. */
+export const ANCHOR_ERROR__INVALID_JOBS_ACCOUNT_ADDRESS = 0x17cb; // 6091
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -224,9 +230,11 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_DRAW_STATUS
   | typeof ANCHOR_ERROR__INVALID_FEE_CONFIG
   | typeof ANCHOR_ERROR__INVALID_FEE_WALLET
+  | typeof ANCHOR_ERROR__INVALID_GUARDIAN_ADDRESS
   | typeof ANCHOR_ERROR__INVALID_HUMA_LENDER_STATE
   | typeof ANCHOR_ERROR__INVALID_HUMA_POOL_DATA
   | typeof ANCHOR_ERROR__INVALID_HUMA_POOL_STATE
+  | typeof ANCHOR_ERROR__INVALID_JOBS_ACCOUNT_ADDRESS
   | typeof ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS
   | typeof ANCHOR_ERROR__INVALID_MODE_MINT
   | typeof ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK
@@ -266,6 +274,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED
   | typeof ANCHOR_ERROR__REBIND_LIMIT_REACHED
   | typeof ANCHOR_ERROR__REDEMPTION_BATCH_NOT_SETTLED
+  | typeof ANCHOR_ERROR__REDEMPTION_NOT_EXPIRED
   | typeof ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE
   | typeof ANCHOR_ERROR__REGISTRY_FULL
   | typeof ANCHOR_ERROR__REGISTRY_TOO_SMALL
@@ -317,9 +326,11 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_DRAW_STATUS]: `The draw cycle is in an invalid phase for this operation`,
     [ANCHOR_ERROR__INVALID_FEE_CONFIG]: `Fee basis points must be less than or equal to 10,000 (100%).`,
     [ANCHOR_ERROR__INVALID_FEE_WALLET]: `The provided fee wallet account is invalid or does not match the pool configuration`,
+    [ANCHOR_ERROR__INVALID_GUARDIAN_ADDRESS]: `Guardian address cannot be the default zero address.`,
     [ANCHOR_ERROR__INVALID_HUMA_LENDER_STATE]: `Huma lender state account is invalid.`,
     [ANCHOR_ERROR__INVALID_HUMA_POOL_DATA]: `Huma pool account data is truncated or malformed`,
     [ANCHOR_ERROR__INVALID_HUMA_POOL_STATE]: `Provided Huma pool state is invalid or uninitialized.`,
+    [ANCHOR_ERROR__INVALID_JOBS_ACCOUNT_ADDRESS]: `Jobs account address cannot be the default zero address.`,
     [ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS]: `Max yield basis points must be less than or equal to 10,000 (100%).`,
     [ANCHOR_ERROR__INVALID_MODE_MINT]: `The mode mint does not match the pool's mode mint.`,
     [ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK]: `Payout timelock delay must not exceed 86,400 seconds (24 hours).`,
@@ -359,6 +370,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED]: `The randomness request has not yet been resolved by the oracle network.`,
     [ANCHOR_ERROR__REBIND_LIMIT_REACHED]: `Maximum crank rebind limit reached for this draw cycle.`,
     [ANCHOR_ERROR__REDEMPTION_BATCH_NOT_SETTLED]: `Redemption batch has not been settled yet.`,
+    [ANCHOR_ERROR__REDEMPTION_NOT_EXPIRED]: `Redemption receipt has not expired yet.`,
     [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: `The registry account has reached Solana's 10 MB maximum size.`,
     [ANCHOR_ERROR__REGISTRY_FULL]: `The prize pool registration capability has hit absolute capacity constraints.`,
     [ANCHOR_ERROR__REGISTRY_TOO_SMALL]: `The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.`,

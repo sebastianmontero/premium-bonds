@@ -163,4 +163,28 @@ impl RedemptionBatch {
     pub fn calculate_unclaimed_payout(&self) -> Result<u64> {
         self.calculate_payout(self.unclaimed_principal())
     }
+
+    /// Validates whether a redemption batch account is expired or already swept, allowing receipt closure.
+    pub fn verify_expired_for_receipt(
+        batch_account_info: &AccountInfo,
+        pending: &crate::state::PendingRedemption,
+        now: i64,
+    ) -> Result<()> {
+        if batch_account_info.data_is_empty() {
+            let expiry_threshold = pending
+                .requested_at
+                .saturating_add(crate::constants::BATCH_CLAIM_EXPIRY_SECONDS);
+            require!(now >= expiry_threshold, PremiumBondsError::RedemptionNotExpired);
+            return Ok(());
+        }
+
+        require_keys_eq!(*batch_account_info.owner, crate::id(), PremiumBondsError::Unauthorized);
+        let data = batch_account_info.try_borrow_data()?;
+        let batch = Self::try_deserialize(&mut &data[..])?;
+        batch.check_version()?;
+        require_eq!(batch.pool_id, pending.pool_id, PremiumBondsError::MismatchedPoolId);
+        require_eq!(batch.batch_id, pending.batch_id, PremiumBondsError::MismatchedBatchId);
+        require!(batch.is_expired(now), PremiumBondsError::RedemptionNotExpired);
+        Ok(())
+    }
 }

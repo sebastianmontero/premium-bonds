@@ -205,7 +205,8 @@ pub mod anchor {
 
     /// Claims non-reinvested cash winnings.
     ///
-    /// Converts a user's cash prize balance from the PayoutRegistry into a pending redemption request.
+    /// Converts a user's accumulated sub-bond fractional cash prize balance from the
+    /// `UserWinnings` state account into an asynchronous batch pending redemption request.
     pub fn claim_non_reinvested_winnings(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         instructions::yield_draw::claim_non_reinvested_winnings::handle(ctx)
     }

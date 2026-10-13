@@ -105,10 +105,15 @@ fn test_admin_can_pause_active_pool() {
         "PoolStatusChanged timestamp must be non-zero"
     );
 
+    let pool_state = read_pool_state(&svm, 1);
     assert_eq!(
-        read_pool_state(&svm, 1).status,
+        pool_state.status,
         anchor::PoolStatus::Paused as u8,
         "Pool state status must be Paused after admin pause"
+    );
+    assert_eq!(
+        pool_state.paused_at, event.timestamp,
+        "Pool paused_at must match timestamp"
     );
 }
 
@@ -141,9 +146,14 @@ fn test_admin_can_unpause_paused_pool() {
     assert_eq!(event.authority, admin.pubkey());
     assert!(event.timestamp > 0);
 
+    let pool_state = read_pool_state(&svm, 1);
     assert_eq!(
-        read_pool_state(&svm, 1).status,
+        pool_state.status,
         anchor::PoolStatus::Active as u8
+    );
+    assert_eq!(
+        pool_state.paused_at, 0,
+        "Pool paused_at must be reset to 0 after unpause"
     );
 }
 
@@ -198,10 +208,10 @@ fn test_cannot_pause_closed_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Closed);
 
     let res_guardian = send_pause_pool(&mut svm, &guardian, 1);
-    assert_custom_error(res_guardian, PremiumBondsError::PoolClosed);
+    assert_custom_error(res_guardian, PremiumBondsError::PoolNotActive);
 
     let res_admin = send_pause_pool(&mut svm, &admin, 1);
-    assert_custom_error(res_admin, PremiumBondsError::PoolClosed);
+    assert_custom_error(res_admin, PremiumBondsError::PoolNotActive);
 
     assert_eq!(
         read_pool_state(&svm, 1).status,
@@ -210,19 +220,43 @@ fn test_cannot_pause_closed_pool() {
 }
 
 #[test]
+fn test_cannot_pause_already_paused_pool() {
+    let (mut svm, admin, guardian, _pool_pda) =
+        setup_pool_with_guardian(anchor::PoolStatus::Paused);
+
+    let res_guardian = send_pause_pool(&mut svm, &guardian, 1);
+    assert_custom_error(res_guardian, PremiumBondsError::PoolNotActive);
+
+    let res_admin = send_pause_pool(&mut svm, &admin, 1);
+    assert_custom_error(res_admin, PremiumBondsError::PoolNotActive);
+}
+
+#[test]
+fn test_cannot_pause_impaired_pool() {
+    let (mut svm, admin, guardian, _pool_pda) =
+        setup_pool_with_guardian(anchor::PoolStatus::Impaired);
+
+    let res_guardian = send_pause_pool(&mut svm, &guardian, 1);
+    assert_custom_error(res_guardian, PremiumBondsError::PoolNotActive);
+
+    let res_admin = send_pause_pool(&mut svm, &admin, 1);
+    assert_custom_error(res_admin, PremiumBondsError::PoolNotActive);
+}
+
+#[test]
 fn test_cannot_unpause_active_or_closed_pool() {
     let (mut svm, admin, _guardian, _pool_pda) =
         setup_pool_with_guardian(anchor::PoolStatus::Active);
 
     let res_active = send_unpause_pool(&mut svm, &admin, 1);
-    assert_custom_error(res_active, PremiumBondsError::PoolNotActive);
+    assert_custom_error(res_active, PremiumBondsError::PoolNotPaused);
 
     PrizePoolTestBuilder::new(2)
         .with_status(anchor::PoolStatus::Closed)
         .inject(&mut svm);
 
     let res_closed = send_unpause_pool(&mut svm, &admin, 2);
-    assert_custom_error(res_closed, PremiumBondsError::PoolNotActive);
+    assert_custom_error(res_closed, PremiumBondsError::PoolNotPaused);
     assert_eq!(
         read_pool_state(&svm, 2).status,
         anchor::PoolStatus::Closed as u8

@@ -41,20 +41,16 @@ pub struct PausePool<'info> {
 pub fn handle_pause_pool(ctx: Context<PausePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
-    let previous_status = PoolStatus::try_from(pool.status)?;
-    require!(
-        previous_status != PoolStatus::Closed,
-        PremiumBondsError::PoolClosed
-    );
+    let now = Clock::get()?.unix_timestamp;
+    let previous_status = pool.pause(now)?;
     let new_status = PoolStatus::Paused;
-    pool.set_status(new_status);
 
     emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
         new_status,
         authority: ctx.accounts.signer.key(),
-        timestamp: Clock::get()?.unix_timestamp,
+        timestamp: now,
     });
     Ok(())
 }
@@ -96,20 +92,16 @@ pub struct UnpausePool<'info> {
 pub fn handle_unpause_pool(ctx: Context<UnpausePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
-    let previous_status = PoolStatus::try_from(pool.status)?;
-    require!(
-        previous_status == PoolStatus::Paused,
-        PremiumBondsError::PoolNotActive
-    );
+    let now = Clock::get()?.unix_timestamp;
+    let previous_status = pool.unpause()?;
     let new_status = PoolStatus::Active;
-    pool.set_status(new_status);
 
     emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
         new_status,
         authority: ctx.accounts.admin.key(),
-        timestamp: Clock::get()?.unix_timestamp,
+        timestamp: now,
     });
     Ok(())
 }

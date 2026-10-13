@@ -10,6 +10,7 @@
 //!   cargo +nightly test --package anchor --test test_initialize_global -- --nocapture
 
 use {
+    anchor::error::PremiumBondsError,
     anchor_lang::prelude::Pubkey,
     anchor_lang::prelude::UpgradeableLoaderState,
     anchor_lang::{AnchorDeserialize, InstructionData, ToAccountMetas},
@@ -115,24 +116,40 @@ fn test_initialize_global_succeeds_different_authority_and_admin() {
     );
 }
 
-/// The `jobs_account` field is stored verbatim — even for an arbitrary key or default pubkey.
+/// The `jobs_account` cannot be set to the default zero address.
 #[test]
-fn test_initialize_global_sets_jobs_account_default() {
+fn test_initialize_global_rejects_jobs_account_default() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
     let guardian = Keypair::new().pubkey();
 
-    send_initialize_global(
+    let res = send_initialize_global(
         &mut svm,
         &authority,
         &authority.pubkey(),
         &guardian,
         &Pubkey::default(),
-    )
-    .expect("should succeed with default jobs pubkey");
+    );
 
-    let config = read_global_config(&svm);
-    assert_eq!(config.jobs_account, Pubkey::default());
+    assert_custom_error(res, PremiumBondsError::InvalidJobsAccountAddress);
+}
+
+/// The `guardian` cannot be set to the default zero address.
+#[test]
+fn test_initialize_global_rejects_guardian_default() {
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
+    let jobs = Keypair::new().pubkey();
+
+    let res = send_initialize_global(
+        &mut svm,
+        &authority,
+        &authority.pubkey(),
+        &Pubkey::default(),
+        &jobs,
+    );
+
+    assert_custom_error(res, PremiumBondsError::InvalidGuardianAddress);
 }
 
 /// After initialization the authority's SOL balance decreases by (at least) the

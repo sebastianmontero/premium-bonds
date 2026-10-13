@@ -2796,6 +2796,7 @@ export async function buildCrankCloseRedemptionBatchInstruction(
 export interface CloseExpiredRedemptionParams {
   beneficiary: Address | KeyPairSigner | TransactionSigner;
   poolId: number;
+  batchId: bigint | number;
   redemptionId: bigint | number;
 }
 
@@ -2806,9 +2807,14 @@ export async function buildCloseExpiredRedemptionInstruction(
     params.poolId,
     BigInt(params.redemptionId)
   );
+  const batch = await findRedemptionBatchPda(
+    params.poolId,
+    params.batchId
+  );
 
   const ix = await getCloseExpiredRedemptionInstructionAsync({
     beneficiary: params.beneficiary as TransactionSigner,
+    batch,
     pendingRedemption,
   });
 

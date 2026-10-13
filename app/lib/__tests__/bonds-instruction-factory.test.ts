@@ -8,11 +8,14 @@ import {
   buildReinvestWinningsInstruction,
   buildClaimNonReinvestedWinningsInstruction,
   buildSellBondsInstruction,
+  buildCloseExpiredRedemptionInstruction,
 } from "../bonds-instruction-factory";
 import {
   findAtaAddress,
   findPrizePoolPda,
   findHumaPoolAuthorityPda,
+  findPendingRedemptionPda,
+  findRedemptionBatchPda,
   createAssociatedTokenIdempotentInstruction,
   buildWithdrawFeesInstruction,
   HumaConfigurationError,
@@ -568,5 +571,63 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions prepends idemp
     claimIx.accounts?.[7].address,
     expectedAta,
     "Claim instruction must disburse funds into derived user ATA"
+  );
+});
+
+test("bonds-instruction-factory: builds close expired redemption instruction with derived batch PDA", async () => {
+  const beneficiary = TEST_ADDRESSES.USER;
+  const poolId = 1;
+  const batchId = 0n;
+  const redemptionId = 42n;
+
+  const expectedPendingRedemptionPda = await findPendingRedemptionPda(
+    poolId,
+    redemptionId
+  );
+  const expectedBatchPda = await findRedemptionBatchPda(poolId, batchId);
+
+  const ix = await buildCloseExpiredRedemptionInstruction({
+    beneficiary,
+    poolId,
+    batchId,
+    redemptionId,
+  });
+
+  assert.ok(ix, "CloseExpiredRedemption instruction must be created");
+  assert.ok(ix.accounts, "Accounts array must be defined");
+  assert.equal(
+    ix.accounts.length,
+    6,
+    "CloseExpiredRedemption instruction must contain exactly 6 accounts"
+  );
+  assert.equal(
+    ix.accounts[0].address,
+    beneficiary,
+    "Beneficiary must be first account"
+  );
+  assert.equal(
+    ix.accounts[0].role,
+    AccountRole.WRITABLE_SIGNER,
+    "Beneficiary must be a writable signer"
+  );
+  assert.equal(
+    ix.accounts[1].address,
+    expectedBatchPda,
+    "Batch PDA must match derived redemption batch PDA"
+  );
+  assert.equal(
+    ix.accounts[1].role,
+    AccountRole.READONLY,
+    "Batch PDA must be readonly account"
+  );
+  assert.equal(
+    ix.accounts[2].address,
+    expectedPendingRedemptionPda,
+    "Pending redemption PDA must match derived pending redemption PDA"
+  );
+  assert.equal(
+    ix.accounts[2].role,
+    AccountRole.WRITABLE,
+    "Pending redemption PDA must be writable"
   );
 });

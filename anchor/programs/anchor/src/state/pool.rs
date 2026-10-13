@@ -198,20 +198,23 @@ impl PrizePool {
         self.status == PoolStatus::Impaired as u8
     }
 
-    pub fn pause(&mut self, timestamp: i64) -> Result<()> {
+    pub fn pause(&mut self, timestamp: i64) -> Result<PoolStatus> {
+        self.ensure_current_version()?;
+        require!(timestamp > 0, PremiumBondsError::MathOverflow);
         let prev = self.pool_status()?;
-        require!(prev != PoolStatus::Closed, PremiumBondsError::PoolClosed);
+        require!(prev == PoolStatus::Active, PremiumBondsError::PoolNotActive);
         self.status = PoolStatus::Paused as u8;
         self.paused_at = timestamp;
-        Ok(())
+        Ok(prev)
     }
 
-    pub fn unpause(&mut self) -> Result<()> {
+    pub fn unpause(&mut self) -> Result<PoolStatus> {
+        self.ensure_current_version()?;
         let prev = self.pool_status()?;
         require!(prev == PoolStatus::Paused, PremiumBondsError::PoolNotPaused);
         self.status = PoolStatus::Active as u8;
         self.paused_at = 0;
-        Ok(())
+        Ok(prev)
     }
 
     /// Returns true if frozen for draw.

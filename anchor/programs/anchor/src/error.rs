@@ -271,5 +271,14 @@ pub enum PremiumBondsError {
     /// Pool is not currently paused.
     #[msg("Pool is not currently paused.")]
     PoolNotPaused,
+    /// Redemption receipt has not expired yet.
+    #[msg("Redemption receipt has not expired yet.")]
+    RedemptionNotExpired,
+    /// Guardian address cannot be the default zero address.
+    #[msg("Guardian address cannot be the default zero address.")]
+    InvalidGuardianAddress,
+    /// Jobs account address cannot be the default zero address.
+    #[msg("Jobs account address cannot be the default zero address.")]
+    InvalidJobsAccountAddress,
 }
 

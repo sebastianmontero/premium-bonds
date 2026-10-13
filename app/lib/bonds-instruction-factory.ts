@@ -33,6 +33,7 @@ import {
   buildSettleRedemptionBatchInstruction,
   buildCrankCloseRedemptionBatchInstruction,
   buildCloseExpiredRedemptionInstruction,
+  type CloseExpiredRedemptionParams,
   buildEnableImpairedModeInstruction,
   buildRecapitalizePoolInstruction,
   RedemptionType,
@@ -59,6 +60,7 @@ export {
   buildSettleRedemptionBatchInstruction,
   buildCrankCloseRedemptionBatchInstruction,
   buildCloseExpiredRedemptionInstruction,
+  type CloseExpiredRedemptionParams,
   buildEnableImpairedModeInstruction,
   buildRecapitalizePoolInstruction,
 };

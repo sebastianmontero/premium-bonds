@@ -107,6 +107,22 @@ fn test_update_global_config_all_fields() {
 }
 
 #[test]
+fn test_update_global_config_rejects_default_guardian() {
+    let (mut svm, admin, _) = setup_and_initialize();
+
+    let result = send_update_global_config(&mut svm, &admin, Some(Pubkey::default()), None);
+    assert_custom_error(result, PremiumBondsError::InvalidGuardianAddress);
+}
+
+#[test]
+fn test_update_global_config_rejects_default_jobs_account() {
+    let (mut svm, admin, _) = setup_and_initialize();
+
+    let result = send_update_global_config(&mut svm, &admin, None, Some(Pubkey::default()));
+    assert_custom_error(result, PremiumBondsError::InvalidJobsAccountAddress);
+}
+
+#[test]
 fn test_update_global_config_unauthorized_admin() {
     let (mut svm, _admin, _) = setup_and_initialize();
 
