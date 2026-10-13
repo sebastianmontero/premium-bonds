@@ -436,6 +436,9 @@ fn test_v4_protocol_pending_redemptions_conservation() {
         5_000_000,
         5_000_000,
     );
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pda_addr, _) = pool_pda(1);
+    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda_addr, 5_000_000);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
     send_e2e_claim_redemption_for_user(
@@ -443,8 +446,6 @@ fn test_v4_protocol_pending_redemptions_conservation() {
         &user_kp,
         user_token,
         0,
-        Pubkey::default(),
-        Pubkey::default(),
     )
     .unwrap();
 
@@ -481,6 +482,9 @@ fn test_v5_pending_redemption_closure_100_percent_refund() {
         5_000_000,
         5_000_000,
     );
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pda_addr, _) = pool_pda(1);
+    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda_addr, 5_000_000);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
     let user_bal_pre_claim = ctx.svm.get_account(&user_kp.pubkey()).unwrap().lamports;
@@ -490,8 +494,6 @@ fn test_v5_pending_redemption_closure_100_percent_refund() {
         &user_kp,
         user_token,
         0,
-        Pubkey::default(),
-        Pubkey::default(),
     )
     .unwrap();
 
@@ -1228,6 +1230,10 @@ fn test_v2_pool_and_batch_lazy_migration_on_claim_redemption() {
     inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, redemption_amount);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
+    let (pool_vault, _) = pool_vault_pda(pool_id);
+    let (pool_pda_addr, _) = pool_pda(pool_id);
+    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda_addr, redemption_amount);
+
     let user_token =
         create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
 
@@ -1237,8 +1243,6 @@ fn test_v2_pool_and_batch_lazy_migration_on_claim_redemption() {
         &user_kp,
         user_token,
         0,
-        Pubkey::default(),
-        Pubkey::default(),
     )
     .unwrap();
 
@@ -1309,14 +1313,16 @@ fn test_v2_pool_lazy_migration_on_crank_close_redemption_batch() {
         unclaimed,
         unclaimed,
     );
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let now = clock.unix_timestamp;
     mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
         rb.claimed_principal = 0;
-        rb.settled_at = 1_000;
+        rb.settled_at = now;
     });
 
-    set_clock_timestamp(
+    warp_forward_seconds(
         &mut ctx.svm,
-        1_000 + anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
+        anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
     );
 
     CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, ctx.admin.pubkey())

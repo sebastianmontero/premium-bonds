@@ -940,18 +940,12 @@ fn test_v4_terminal_dust_clamping_claim_redemption() {
     );
     assert!(res.is_ok(), "Sell bonds should succeed: {res:?}");
 
-    // 3. Settle Huma redemption and batch
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
+    // 3. Settle Huma redemption and batch on chain
+    send_e2e_submit_redemption_batch(&mut ctx, 0).expect("batch 0 submit");
+    let huma_lender_state = ctx.huma_lender_state;
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 9_999_999);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-    inject_redemption_batch_with_state(
-        &mut ctx.svm,
-        1,
-        0,
-        anchor::state::RedemptionBatchStatus::Settled,
-        10_000_000,
-        9_999_999,
-    );
+    send_e2e_settle_redemption_batch(&mut ctx, 0).expect("batch 0 settle");
 
     // 4. Fund pool vault with 9_999_999 USDC
     let (pool_vault, _) = pool_vault_pda(1);
@@ -972,8 +966,6 @@ fn test_v4_terminal_dust_clamping_claim_redemption() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert!(
         claim_res.is_ok(),

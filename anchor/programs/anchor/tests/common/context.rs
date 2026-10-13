@@ -542,6 +542,7 @@ pub fn warp_forward_seconds(svm: &mut LiteSVM, seconds: i64) {
     warp_to_timestamp(svm, clock.unix_timestamp + seconds);
 }
 
+#[deprecated(since = "0.1.0", note = "Use warp_forward_seconds or warp_to_timestamp to advance slot and clock in unison")]
 pub fn set_clock_timestamp(svm: &mut LiteSVM, unix_timestamp: i64) {
     let mut clock: solana_sdk::clock::Clock = svm.get_sysvar();
     clock.unix_timestamp = unix_timestamp;

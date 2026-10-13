@@ -231,10 +231,7 @@ fn test_huma_simulation_set_total_assets() {
         .to_account_metas(None),
     );
     let res = send_user_tx(&mut svm, &payer, invalid_owner_ix);
-    assert!(
-        res.is_err(),
-        "Setting total assets on an account not owned by mock_huma must fail"
-    );
+    assert_mock_huma_error(res, mock_huma::MockHumaError::InvalidAccountOwner);
 
     // 7b: Invalid pool state data length (< 46 bytes)
     let short_account = Keypair::new();
@@ -263,10 +260,7 @@ fn test_huma_simulation_set_total_assets() {
         .to_account_metas(None),
     );
     let res_short = send_user_tx(&mut svm, &payer, short_buf_ix);
-    assert!(
-        res_short.is_err(),
-        "Setting total assets on account with < 46 bytes must fail with InvalidPoolStateData"
-    );
+    assert_mock_huma_error(res_short, mock_huma::MockHumaError::InvalidPoolStateData);
 }
 
 #[test]
@@ -409,10 +403,7 @@ fn test_huma_simulation_deficit() {
         .to_account_metas(None),
     );
     let res = send_user_tx(&mut svm, &payer, invalid_owner_ix);
-    assert!(
-        res.is_err(),
-        "Simulating deficit on non-mock_huma owned account must fail"
-    );
+    assert_mock_huma_error(res, mock_huma::MockHumaError::InvalidAccountOwner);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

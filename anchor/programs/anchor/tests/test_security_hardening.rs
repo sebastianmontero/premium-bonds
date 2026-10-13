@@ -407,18 +407,8 @@ fn test_claim_redemption_reentrancy_protection() {
     let initial_data = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(initial_data.amount, 3_000_000);
 
-    // Inject simulated Huma lender state with 3 USDC settled
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-    inject_redemption_batch_with_state(
-        &mut ctx.svm,
-        1,
-        0,
-        anchor::state::RedemptionBatchStatus::Settled,
-        3_000_000,
-        3_000_000,
-    );
+    // Advance batch 0 through on-chain submission and settlement
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Claim redemption
     send_e2e_claim_redemption_for_user(
@@ -426,8 +416,6 @@ fn test_claim_redemption_reentrancy_protection() {
         &user_kp,
         user_token_account,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     )
     .expect("claim redemption should succeed");
 
@@ -502,17 +490,7 @@ fn test_claim_redemption_account_closure_and_discriminator_zeroing() {
     assert!(ctx.svm.get_account(&pending_pda).is_some());
 
     let user_token_account = ctx.user_usdc_account;
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-    inject_redemption_batch_with_state(
-        &mut ctx.svm,
-        1,
-        0,
-        anchor::state::RedemptionBatchStatus::Settled,
-        3_000_000,
-        3_000_000,
-    );
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Claim redemption
     let res = send_e2e_claim_redemption_for_user(
@@ -520,8 +498,6 @@ fn test_claim_redemption_account_closure_and_discriminator_zeroing() {
         &user_kp,
         user_token_account,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert!(res.is_ok(), "claim redemption should succeed: {:?}", res);
 
@@ -631,14 +607,7 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     );
 
     // Now settle batch 0 with 10 USDC (covers both redemptions)
-    inject_redemption_batch_with_state(
-        &mut ctx.svm,
-        1,
-        0,
-        anchor::state::RedemptionBatchStatus::Settled,
-        10_000_000,
-        10_000_000,
-    );
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // User A claims redemption 0 -> SUCCEEDS
     let res_a = send_e2e_claim_redemption_for_user(
@@ -646,8 +615,6 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert!(res_a.is_ok(), "User A claim should succeed");
 
@@ -659,8 +626,6 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
         &user_b,
         user_b_usdc,
         1,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert!(
         res_b.is_ok(),

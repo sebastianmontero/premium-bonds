@@ -368,19 +368,8 @@ fn test_withdraw_fees_and_claim_e2e() {
     assert_eq!(pending_state.user, ctx.admin.pubkey());
     assert_eq!(pending_state.amount, 2_000_000);
 
-    // 7. Settle Huma redemption and disburse USDC to pool vault
-    set_mock_huma_next_request_id(&mut ctx.svm, ctx.huma_pool_state, 1);
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 2_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-    inject_redemption_batch_with_state(
-        &mut ctx.svm,
-        1,
-        0,
-        anchor::state::RedemptionBatchStatus::Settled,
-        2_000_000,
-        2_000_000,
-    );
+    // 7. Settle batch on chain
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Fund the pool vault so it can pay out the USDC
     inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda, 5_000_000);
@@ -399,8 +388,6 @@ fn test_withdraw_fees_and_claim_e2e() {
         &admin_kp,
         admin_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     )
     .expect("claim_redemption should succeed for fee wallet owner");
 

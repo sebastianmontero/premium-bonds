@@ -596,20 +596,8 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
 
     // 1. Negative Test: Batch is not settled (it is Accumulating) -> fails even before 180 days
     warp_to_timestamp(&mut ctx.svm, now + BATCH_CLAIM_EXPIRY_SECONDS - 1);
-    let ix_unsettled = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::CloseExpiredRedemption {
-            beneficiary: user_a.pubkey(),
-            batch: batch_pda,
-            pending_redemption: pda,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::CloseExpiredRedemption {}.data(),
-    };
-    let res_unsettled = send_user_tx(&mut ctx.svm, &user_a, ix_unsettled);
+    let res_unsettled = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0)
+        .send(&mut ctx.svm, &user_a);
     assert_custom_error(res_unsettled, PremiumBondsError::RedemptionNotExpired);
 
     // 2. Open Expired Batch Test:
@@ -622,57 +610,22 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
     ctx.svm.expire_blockhash();
 
     // At now + BATCH_CLAIM_EXPIRY_SECONDS - 1: close attempt still fails with RedemptionNotExpired
-    let ix_early = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::CloseExpiredRedemption {
-            beneficiary: user_a.pubkey(),
-            batch: batch_pda,
-            pending_redemption: pda,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::CloseExpiredRedemption {}.data(),
-    };
-    let res_early = send_user_tx(&mut ctx.svm, &user_a, ix_early);
+    let res_early = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0)
+        .send(&mut ctx.svm, &user_a);
     assert_custom_error(res_early, PremiumBondsError::RedemptionNotExpired);
 
     // Negative path: Attacker cannot close another user's pending redemption
     let attacker = Keypair::new();
     ctx.svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
-    let ix_attacker = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::CloseExpiredRedemption {
-            beneficiary: attacker.pubkey(),
-            batch: batch_pda,
-            pending_redemption: pda,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::CloseExpiredRedemption {}.data(),
-    };
-    let res_attacker = send_user_tx(&mut ctx.svm, &attacker, ix_attacker);
+    let res_attacker = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0)
+        .with_beneficiary(attacker.pubkey())
+        .send(&mut ctx.svm, &attacker);
     assert_custom_error(res_attacker, PremiumBondsError::InvalidRedemptionOwner);
 
     // Warp past settled_at + 180 days: succeeds, closes account, refunds rent
     warp_to_timestamp(&mut ctx.svm, now + BATCH_CLAIM_EXPIRY_SECONDS);
-    let ix_valid = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::CloseExpiredRedemption {
-            beneficiary: user_a.pubkey(),
-            batch: batch_pda,
-            pending_redemption: pda,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::CloseExpiredRedemption {}.data(),
-    };
-    let res_valid = send_user_tx(&mut ctx.svm, &user_a, ix_valid);
+    let res_valid = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0)
+        .send(&mut ctx.svm, &user_a);
     assert!(res_valid.is_ok(), "CloseExpiredRedemption must succeed: {res_valid:?}");
     let meta = res_valid.unwrap();
     let event = assert_cpi_event::<anchor::events::ExpiredRedemptionClosed>(&meta);
@@ -701,38 +654,14 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
 
     // Before requested_at + 180d, swept batch closure fails
     warp_to_timestamp(&mut ctx.svm, swept_requested_at + BATCH_CLAIM_EXPIRY_SECONDS - 1);
-    let ix_swept_early = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::CloseExpiredRedemption {
-            beneficiary: user_a.pubkey(),
-            batch: batch_swept_pda,
-            pending_redemption: pda_swept,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::CloseExpiredRedemption {}.data(),
-    };
-    let res_swept_early = send_user_tx(&mut ctx.svm, &user_a, ix_swept_early);
+    let res_swept_early = CloseExpiredRedemptionBuilder::for_accounts(user_a.pubkey(), batch_swept_pda, pda_swept)
+        .send(&mut ctx.svm, &user_a);
     assert_custom_error(res_swept_early, PremiumBondsError::RedemptionNotExpired);
 
     // At or past requested_at + 180d, swept batch closure succeeds
     warp_to_timestamp(&mut ctx.svm, swept_requested_at + BATCH_CLAIM_EXPIRY_SECONDS);
-    let ix_swept_valid = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::CloseExpiredRedemption {
-            beneficiary: user_a.pubkey(),
-            batch: batch_swept_pda,
-            pending_redemption: pda_swept,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::CloseExpiredRedemption {}.data(),
-    };
-    let res_swept_valid = send_user_tx(&mut ctx.svm, &user_a, ix_swept_valid);
+    let res_swept_valid = CloseExpiredRedemptionBuilder::for_accounts(user_a.pubkey(), batch_swept_pda, pda_swept)
+        .send(&mut ctx.svm, &user_a);
     assert!(res_swept_valid.is_ok(), "Swept CloseExpiredRedemption must succeed: {res_swept_valid:?}");
     assert!(
         ctx.svm.get_account(&pda_swept).is_none(),
@@ -1292,14 +1221,16 @@ fn test_crank_close_batch_frozen_fee_wallet_fails_when_unclaimed_funds_exist() {
         unclaimed,
         unclaimed,
     );
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let now = clock.unix_timestamp;
     mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
         rb.claimed_principal = 0;
-        rb.settled_at = 1_000;
+        rb.settled_at = now;
     });
 
-    set_clock_timestamp(
+    warp_forward_seconds(
         &mut ctx.svm,
-        1_000 + anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
+        anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
     );
 
     // Freeze fee_wallet
@@ -1331,15 +1262,17 @@ fn test_crank_close_batch_frozen_fee_wallet_succeeds_when_zero_unclaimed_funds()
         total_principal,
         total_principal,
     );
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let now = clock.unix_timestamp;
     mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
         // All claimed! unclaimed_principal = 0, unclaimed_usdc = 0
         rb.claimed_principal = total_principal;
-        rb.settled_at = 1_000;
+        rb.settled_at = now;
     });
 
-    set_clock_timestamp(
+    warp_forward_seconds(
         &mut ctx.svm,
-        1_000 + anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
+        anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
     );
 
     // Freeze fee_wallet
@@ -1386,14 +1319,16 @@ fn test_crank_close_batch_succeeds_after_admin_updates_frozen_wallet() {
         unclaimed,
         unclaimed,
     );
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let now = clock.unix_timestamp;
     mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
         rb.claimed_principal = 0;
-        rb.settled_at = 1_000;
+        rb.settled_at = now;
     });
 
-    set_clock_timestamp(
+    warp_forward_seconds(
         &mut ctx.svm,
-        1_000 + anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
+        anchor::constants::BATCH_CLAIM_EXPIRY_SECONDS + 100,
     );
 
     // 1. Freeze initial fee_wallet

@@ -2555,6 +2555,22 @@ impl CrankSubmitRedemptionBatchBuilder {
         }
     }
 
+    pub fn from_ctx(ctx: &E2eContext, batch_id: u64) -> Self {
+        let pool = read_pool_state(&ctx.svm, ctx.pool_id);
+        Self::for_pool(
+            ctx.pool_id,
+            batch_id,
+            pool.next_redemption_batch_id,
+            ctx.admin.pubkey(),
+        )
+        .with_huma_pool_state(ctx.huma_pool_state)
+        .with_huma_mode_mint(ctx.pst_mint)
+        .with_huma_redemption_request(Keypair::new().pubkey())
+        .with_huma_lender_state(ctx.huma_lender_state)
+        .with_huma_pool_authority(ctx.huma_pool_authority)
+        .with_huma_pool_mode_token(ctx.huma_pool_mode_token)
+    }
+
     pub fn with_batch(mut self, batch: Pubkey) -> Self {
         self.accounts.batch = batch;
         self
@@ -2651,6 +2667,16 @@ impl SettleRedemptionBatchBuilder {
         }
     }
 
+    pub fn from_ctx(ctx: &E2eContext, batch_id: u64) -> Self {
+        Self::for_pool(ctx.pool_id, batch_id, ctx.admin.pubkey())
+            .with_token_mint(ctx.usdc_mint)
+            .with_pool_vault_account(pool_vault_pda(ctx.pool_id).0)
+            .with_huma_pool_state(ctx.huma_pool_state)
+            .with_huma_lender_state(ctx.huma_lender_state)
+            .with_huma_pool_authority(ctx.huma_pool_authority)
+            .with_huma_pool_underlying_token(ctx.huma_pool_underlying_token)
+    }
+
     pub fn with_batch(mut self, batch: Pubkey) -> Self {
         self.accounts.batch = batch;
         self
@@ -2661,8 +2687,36 @@ impl SettleRedemptionBatchBuilder {
         self
     }
 
+    pub fn with_pool_vault_account(mut self, vault: Pubkey) -> Self {
+        self.accounts.pool_vault_account = vault;
+        self
+    }
+
     pub fn with_huma_pool_state(mut self, state: Pubkey) -> Self {
         self.accounts.huma_pool_state = state;
+        self
+    }
+
+    pub fn with_huma_lender_state(mut self, state: Pubkey) -> Self {
+        self.accounts.huma_lender_state = state;
+        self
+    }
+
+    pub fn with_huma_pool_authority(mut self, auth: Pubkey) -> Self {
+        self.accounts.huma_pool_authority = auth;
+        self
+    }
+
+    pub fn with_huma_pool_underlying_token(mut self, token: Pubkey) -> Self {
+        self.accounts.huma_pool_underlying_token = token;
+        self
+    }
+
+    pub fn modify_accounts<F: FnOnce(&mut anchor::accounts::SettleRedemptionBatch)>(
+        mut self,
+        f: F,
+    ) -> Self {
+        f(&mut self.accounts);
         self
     }
 
@@ -2749,5 +2803,93 @@ impl CrankCloseRedemptionBatchBuilder {
 
     pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
         send_user_tx(svm, payer, self.build_ix())
+    }
+}
+
+// ─── 25. CloseExpiredRedemptionBuilder ──────────────────────────────────────
+
+pub struct CloseExpiredRedemptionBuilder {
+    pub accounts: anchor::accounts::CloseExpiredRedemption,
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+impl CloseExpiredRedemptionBuilder {
+    pub fn for_accounts(beneficiary: Pubkey, batch: Pubkey, pending_redemption: Pubkey) -> Self {
+        Self {
+            accounts: anchor::accounts::CloseExpiredRedemption {
+                beneficiary,
+                batch,
+                pending_redemption,
+                system_program: anchor_lang::system_program::ID,
+                event_authority: event_authority_pda(),
+                program: anchor::id(),
+            },
+            remaining_accounts: Vec::new(),
+        }
+    }
+
+    pub fn for_redemption(
+        pool_id: u32,
+        batch_id: u64,
+        redemption_id: u64,
+        beneficiary: Pubkey,
+    ) -> Self {
+        let (batch, _) = redemption_batch_pda(pool_id, batch_id);
+        let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
+        Self::for_accounts(beneficiary, batch, pending_redemption)
+    }
+
+    pub fn from_ctx(ctx: &E2eContext, batch_id: u64, redemption_id: u64) -> Self {
+        Self::for_redemption(ctx.pool_id, batch_id, redemption_id, ctx.user.pubkey())
+    }
+
+    pub fn with_beneficiary(mut self, beneficiary: Pubkey) -> Self {
+        self.accounts.beneficiary = beneficiary;
+        self
+    }
+
+    pub fn with_batch(mut self, batch: Pubkey) -> Self {
+        self.accounts.batch = batch;
+        self
+    }
+
+    pub fn with_pending_redemption(mut self, pending: Pubkey) -> Self {
+        self.accounts.pending_redemption = pending;
+        self
+    }
+
+    pub fn modify_accounts<F: FnOnce(&mut anchor::accounts::CloseExpiredRedemption)>(
+        mut self,
+        f: F,
+    ) -> Self {
+        f(&mut self.accounts);
+        self
+    }
+
+    pub fn build_metas(&self) -> Vec<AccountMeta> {
+        let mut metas = self.accounts.to_account_metas(None);
+        metas.extend(self.remaining_accounts.clone());
+        metas
+    }
+
+    pub fn build_ix(&self) -> Instruction {
+        Instruction {
+            program_id: anchor::id(),
+            accounts: self.build_metas(),
+            data: anchor::instruction::CloseExpiredRedemption {}.data(),
+        }
+    }
+
+    pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
+        send_user_tx(svm, payer, self.build_ix())
+    }
+
+    pub fn send_with_signers(
+        &self,
+        svm: &mut LiteSVM,
+        payer: &Keypair,
+        signers: &[&Keypair],
+    ) -> TxResult {
+        send_tx(svm, payer, signers, self.build_ix())
     }
 }

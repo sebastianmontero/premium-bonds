@@ -248,9 +248,11 @@ fn poc_h2_last_claimant_absorbs_settlement_loss() {
 
     // With H-2 Unified Batch Redemptions, both receipts are in the same batch.
     // The batch receives 9_000_000 USDC for 10_000_000 requested (10% haircut).
-    // In dispatch, inject_lender_state sets settled_amount to 9_000_000.
-    let huma_lender_state = Keypair::new().pubkey();
+    send_e2e_submit_redemption_batch(&mut ctx, 0).expect("batch 0 submit");
+    let huma_lender_state = ctx.huma_lender_state;
     inject_lender_state(&mut ctx.svm, huma_lender_state, 9_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_settle_redemption_batch(&mut ctx, 0).expect("batch 0 settle");
 
     let user_usdc = ctx.user_usdc_account;
     let initial_user_balance = read_token_balance(&ctx.svm, user_usdc);
@@ -261,8 +263,6 @@ fn poc_h2_last_claimant_absorbs_settlement_loss() {
         &user_a,
         user_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert!(claim0.is_ok(), "Claim 0 should succeed pro-rata: {claim0:?}");
     let bal_after_0 = read_token_balance(&ctx.svm, user_usdc);
@@ -278,8 +278,6 @@ fn poc_h2_last_claimant_absorbs_settlement_loss() {
         &user_a,
         user_usdc,
         1,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert!(claim1.is_ok(), "Claim 1 must succeed pro-rata instead of failing: {claim1:?}");
     let bal_after_1 = read_token_balance(&ctx.svm, user_usdc);

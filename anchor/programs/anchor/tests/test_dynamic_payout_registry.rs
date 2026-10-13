@@ -602,5 +602,8 @@ fn test_vector_20_invalid_cycle_id_pda_mismatch() {
 
     // Attempt to close nonexistent cycle_id 999
     let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 999);
-    assert!(res.is_err(), "Closing nonexistent cycle must fail");
+    assert_anchor_error(
+        res,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
 }

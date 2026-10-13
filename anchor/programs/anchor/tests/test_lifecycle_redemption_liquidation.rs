@@ -76,8 +76,7 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
 
     // Settle Huma redemption request
     let huma_pool_state = h.huma_pool_state;
-    inject_lender_state(&mut h.svm, huma_lender_state, 40_000_000);
-    settle_huma_redemption(&mut h.svm, huma_pool_state, 1);
+    send_e2e_submit_and_settle_batch(&mut h.ctx, 0).expect("batch 0 submit and settle");
 
     // 3. Complete Redemption Settlement via ClaimRedemption
     let alice_usdc = h.user_usdc_account;
@@ -86,17 +85,8 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
         &alice_signer,
         alice_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     )
     .expect("ClaimRedemption must succeed");
-
-    // Settle out redemption state in pool accounting
-    let pool_id = h.pool_id;
-    mutate_pool_state(&mut h.svm, pool_id, |p| {
-        p.total_accumulating_redemptions = 0;
-        p.total_pending_redemptions = 0;
-    });
 
     // Pool PST vault held 100M PST shares initially from Alice buying 100 bonds.
     // Alice redeemed 40 USDC; align pool_pst_vault to 60M PST shares.

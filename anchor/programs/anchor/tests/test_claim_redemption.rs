@@ -120,21 +120,12 @@ fn test_claim_redemption_e2e_happy_path() {
 
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 90_000_000);
 
-    // Inject simulated Huma lender state with 3 USDC settled
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    // Advance batch on-chain through submission and settlement
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Claim redemption
-    let meta = send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
-        0,
-        Pubkey::default(),
-        huma_lender_state,
-    )
-    .expect("claim redemption should succeed");
+    let meta = send_e2e_claim_redemption_for_user(&mut ctx, &user_a, user_a_usdc, 0)
+        .expect("claim redemption should succeed");
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
     assert_eq!(
         event.caller,
@@ -317,9 +308,11 @@ fn test_claim_redemption_rounding_error_failure() {
 
     // Huma payout calculation on old code:
     // D = floor(2,999,991 * 10,000,030 / 10,000,000) = 2,999,999 USDC
-    let huma_lender_state = Keypair::new().pubkey();
+    send_e2e_submit_redemption_batch(&mut ctx, 0).expect("batch 0 submit");
+    let huma_lender_state = ctx.huma_lender_state;
     inject_lender_state(&mut ctx.svm, huma_lender_state, 2_999_999);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_settle_redemption_batch(&mut ctx, 0).expect("batch 0 settle");
 
     // Claim redemption - MUST SUCCEED because transfer amount is defensively clamped
     // to available pool_vault_account balance (2,999,999 USDC), preventing bricked funds.
@@ -328,8 +321,6 @@ fn test_claim_redemption_rounding_error_failure() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
 
     let meta = res.expect("claim redemption with 1-unit rounding deficit should succeed due to vault clamping");
@@ -384,20 +375,11 @@ fn test_claim_redemption_case_a_1_to_1() {
         "Pending redemption amount must equal 3,000,000"
     );
 
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Claim redemption
-    send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_a,
-        user_a_usdc,
-        0,
-        Pubkey::default(),
-        huma_lender_state,
-    )
-    .expect("Case A: 1:1 redemption claim should succeed");
+    send_e2e_claim_redemption_for_user(&mut ctx, &user_a, user_a_usdc, 0)
+        .expect("Case A: 1:1 redemption claim should succeed");
 
     assert_eq!(
         read_token_balance(&ctx.svm, user_a_usdc),
@@ -448,9 +430,8 @@ fn test_claim_redemption_case_b_accrued_yield() {
     let pending_data0 = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(pending_data0.amount, 3_000_000);
 
-    let huma_lender_state0 = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state0, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    // Settle batch 0 on-chain
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Claim redemption 0
     let meta = send_e2e_claim_redemption_for_user(
@@ -458,8 +439,6 @@ fn test_claim_redemption_case_b_accrued_yield() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state0,
     )
     .expect("Redemption 0 should succeed");
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
@@ -501,9 +480,8 @@ fn test_claim_redemption_case_b_accrued_yield() {
     let pending_data1 = read_pending_redemption(&ctx.svm, 1, 1);
     assert_eq!(pending_data1.amount, 2_000_000);
 
-    let huma_lender_state1 = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state1, 2_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    // Settle batch 1 on-chain
+    send_e2e_submit_and_settle_batch(&mut ctx, 1).expect("batch 1 submit and settle");
 
     // Claim redemption 1
     let meta1 = send_e2e_claim_redemption_for_user(
@@ -511,8 +489,6 @@ fn test_claim_redemption_case_b_accrued_yield() {
         &user_a,
         user_a_usdc,
         1,
-        Pubkey::default(),
-        huma_lender_state1,
     )
     .expect("Redemption 1 (winnings) should succeed");
     let event1 = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta1);
@@ -541,9 +517,8 @@ fn test_claim_redemption_case_b_accrued_yield() {
     let pending_data2 = read_pending_redemption(&ctx.svm, 1, 2);
     assert_eq!(pending_data2.amount, 7_000_000);
 
-    let huma_lender_state2 = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state2, 7_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    // Settle batch 2 on-chain
+    send_e2e_submit_and_settle_batch(&mut ctx, 2).expect("batch 2 submit and settle");
 
     // Claim redemption 2
     let meta2 = send_e2e_claim_redemption_for_user(
@@ -551,8 +526,6 @@ fn test_claim_redemption_case_b_accrued_yield() {
         &user_a,
         user_a_usdc,
         2,
-        Pubkey::default(),
-        huma_lender_state2,
     )
     .expect("Redemption 2 (remaining bonds) should succeed");
     let event2 = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta2);
@@ -615,9 +588,7 @@ fn test_claim_redemption_e2e_permissionless_crank() {
     let crank = Keypair::new();
     ctx.svm.airdrop(&crank.pubkey(), 1_000_000_000).unwrap();
 
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Crank calls claim redemption on behalf of user_a
     let meta = send_e2e_claim_redemption_full(
@@ -626,8 +597,6 @@ fn test_claim_redemption_e2e_permissionless_crank() {
         user_a.pubkey(),
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     )
     .expect("crank claim redemption should succeed");
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
@@ -695,9 +664,7 @@ fn test_claim_redemption_fails_diverted_token_account() {
     let crank_usdc =
         create_spl_token_account(&mut ctx.svm, &crank, &ctx.usdc_mint, &crank.pubkey());
 
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     let res = send_e2e_claim_redemption_full(
         &mut ctx,
@@ -705,8 +672,6 @@ fn test_claim_redemption_fails_diverted_token_account() {
         user_a.pubkey(),
         crank_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
 
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintTokenOwner);
@@ -750,9 +715,7 @@ fn test_claim_redemption_fails_on_double_claim() {
     let user_a_usdc =
         create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
 
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // First claim succeeds and closes the pending_redemption account (close = beneficiary)
     let meta1 = send_e2e_claim_redemption_for_user(
@@ -760,8 +723,6 @@ fn test_claim_redemption_fails_on_double_claim() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert!(meta1.is_ok(), "First claim redemption must succeed");
 
@@ -778,8 +739,6 @@ fn test_claim_redemption_fails_on_double_claim() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
@@ -820,9 +779,7 @@ fn test_claim_redemption_fails_pending_redemptions_underflow() {
     let user_a_usdc =
         create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
 
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Corrupt pool state: total_pending_redemptions is smaller than redemption amount (3_000_000)
     common::mutate_pool_state(&mut ctx.svm, 1, |p| {
@@ -834,8 +791,6 @@ fn test_claim_redemption_fails_pending_redemptions_underflow() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
 
     assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
@@ -877,9 +832,7 @@ fn test_claim_redemption_succeeds_while_pool_frozen() {
     let user_a_usdc =
         create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
 
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Freeze pool for draw
     common::mutate_pool_state(&mut ctx.svm, 1, |p| {
@@ -891,8 +844,6 @@ fn test_claim_redemption_succeeds_while_pool_frozen() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
 
     assert!(
@@ -929,9 +880,7 @@ fn test_claim_redemption_fails_when_pool_paused() {
     let user_a_usdc =
         create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
 
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
 
     // Pause the pool
     send_pause_pool(&mut ctx.svm, &ctx.admin, 1).expect("pause_pool should succeed");
@@ -954,8 +903,6 @@ fn test_claim_redemption_fails_when_pool_paused() {
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     assert!(
         res_ok.is_ok(),
@@ -998,23 +945,19 @@ fn test_claim_redemption_surplus_vault_leaves_excess() {
     .unwrap();
     let user_a_usdc = ctx.user_usdc_account;
 
-    // Pool vault has 10,000,000 USDC (3,000,000 redemption + 7,000,000 surplus)
+    // Batch settled at 3_000_000 par (transfers 3,000,000 into pool_vault)
+    send_e2e_submit_and_settle_batch(&mut ctx, 0).expect("batch 0 submit and settle");
+
+    // Add 7,000,000 surplus to pool vault (total 10,000,000 USDC)
     let (pool_vault, _) = pool_vault_pda(1);
     let pool_key = pool_pda(1).0;
     inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_key, 10_000_000);
-
-    // Batch settled at 3_000_000 par
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
-    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     let res = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     let meta = res.expect("claim redemption with surplus vault balance must succeed");
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
@@ -1066,21 +1009,21 @@ fn test_claim_redemption_max_dust_tolerance_succeeds() {
     .unwrap();
     let user_a_usdc = ctx.user_usdc_account;
 
-    let huma_lender_state = Keypair::new().pubkey();
+    send_e2e_submit_redemption_batch(&mut ctx, 0).expect("batch 0 submit");
+    let huma_lender_state = ctx.huma_lender_state;
     inject_lender_state(
         &mut ctx.svm,
         huma_lender_state,
         3_000_000 - anchor::constants::MIN_SOLVENCY_TOLERANCE,
     );
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+    send_e2e_settle_redemption_batch(&mut ctx, 0).expect("batch 0 settle");
 
     let res = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
         user_a_usdc,
         0,
-        Pubkey::default(),
-        huma_lender_state,
     );
     let meta = res.expect(
         "claim redemption at exact dust tolerance boundary must succeed",

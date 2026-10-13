@@ -804,99 +804,15 @@ pub fn send_e2e_claim_redemption_full(
     beneficiary: Pubkey,
     beneficiary_token_account: Pubkey,
     redemption_id: u64,
-    _huma_config: Pubkey,
-    _huma_lender_state: Pubkey,
 ) -> TxResult {
-    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let mut batch_pda_key = redemption_batch_pda(1, 0).0;
-    let mut settled_amount = 0u64;
-
-    // Check if _huma_lender_state was provided and has settled funds recorded
-    if let Some(lender_acc) = ctx.svm.get_account(&_huma_lender_state) {
-        if lender_acc.data.len() >= 16 {
-            settled_amount = u64::from_le_bytes(lender_acc.data[8..16].try_into().unwrap());
-        }
-    }
-
-    if let Some(acc) = ctx.svm.get_account(&pending_redemption) {
-        if let Ok(pending) = anchor::PendingRedemption::try_deserialize(&mut &acc.data[..]) {
-            batch_pda_key = redemption_batch_pda(1, pending.batch_id).0;
-            if let Some(batch_acc) = ctx.svm.get_account(&batch_pda_key) {
-                if let Ok(mut batch) = anchor::state::RedemptionBatch::try_deserialize(&mut &batch_acc.data[..]) {
-                    if batch.status != anchor::state::RedemptionBatchStatus::Settled {
-                        batch.status = anchor::state::RedemptionBatchStatus::Settled;
-                        if batch.settled_usdc_received == 0 {
-                            batch.settled_usdc_received = if settled_amount > 0 {
-                                settled_amount
-                            } else {
-                                batch.total_principal_requested
-                            };
-                        }
-                        let mut data = vec![];
-                        data.extend_from_slice(anchor::state::RedemptionBatch::DISCRIMINATOR);
-                        batch.serialize(&mut data).unwrap();
-                        data.resize(8 + anchor::state::RedemptionBatch::INIT_SPACE, 0);
-                        ctx.svm.set_account(
-                            batch_pda_key,
-                            Account {
-                                lamports: 1_000_000_000,
-                                data,
-                                owner: anchor::id(),
-                                executable: false,
-                                rent_epoch: 0,
-                            },
-                        ).unwrap();
-
-                        let pool = read_pool_state(&ctx.svm, 1);
-                        if pool.accumulating_redemption_batch_id == pending.batch_id {
-                            mutate_pool_state(&mut ctx.svm, 1, |p| {
-                                p.accumulating_redemption_batch_id = pending.batch_id + 1;
-                            });
-                            inject_redemption_batch(&mut ctx.svm, 1, pending.batch_id + 1);
-                        }
-                    }
-                    if settled_amount == 0 && batch.settled_usdc_received > 0 {
-                        settled_amount = batch.settled_usdc_received;
-                    }
-                }
-            } else {
-                let actual_settled = if settled_amount > 0 { settled_amount } else { pending.amount };
-                inject_redemption_batch_with_state(
-                    &mut ctx.svm,
-                    1,
-                    pending.batch_id,
-                    anchor::state::RedemptionBatchStatus::Settled,
-                    pending.amount,
-                    actual_settled,
-                );
-                settled_amount = actual_settled;
-                let pool = read_pool_state(&ctx.svm, 1);
-                if pool.accumulating_redemption_batch_id == pending.batch_id {
-                    mutate_pool_state(&mut ctx.svm, 1, |p| {
-                        p.accumulating_redemption_batch_id = pending.batch_id + 1;
-                    });
-                    inject_redemption_batch(&mut ctx.svm, 1, pending.batch_id + 1);
-                }
-            }
-        }
-    }
-
-    let current_bal = ctx
+    let (pending_redemption, _) = pending_redemption_pda(ctx.pool_id, redemption_id);
+    let batch_id = ctx
         .svm
-        .get_account(&pool_vault)
-        .map(|acc| {
-            if acc.data.len() >= 72 {
-                u64::from_le_bytes(acc.data[64..72].try_into().unwrap())
-            } else {
-                0
-            }
-        })
+        .get_account(&pending_redemption)
+        .and_then(|acc| anchor::PendingRedemption::try_deserialize(&mut &acc.data[..]).ok())
+        .map(|p| p.batch_id)
         .unwrap_or(0);
-    if current_bal == 0 && settled_amount > 0 {
-        let pool_key = pool_pda(1).0;
-        inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_key, settled_amount);
-    }
+    let (batch_pda_key, _) = redemption_batch_pda(ctx.pool_id, batch_id);
 
     let builder = ClaimRedemptionBuilder::new(ctx)
         .with_caller(caller.pubkey())
@@ -913,8 +829,6 @@ pub fn send_e2e_claim_redemption_for_user(
     user: &Keypair,
     user_token_account: Pubkey,
     redemption_id: u64,
-    huma_config: Pubkey,
-    huma_lender_state: Pubkey,
 ) -> TxResult {
     send_e2e_claim_redemption_full(
         ctx,
@@ -922,9 +836,48 @@ pub fn send_e2e_claim_redemption_for_user(
         user.pubkey(),
         user_token_account,
         redemption_id,
-        huma_config,
-        huma_lender_state,
     )
+}
+
+pub fn send_e2e_claim_redemption(
+    ctx: &mut E2eContext,
+    redemption_id: u64,
+) -> TxResult {
+    let user = clone_keypair(&ctx.user);
+    let user_token_account = ctx.user_usdc_account;
+    send_e2e_claim_redemption_for_user(ctx, &user, user_token_account, redemption_id)
+}
+
+pub fn send_e2e_submit_redemption_batch(
+    ctx: &mut E2eContext,
+    batch_id: u64,
+) -> TxResult {
+    let admin = clone_keypair(&ctx.admin);
+    CrankSubmitRedemptionBatchBuilder::from_ctx(ctx, batch_id).send(&mut ctx.svm, &admin)
+}
+
+pub fn send_e2e_settle_redemption_batch(
+    ctx: &mut E2eContext,
+    batch_id: u64,
+) -> TxResult {
+    let admin = clone_keypair(&ctx.admin);
+    SettleRedemptionBatchBuilder::from_ctx(ctx, batch_id).send(&mut ctx.svm, &admin)
+}
+
+pub fn send_e2e_submit_and_settle_batch(
+    ctx: &mut E2eContext,
+    batch_id: u64,
+) -> TxResult {
+    // 1. Submit accumulating batch on-chain (PST burned/escrowed, next batch initialized)
+    send_e2e_submit_redemption_batch(ctx, batch_id)?;
+
+    // 2. Prepare mock Huma queue & lender state credit so disburse transfers exact funds
+    let batch = read_redemption_batch(&ctx.svm, ctx.pool_id, batch_id);
+    inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, batch.total_principal_requested);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // 3. Settle batch on-chain (invokes Huma disburse CPI into pool_vault and unlocks pipeline)
+    send_e2e_settle_redemption_batch(ctx, batch_id)
 }
 
 pub fn send_e2e_harvest_yield_and_commit_with_crank(
