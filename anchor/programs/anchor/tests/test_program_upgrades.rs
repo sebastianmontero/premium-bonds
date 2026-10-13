@@ -724,7 +724,7 @@ fn test_unsupported_account_version_all_10_structs() {
         next_redemption_batch_id: 1,
         submitted_batch_id: anchor::constants::NO_SUBMITTED_BATCH,
         total_accumulating_redemptions: 0,
-        paused_at: 0,
+        deactivated_at: 0,
         _padding: [0; 3],
         prize_tiers: [anchor::state::PrizeTier {
             num_winners: 0,
@@ -1414,7 +1414,7 @@ fn test_simulated_v2_struct_field_carving_zero_copy() {
         pub stake_cycle_duration_hrs: i64,
         pub min_yield_threshold: u64,
         pub current_cycle_end_at: i64,
-        pub paused_at: i64,
+        pub deactivated_at: i64,
         pub total_deposited_principal: u64,
         pub total_fees_accrued: u64,
         pub total_fees_withdrawn: u64,

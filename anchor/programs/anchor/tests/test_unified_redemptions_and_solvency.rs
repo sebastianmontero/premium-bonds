@@ -729,7 +729,7 @@ fn test_v17_binary_solvency_circuit_breaker_halts_on_deficit() {
         PoolStatus::Paused as u8,
         "Pool paused by solvency circuit breaker"
     );
-    assert!(pool_post.paused_at > 0, "paused_at timestamp recorded");
+    assert!(pool_post.deactivated_at > 0, "deactivated_at timestamp recorded");
 
     let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
     assert_eq!(
@@ -849,7 +849,7 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
 
     // Negative path: enable_impaired_mode on an active (unpaused) pool is rejected
     let res_unpaused = send_user_tx(&mut ctx.svm, &ctx.admin, build_ix(ctx.admin.pubkey()));
-    assert_custom_error(res_unpaused, PremiumBondsError::PoolNotPaused);
+    assert_custom_error(res_unpaused, PremiumBondsError::PoolNotPausedOrClosed);
 
     // Pause pool
     send_pause_pool(&mut ctx.svm, &ctx.admin, 1).unwrap();
@@ -860,12 +860,12 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
     set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 5_000_000);
     set_token_mint_supply(&mut ctx.svm, ctx.pst_mint, 10_000_000);
 
-    // 1. Non-admin caller at paused_at + 90d - 1s -> fails with ImpairmentTimelockActive
+    // 1. Non-admin caller at deactivated_at + 90d - 1s -> fails with ImpairmentTimelockActive
     warp_to_timestamp(&mut ctx.svm, now + IMPAIRMENT_TIMELOCK_SECONDS - 1);
     let res_early = send_user_tx(&mut ctx.svm, &keeper, build_ix(keeper.pubkey()));
     assert_custom_error(res_early, PremiumBondsError::ImpairmentTimelockActive);
 
-    // 2. Non-admin caller at paused_at + 90d -> succeeds!
+    // 2. Non-admin caller at deactivated_at + 90d -> succeeds!
     warp_to_timestamp(&mut ctx.svm, now + IMPAIRMENT_TIMELOCK_SECONDS);
     let res_valid = send_user_tx(&mut ctx.svm, &keeper, build_ix(keeper.pubkey()));
     assert!(
@@ -892,7 +892,7 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
     let now_admin = clock_post.unix_timestamp;
     mutate_pool_state(&mut ctx.svm, 1, |p| {
         p.status = PoolStatus::Paused as u8;
-        p.paused_at = now_admin;
+        p.deactivated_at = now_admin;
     });
     // Non-admin immediately fails at now_admin (< now_admin + 90 days)
     let res_keeper_now =
@@ -959,7 +959,7 @@ fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
 
     // Negative path: recapitalize_pool on active (unpaused) pool is rejected
     let res_unpaused = send_user_tx(&mut ctx.svm, &sponsor, build_recap_ix(1_000_000));
-    assert_custom_error(res_unpaused, PremiumBondsError::PoolNotPaused);
+    assert_custom_error(res_unpaused, PremiumBondsError::PoolNotPausedOrClosed);
 
     // 1. Pause pool
     send_pause_pool(&mut ctx.svm, &ctx.admin, 1).unwrap();
@@ -974,7 +974,7 @@ fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
     let res_zero = send_user_tx(&mut ctx.svm, &sponsor, build_recap_ix(0));
     assert_custom_error(res_zero, PremiumBondsError::InvalidRecapitalizeAmount);
 
-    // 3. Partial recapitalization: deposit 2_000_000 USDC (deficit remains > 0, is_unpaused == false)
+    // 3. Partial recapitalization: deposit 2_000_000 USDC (deficit remains > 0, is_solvent == false)
     let res_partial = send_user_tx(&mut ctx.svm, &sponsor, build_recap_ix(2_000_000));
     assert!(
         res_partial.is_ok(),
@@ -993,7 +993,7 @@ fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
         event_partial.deficit > 0,
         "Deficit must be positive under partial recap"
     );
-    assert!(!event_partial.is_unpaused);
+    assert!(!event_partial.is_solvent);
 
     let pool_mid = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool_mid.status, PoolStatus::Paused as u8);
@@ -1018,11 +1018,18 @@ fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
         "Book value must equal exactly 10M after full recap"
     );
     assert_eq!(event_full.deficit, 0, "Deficit must be zero after full recap");
-    assert!(event_full.is_unpaused);
+    assert!(event_full.is_solvent);
 
+    // Recapitalization no longer automatically unpauses the pool!
+    let pool_post_recap = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_post_recap.status, PoolStatus::Paused as u8);
+    assert!(pool_post_recap.deactivated_at > 0);
+
+    // Admin explicitly unpauses pool
+    send_unpause_pool(&mut ctx.svm, &ctx.admin, 1).unwrap();
     let pool_post = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool_post.status, PoolStatus::Active as u8);
-    assert_eq!(pool_post.paused_at, 0);
+    assert_eq!(pool_post.deactivated_at, 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

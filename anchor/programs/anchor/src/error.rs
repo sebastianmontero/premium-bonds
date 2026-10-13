@@ -307,5 +307,8 @@ pub enum PremiumBondsError {
     /// Invalid token program provided.
     #[msg("Invalid token program provided.")]
     InvalidTokenProgram,
+    /// Pool must be Paused or Closed for this operation.
+    #[msg("Pool must be paused or closed.")]
+    PoolNotPausedOrClosed,
 }
 

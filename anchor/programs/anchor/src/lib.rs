@@ -280,12 +280,13 @@ pub mod anchor {
         instructions::user::close_expired_redemption::handle(ctx)
     }
 
-    /// Transitions an insolvent paused pool into Impaired workout mode.
+    /// Transitions an insolvent paused or closed pool into Impaired workout mode.
     pub fn enable_impaired_mode(ctx: Context<EnableImpairedMode>) -> Result<()> {
         instructions::admin::enable_impaired_mode::handle(ctx)
     }
 
-    /// Injects capital into a paused pool's PST position to cure deficit and unpause.
+    /// Injects capital into a paused or closed pool's PST position to cure deficit.
+    /// Does not unpause; pool unpausing requires an explicit admin `unpause_pool` call.
     pub fn recapitalize_pool(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
         instructions::admin::recapitalize_pool::handle(ctx, amount)
     }

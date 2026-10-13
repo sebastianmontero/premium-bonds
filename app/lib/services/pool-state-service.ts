@@ -118,7 +118,7 @@ export async function getPoolInfo(
         nextRedemptionBatchId: parsedPool.nextRedemptionBatchId,
         submittedBatchId: parsedPool.submittedBatchId,
         totalAccumulatingRedemptions: parsedPool.totalAccumulatingRedemptions,
-        pausedAt: Number(parsedPool.pausedAt),
+        deactivatedAt: Number(parsedPool.deactivatedAt),
       };
 
       cache.set(poolId, { data: poolInfo, expiresAt: now + 5000 });

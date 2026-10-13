@@ -198,6 +198,26 @@ export const ANCHOR_ERROR__REDEMPTION_NOT_EXPIRED = 0x17c9; // 6089
 export const ANCHOR_ERROR__INVALID_GUARDIAN_ADDRESS = 0x17ca; // 6090
 /** InvalidJobsAccountAddress: Jobs account address cannot be the default zero address. */
 export const ANCHOR_ERROR__INVALID_JOBS_ACCOUNT_ADDRESS = 0x17cb; // 6091
+/** MissingFeeWalletAccount: Required remaining account for new fee wallet is missing. */
+export const ANCHOR_ERROR__MISSING_FEE_WALLET_ACCOUNT = 0x17cc; // 6092
+/** MissingTokenMintAccount: Required remaining account for token mint is missing. */
+export const ANCHOR_ERROR__MISSING_TOKEN_MINT_ACCOUNT = 0x17cd; // 6093
+/** FeeWalletFrozen: Fee wallet account is frozen or uninitialized. */
+export const ANCHOR_ERROR__FEE_WALLET_FROZEN = 0x17ce; // 6094
+/** FeeWalletAliasedToVault: Fee wallet cannot alias the pool PDA or vault account. */
+export const ANCHOR_ERROR__FEE_WALLET_ALIASED_TO_VAULT = 0x17cf; // 6095
+/** FeeWalletInvalidOwner: Fee wallet owner address is invalid. */
+export const ANCHOR_ERROR__FEE_WALLET_INVALID_OWNER = 0x17d0; // 6096
+/** FeeWalletHasAuthority: Fee wallet cannot have a delegate or close authority. */
+export const ANCHOR_ERROR__FEE_WALLET_HAS_AUTHORITY = 0x17d1; // 6097
+/** FeeWalletNotAssociatedTokenAccount: Fee wallet must be the canonical Associated Token Account (ATA). */
+export const ANCHOR_ERROR__FEE_WALLET_NOT_ASSOCIATED_TOKEN_ACCOUNT = 0x17d2; // 6098
+/** FeeWalletUnsupportedExtension: Fee wallet configures unsupported Token-2022 account extensions. */
+export const ANCHOR_ERROR__FEE_WALLET_UNSUPPORTED_EXTENSION = 0x17d3; // 6099
+/** InvalidTokenProgram: Invalid token program provided. */
+export const ANCHOR_ERROR__INVALID_TOKEN_PROGRAM = 0x17d4; // 6100
+/** PoolNotPausedOrClosed: Pool must be paused or closed. */
+export const ANCHOR_ERROR__POOL_NOT_PAUSED_OR_CLOSED = 0x17d5; // 6101
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -214,6 +234,12 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__DRAW_VOIDED
   | typeof ANCHOR_ERROR__EMPTY_REDEMPTION_BATCH
   | typeof ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN
+  | typeof ANCHOR_ERROR__FEE_WALLET_ALIASED_TO_VAULT
+  | typeof ANCHOR_ERROR__FEE_WALLET_FROZEN
+  | typeof ANCHOR_ERROR__FEE_WALLET_HAS_AUTHORITY
+  | typeof ANCHOR_ERROR__FEE_WALLET_INVALID_OWNER
+  | typeof ANCHOR_ERROR__FEE_WALLET_NOT_ASSOCIATED_TOKEN_ACCOUNT
+  | typeof ANCHOR_ERROR__FEE_WALLET_UNSUPPORTED_EXTENSION
   | typeof ANCHOR_ERROR__HUMA_QUEUE_NOT_SETTLED
   | typeof ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED
   | typeof ANCHOR_ERROR__IMPAIRMENT_TIMELOCK_ACTIVE
@@ -248,12 +274,15 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION
   | typeof ANCHOR_ERROR__INVALID_TOKEN_DECIMALS
   | typeof ANCHOR_ERROR__INVALID_TOKEN_MINT
+  | typeof ANCHOR_ERROR__INVALID_TOKEN_PROGRAM
   | typeof ANCHOR_ERROR__INVALID_USER_ENTRY_HINT
   | typeof ANCHOR_ERROR__INVALID_WINNER_INDEX
   | typeof ANCHOR_ERROR__MATH_OVERFLOW
   | typeof ANCHOR_ERROR__MISMATCHED_BATCH_ID
   | typeof ANCHOR_ERROR__MISMATCHED_POOL_ID
+  | typeof ANCHOR_ERROR__MISSING_FEE_WALLET_ACCOUNT
   | typeof ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS
+  | typeof ANCHOR_ERROR__MISSING_TOKEN_MINT_ACCOUNT
   | typeof ANCHOR_ERROR__NO_PENDING_ADMIN
   | typeof ANCHOR_ERROR__NOT_PENDING_ADMIN
   | typeof ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM
@@ -265,6 +294,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__POOL_NOT_ACTIVE
   | typeof ANCHOR_ERROR__POOL_NOT_FROZEN
   | typeof ANCHOR_ERROR__POOL_NOT_PAUSED
+  | typeof ANCHOR_ERROR__POOL_NOT_PAUSED_OR_CLOSED
   | typeof ANCHOR_ERROR__POOL_PAUSED
   | typeof ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED
   | typeof ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED
@@ -310,6 +340,12 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__DRAW_VOIDED]: `This draw has been voided.`,
     [ANCHOR_ERROR__EMPTY_REDEMPTION_BATCH]: `Redemption batch is empty.`,
     [ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN]: `Protocol fees from this cycle were already withdrawn.`,
+    [ANCHOR_ERROR__FEE_WALLET_ALIASED_TO_VAULT]: `Fee wallet cannot alias the pool PDA or vault account.`,
+    [ANCHOR_ERROR__FEE_WALLET_FROZEN]: `Fee wallet account is frozen or uninitialized.`,
+    [ANCHOR_ERROR__FEE_WALLET_HAS_AUTHORITY]: `Fee wallet cannot have a delegate or close authority.`,
+    [ANCHOR_ERROR__FEE_WALLET_INVALID_OWNER]: `Fee wallet owner address is invalid.`,
+    [ANCHOR_ERROR__FEE_WALLET_NOT_ASSOCIATED_TOKEN_ACCOUNT]: `Fee wallet must be the canonical Associated Token Account (ATA).`,
+    [ANCHOR_ERROR__FEE_WALLET_UNSUPPORTED_EXTENSION]: `Fee wallet configures unsupported Token-2022 account extensions.`,
     [ANCHOR_ERROR__HUMA_QUEUE_NOT_SETTLED]: `Huma redemption queue has not progressed past the submitted request.`,
     [ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED]: `Huma redemption has not been settled yet.`,
     [ANCHOR_ERROR__IMPAIRMENT_TIMELOCK_ACTIVE]: `Impairment workout timelock is still active.`,
@@ -344,12 +380,15 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION]: `Stake cycle duration must be greater than 0 hours.`,
     [ANCHOR_ERROR__INVALID_TOKEN_DECIMALS]: `Token mint decimals must equal 6.`,
     [ANCHOR_ERROR__INVALID_TOKEN_MINT]: `Token mint account data is malformed or invalid.`,
+    [ANCHOR_ERROR__INVALID_TOKEN_PROGRAM]: `Invalid token program provided.`,
     [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: `Invalid registry user entry hint provided`,
     [ANCHOR_ERROR__INVALID_WINNER_INDEX]: `Winner index is out of bounds.`,
     [ANCHOR_ERROR__MATH_OVERFLOW]: `Calculation overflow occurred natively.`,
     [ANCHOR_ERROR__MISMATCHED_BATCH_ID]: `Mismatched redemption batch ID.`,
     [ANCHOR_ERROR__MISMATCHED_POOL_ID]: `Mismatched pool ID on batch account.`,
+    [ANCHOR_ERROR__MISSING_FEE_WALLET_ACCOUNT]: `Required remaining account for new fee wallet is missing.`,
     [ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS]: `Required remaining account for swapped user's UserWinnings is missing`,
+    [ANCHOR_ERROR__MISSING_TOKEN_MINT_ACCOUNT]: `Required remaining account for token mint is missing.`,
     [ANCHOR_ERROR__NO_PENDING_ADMIN]: `No pending admin transfer nomination in progress.`,
     [ANCHOR_ERROR__NOT_PENDING_ADMIN]: `Caller is not the nominated pending admin.`,
     [ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM]: `No unclaimed non-reinvested winnings to claim.`,
@@ -361,6 +400,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__POOL_NOT_ACTIVE]: `The prize pool is not currently active.`,
     [ANCHOR_ERROR__POOL_NOT_FROZEN]: `The prize pool must be frozen for draw preparation`,
     [ANCHOR_ERROR__POOL_NOT_PAUSED]: `Pool is not currently paused.`,
+    [ANCHOR_ERROR__POOL_NOT_PAUSED_OR_CLOSED]: `Pool must be paused or closed.`,
     [ANCHOR_ERROR__POOL_PAUSED]: `The prize pool is paused.`,
     [ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED]: `Prize tiers have not been configured for this pool.`,
     [ANCHOR_ERROR__RANDOMNESS_ALREADY_REVEALED]: `Randomness account has already been revealed on-chain.`,

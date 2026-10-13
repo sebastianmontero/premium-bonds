@@ -64,8 +64,8 @@ pub struct EnableImpairedMode<'info> {
 /// Transitions an insolvent paused pool into Impaired workout mode.
 ///
 /// Guards:
-/// 1. Pool must be paused.
-/// 2. If caller != admin, current_timestamp >= pool.paused_at + 90 days.
+/// 1. Pool must be paused or closed.
+/// 2. If caller != admin, current_timestamp >= pool.deactivated_at + 90 days.
 /// 3. Pool must actually be insolvent against book liabilities: current_value + dynamic_tolerance < book_value.
 ///
 /// State mutation:
@@ -82,12 +82,16 @@ pub fn handle(ctx: Context<EnableImpairedMode>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
 
-    require!(pool.is_paused(), PremiumBondsError::PoolNotPaused);
+    require!(
+        pool.is_paused() || pool.is_closed(),
+        PremiumBondsError::PoolNotPausedOrClosed
+    );
 
     // Timelock guard for non-admin callers
     let is_admin = ctx.accounts.caller.key() == ctx.accounts.global_config.admin;
     if !is_admin {
-        let unlock_timestamp = pool.paused_at.saturating_add(IMPAIRMENT_TIMELOCK_SECONDS);
+        require!(pool.deactivated_at > 0, PremiumBondsError::PoolNotPausedOrClosed);
+        let unlock_timestamp = pool.deactivated_at.saturating_add(IMPAIRMENT_TIMELOCK_SECONDS);
         require!(now >= unlock_timestamp, PremiumBondsError::ImpairmentTimelockActive);
     }
 
@@ -104,7 +108,7 @@ pub fn handle(ctx: Context<EnableImpairedMode>) -> Result<()> {
     let total_accumulating_redemptions = pool.total_accumulating_redemptions;
 
     // Execute transition to Impaired (subordinates and wipes junior liabilities)
-    pool.transition_to_impaired()?;
+    let _prev_status = pool.transition_to_impaired()?;
 
     #[cfg(feature = "debug-logs")]
     msg!(

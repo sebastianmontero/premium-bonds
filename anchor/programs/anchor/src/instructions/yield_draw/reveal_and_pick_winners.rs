@@ -104,6 +104,10 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         pool.status != (PoolStatus::Closed as u8),
         PremiumBondsError::PoolClosed
     );
+    require!(
+        !pool.is_impaired(),
+        PremiumBondsError::PoolImpaired
+    );
 
     require!(
         pool.prize_tiers_count > 0,

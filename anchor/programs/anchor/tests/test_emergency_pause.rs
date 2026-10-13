@@ -14,7 +14,7 @@
 
 use {
     anchor::error::PremiumBondsError, anchor_lang::prelude::Pubkey, litesvm::LiteSVM,
-    solana_keypair::Keypair, solana_signer::Signer,
+    solana_keypair::Keypair, solana_sdk::clock::Clock, solana_signer::Signer,
 };
 
 mod common;
@@ -112,8 +112,8 @@ fn test_admin_can_pause_active_pool() {
         "Pool state status must be Paused after admin pause"
     );
     assert_eq!(
-        pool_state.paused_at, event.timestamp,
-        "Pool paused_at must match timestamp"
+        pool_state.deactivated_at, event.timestamp,
+        "Pool deactivated_at must match timestamp"
     );
 }
 
@@ -152,8 +152,8 @@ fn test_admin_can_unpause_paused_pool() {
         anchor::PoolStatus::Active as u8
     );
     assert_eq!(
-        pool_state.paused_at, 0,
-        "Pool paused_at must be reset to 0 after unpause"
+        pool_state.deactivated_at, 0,
+        "Pool deactivated_at must be reset to 0 after unpause"
     );
 }
 
@@ -306,4 +306,60 @@ fn test_unauthenticated_caller_cannot_close_pool() {
         read_pool_state(&svm, 1).status,
         anchor::PoolStatus::Active as u8
     );
+}
+
+#[test]
+fn test_cannot_close_impaired_pool() {
+    let (mut svm, admin, _guardian, _pool_pda) =
+        setup_pool_with_guardian(anchor::PoolStatus::Impaired);
+
+    let res = send_close_pool(&mut svm, &admin, 1);
+    assert_custom_error(res, PremiumBondsError::PoolImpaired);
+    assert_eq!(
+        read_pool_state(&svm, 1).status,
+        anchor::PoolStatus::Impaired as u8
+    );
+}
+
+#[test]
+fn test_close_from_active_sets_deactivated_at() {
+    let (mut svm, admin, _guardian, _pool_pda) =
+        setup_pool_with_guardian(anchor::PoolStatus::Active);
+
+    let meta = send_close_pool(&mut svm, &admin, 1).expect("Close active pool should succeed");
+    let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.previous_status, anchor::PoolStatus::Active);
+    assert_eq!(event.new_status, anchor::PoolStatus::Closed);
+
+    let pool_state = read_pool_state(&svm, 1);
+    assert_eq!(pool_state.status, anchor::PoolStatus::Closed as u8);
+    assert_eq!(pool_state.deactivated_at, event.timestamp);
+    assert!(pool_state.deactivated_at > 0);
+}
+
+#[test]
+fn test_close_from_paused_preserves_deactivated_at() {
+    let (mut svm, admin, _guardian, _pool_pda) =
+        setup_pool_with_guardian(anchor::PoolStatus::Active);
+
+    let pause_meta = send_pause_pool(&mut svm, &admin, 1).expect("Pause should succeed");
+    let pause_event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&pause_meta);
+    let paused_at = pause_event.timestamp;
+    assert!(paused_at > 0);
+
+    // Warp clock slightly forward
+    let mut clock = svm.get_sysvar::<Clock>();
+    clock.unix_timestamp += 500;
+    svm.set_sysvar(&clock);
+
+    let close_meta = send_close_pool(&mut svm, &admin, 1).expect("Close from paused should succeed");
+    let close_event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&close_meta);
+    assert_eq!(close_event.previous_status, anchor::PoolStatus::Paused);
+    assert_eq!(close_event.new_status, anchor::PoolStatus::Closed);
+
+    let pool_state = read_pool_state(&svm, 1);
+    assert_eq!(pool_state.status, anchor::PoolStatus::Closed as u8);
+    // Preserves the initial pause timestamp!
+    assert_eq!(pool_state.deactivated_at, paused_at);
 }

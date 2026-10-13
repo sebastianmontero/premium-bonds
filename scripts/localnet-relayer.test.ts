@@ -403,7 +403,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
         currentValue: 50000000n,
         bookValue: 50000000n,
         deficit: 0n,
-        isUnpaused: true,
+        isSolvent: true,
         timestamp: 1700000000n,
       });
       const parsed = parseEventsFromTxMeta({ logMessages: [log] });
@@ -415,7 +415,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       assert.strictEqual(parsed[0].data.currentValue, 50000000n);
       assert.strictEqual(parsed[0].data.bookValue, 50000000n);
       assert.strictEqual(parsed[0].data.deficit, 0n);
-      assert.strictEqual(parsed[0].data.isUnpaused, true);
+      assert.strictEqual(parsed[0].data.isSolvent, true);
     }
 
     // 18. PayoutRegistryClosed

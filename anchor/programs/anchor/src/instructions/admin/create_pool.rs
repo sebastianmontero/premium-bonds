@@ -183,7 +183,7 @@ pub fn handle(
     pool.min_yield_threshold = min_yield_threshold;
     pool.status = PoolStatus::Active as u8;
     pool.total_deposited_principal = 0;
-    pool.paused_at = 0;
+    pool.deactivated_at = 0;
     pool.is_frozen_for_draw = 0;
     pool.current_draw_cycle_id = 0;
     pool._padding = [0; 3];

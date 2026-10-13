@@ -482,7 +482,7 @@ export interface PoolRecapitalizedEvent {
   currentValue: bigint;
   bookValue: bigint;
   deficit: bigint;
-  isUnpaused: boolean;
+  isSolvent: boolean;
   timestamp: bigint;
 }
 
@@ -1253,7 +1253,7 @@ function decodeEventData(
         const currentValue = reader.readU64();
         const bookValue = reader.readU64();
         const deficit = reader.readU64();
-        const isUnpaused = reader.readBool();
+        const isSolvent = reader.readBool();
         const timestamp = reader.readI64();
         return {
           poolId,
@@ -1262,7 +1262,7 @@ function decodeEventData(
           currentValue,
           bookValue,
           deficit,
-          isUnpaused,
+          isSolvent,
           timestamp,
         } as PoolRecapitalizedEvent;
       }

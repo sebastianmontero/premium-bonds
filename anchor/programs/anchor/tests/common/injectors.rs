@@ -167,7 +167,7 @@ pub fn inject_pool_with_huma_state(
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
         current_cycle_end_at: i64::MAX,
-        paused_at: 0,
+        deactivated_at: 0,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,

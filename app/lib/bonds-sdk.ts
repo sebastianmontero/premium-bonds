@@ -898,7 +898,7 @@ export function parsePrizePool(data: Uint8Array) {
         ? null
         : Number(decoded.submittedBatchId),
     totalAccumulatingRedemptions: Number(decoded.totalAccumulatingRedemptions),
-    pausedAt: Number(decoded.pausedAt),
+    deactivatedAt: Number(decoded.deactivatedAt),
     payoutTimelockSeconds: Number(decoded.payoutTimelockSeconds),
     prizeTiersCount,
     prizeTiers,

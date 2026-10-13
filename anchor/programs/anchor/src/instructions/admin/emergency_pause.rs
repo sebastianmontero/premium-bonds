@@ -142,25 +142,16 @@ pub struct ClosePool<'info> {
 /// Permanently transitions a pool to `PoolStatus::Closed`.
 pub fn handle_close_pool(ctx: Context<ClosePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
-    pool.ensure_current_version()?;
-    let previous_status = PoolStatus::try_from(pool.status)?;
-    require!(
-        previous_status != PoolStatus::Closed,
-        PremiumBondsError::PoolClosed
-    );
-    require!(
-        pool.is_frozen_for_draw == 0,
-        PremiumBondsError::AwaitingRandomnessFreeze
-    );
+    let now = Clock::get()?.unix_timestamp;
+    let previous_status = pool.close(now)?;
     let new_status = PoolStatus::Closed;
-    pool.set_status(new_status);
 
     emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
         new_status,
         authority: ctx.accounts.admin.key(),
-        timestamp: Clock::get()?.unix_timestamp,
+        timestamp: now,
     });
     Ok(())
 }

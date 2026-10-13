@@ -58,8 +58,8 @@ export interface PoolInfo {
   submittedBatchId?: number | null;
   /** Total micro-USDC pending in current accumulating batch */
   totalAccumulatingRedemptions?: number;
-  /** Timestamp when pool was paused (or 0) */
-  pausedAt?: number;
+  /** Timestamp when pool left Active (pause or close) (or 0) */
+  deactivatedAt?: number;
 }
 
 export interface YieldBreakdown {

@@ -364,7 +364,7 @@ export function serializeAnchorEvent(
       writer.writeU64(data.currentValue || 0);
       writer.writeU64(data.bookValue || 0);
       writer.writeU64(data.deficit || 0);
-      writer.writeBool(Boolean(data.isUnpaused));
+      writer.writeBool(Boolean(data.isSolvent));
       writer.writeI64(data.timestamp || 0);
       fields = writer.getBytes();
       break;

@@ -120,7 +120,13 @@ pub fn handle(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
     let (pool_id, pool_id_bytes, authority_bump) = {
         let pool = ctx.accounts.pool.load()?;
         pool.check_version()?;
-        require!(pool.is_paused(), PremiumBondsError::PoolNotPaused);
+        // Allowed strictly on Paused or Closed pools.
+        // Active pools rejected to prevent yield-spike breaker griefing and fee skimming.
+        // Impaired pools rejected to prevent distorting pro-rata haircut math.
+        require!(
+            pool.is_paused() || pool.is_closed(),
+            PremiumBondsError::PoolNotPausedOrClosed
+        );
         (pool.pool_id, pool.pool_id.to_le_bytes(), pool.vault_authority_bump)
     };
 
@@ -170,22 +176,15 @@ pub fn handle(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
     let pst_shares_minted = new_pst_amount.saturating_sub(initial_pst_amount);
     require!(pst_shares_minted > 0, PremiumBondsError::ZeroSharesMinted);
 
-    // 3. Check live solvency: if deficit cured, unpause pool
+    // 3. Check live solvency (does not mutate pool status; unpause must be called by admin)
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
     let current_value = huma::pst_shares_to_usdc(new_pst_amount, pst_supply, total_assets)?;
 
-    let (is_unpaused, book_value) = {
+    let (is_solvent, book_value) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
         pool.ensure_current_version()?;
-        let book = pool.calculate_book_value()?;
-        let unpaused = if pool.is_solvent(current_value)? {
-            pool.unpause()?;
-            true
-        } else {
-            false
-        };
-        (unpaused, book)
+        (pool.is_solvent(current_value)?, pool.calculate_book_value()?)
     };
     let deficit = book_value.saturating_sub(current_value);
 
@@ -193,14 +192,14 @@ pub fn handle(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
 
     #[cfg(feature = "debug-logs")]
     msg!(
-        "RecapitalizePool: pool_id={}, sponsor={}, amount={}, current_value={}, book_value={}, deficit={}, unpaused={}",
+        "RecapitalizePool: pool_id={}, sponsor={}, amount={}, current_value={}, book_value={}, deficit={}, is_solvent={}",
         pool_id,
         ctx.accounts.sponsor.key(),
         amount,
         current_value,
         book_value,
         deficit,
-        is_unpaused,
+        is_solvent,
     );
 
     emit_cpi!(PoolRecapitalized {
@@ -210,7 +209,7 @@ pub fn handle(ctx: Context<RecapitalizePool>, amount: u64) -> Result<()> {
         current_value,
         book_value,
         deficit,
-        is_unpaused,
+        is_solvent,
         timestamp: clock.unix_timestamp,
     });
 

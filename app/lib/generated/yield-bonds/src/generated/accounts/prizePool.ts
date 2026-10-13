@@ -71,7 +71,11 @@ export type PrizePool = {
   stakeCycleDurationHrs: bigint;
   minYieldThreshold: bigint;
   currentCycleEndAt: bigint;
-  pausedAt: bigint;
+  /**
+   * Unix timestamp at which the pool left `Active` (pause or close). 0 while Active.
+   * Anchors the permissionless impairment timelock.
+   */
+  deactivatedAt: bigint;
   totalDepositedPrincipal: bigint;
   totalFeesAccrued: bigint;
   totalFeesWithdrawn: bigint;
@@ -106,7 +110,11 @@ export type PrizePoolArgs = {
   stakeCycleDurationHrs: number | bigint;
   minYieldThreshold: number | bigint;
   currentCycleEndAt: number | bigint;
-  pausedAt: number | bigint;
+  /**
+   * Unix timestamp at which the pool left `Active` (pause or close). 0 while Active.
+   * Anchors the permissionless impairment timelock.
+   */
+  deactivatedAt: number | bigint;
   totalDepositedPrincipal: number | bigint;
   totalFeesAccrued: number | bigint;
   totalFeesWithdrawn: number | bigint;
@@ -145,7 +153,7 @@ export function getPrizePoolEncoder(): FixedSizeEncoder<PrizePoolArgs> {
       ["stakeCycleDurationHrs", getI64Encoder()],
       ["minYieldThreshold", getU64Encoder()],
       ["currentCycleEndAt", getI64Encoder()],
-      ["pausedAt", getI64Encoder()],
+      ["deactivatedAt", getI64Encoder()],
       ["totalDepositedPrincipal", getU64Encoder()],
       ["totalFeesAccrued", getU64Encoder()],
       ["totalFeesWithdrawn", getU64Encoder()],
@@ -186,7 +194,7 @@ export function getPrizePoolDecoder(): FixedSizeDecoder<PrizePool> {
     ["stakeCycleDurationHrs", getI64Decoder()],
     ["minYieldThreshold", getU64Decoder()],
     ["currentCycleEndAt", getI64Decoder()],
-    ["pausedAt", getI64Decoder()],
+    ["deactivatedAt", getI64Decoder()],
     ["totalDepositedPrincipal", getU64Decoder()],
     ["totalFeesAccrued", getU64Decoder()],
     ["totalFeesWithdrawn", getU64Decoder()],

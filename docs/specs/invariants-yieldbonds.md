@@ -454,15 +454,16 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`emergency_pause.rs#L7-L60`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L7-L60)
-- **Precondition:** `(signer.key() == global_config.guardian || signer.key() == global_config.admin) && pool.status != PoolStatus::Closed`.
+- **Precondition:** `(signer.key() == global_config.guardian || signer.key() == global_config.admin) && pool.status == PoolStatus::Active`.
 - **Action:** `pause_pool()`
 - **Postcondition:**
   - `pool.status = PoolStatus::Paused (1)`.
-  - `pool.paused_at = clock.unix_timestamp`.
+  - `pool.deactivated_at = clock.unix_timestamp`.
   - Emits CPI event `PoolStatusChanged`.
 - **Expected Errors:**
   - If signer is unauthorized: `ErrorCode::Unauthorized` (6048)
   - If pool is permanently closed: `ErrorCode::PoolClosed` (6040)
+  - If pool is not active: `ErrorCode::PoolNotActive` (6000)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-POOL-004b`: Pool Unpause (`unpause_pool`)
@@ -476,7 +477,7 @@ stateDiagram-v2
 - **Action:** `unpause_pool()`
 - **Postcondition:**
   - `pool.status = PoolStatus::Active (0)`.
-  - `pool.paused_at = 0`.
+  - `pool.deactivated_at = 0`.
   - Emits CPI event `PoolStatusChanged`.
 - **Expected Errors:**
   - If signer is guardian (not admin): `ErrorCode::UnauthorizedAdmin` (6017)
@@ -489,15 +490,17 @@ stateDiagram-v2
 - **Vector Tag:** `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`emergency_pause.rs#L117-L174`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L117-L174)
-- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status != PoolStatus::Closed && pool.is_frozen_for_draw == 0`.
+- **Source Location:** [`emergency_pause.rs#L143-L166`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L143-L166), [`pool.rs#L318-L332`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L318-L332)
+- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status ∈ {Active, Paused} && !pool.is_frozen()`.
 - **Action:** `close_pool()`
 - **Postcondition:**
   - `pool.status = PoolStatus::Closed (2)`.
+  - `pool.deactivated_at = clock.unix_timestamp` (if transitioned from `Active`; preserves initial pause timestamp if already `Paused`).
   - Emits CPI event `PoolStatusChanged`.
 - **Expected Errors:**
   - If signer is not admin: `ErrorCode::UnauthorizedAdmin` (6017)
   - If pool already closed: `ErrorCode::PoolClosed` (6040)
+  - If pool is impaired: `ErrorCode::PoolImpaired` (6085)
   - If pool frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
@@ -526,8 +529,8 @@ stateDiagram-v2
 - **Vector Tag:** `Lifecycle` / `Time` / `Access` / `Math`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`enable_impaired_mode.rs#L9-L131`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/enable_impaired_mode.rs#L9-L131)
-- **Precondition:** `pool.is_paused() && !pool.is_solvent(current_value) && (caller == global_config.admin || now >= pool.paused_at + IMPAIRMENT_TIMELOCK_SECONDS)`.
+- **Source Location:** [`enable_impaired_mode.rs#L9-L135`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/enable_impaired_mode.rs#L9-L135)
+- **Precondition:** `(pool.is_paused() || pool.is_closed()) && !pool.is_solvent(current_value) && (caller == global_config.admin || now >= pool.deactivated_at + IMPAIRMENT_TIMELOCK_SECONDS) && !pool.is_frozen()`.
 - **Action:** `enable_impaired_mode()`
 - **Postcondition:**
   - Junior claims subordinated: `total_fees_accrued = total_fees_withdrawn` (`unwithdrawn_fees = 0`).
@@ -536,9 +539,10 @@ stateDiagram-v2
   - `pool.status = PoolStatus::Impaired (3)`.
   - Emits CPI event `PoolImpairedModeEnabled`.
 - **Expected Errors:**
-  - If pool is not paused: `ErrorCode::PoolNotPaused` (6088)
+  - If pool is neither paused nor closed: `ErrorCode::PoolNotPausedOrClosed` (6101)
   - If pool is solvent against book value: `ErrorCode::CannotImpairSolventPool` (6084)
   - If caller is not admin and 90-day timelock has not elapsed: `ErrorCode::ImpairmentTimelockActive` (6086)
+  - If pool frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-RECAP-001`: Pool Recapitalization & Solvency Recovery (`recapitalize_pool`)
@@ -548,16 +552,16 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`recapitalize_pool.rs#L13-L218`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/recapitalize_pool.rs#L13-L218)
-- **Precondition:** `sponsor.is_signer && amount > 0 && pool.is_paused()`.
+- **Precondition:** `sponsor.is_signer && amount > 0 && (pool.is_paused() || pool.is_closed())`.
 - **Action:** `recapitalize_pool(amount)`
 - **Postcondition:**
   - Sponsor deposits USDC into `pool_vault_account` and executes CPI `huma::deposit` to mint $PST into `pool_pst_vault`.
   - No new liabilities created: `total_deposited_principal` remains unchanged.
-  - If `pool.is_solvent(new_current_value) == true`, pool unpauses automatically: `status = PoolStatus::Active (0)`, `paused_at = 0`.
-  - Emits CPI event `PoolRecapitalized`.
+  - Pool status is never modified by recapitalization. Status transitions out of `Paused` are strictly reserved for admin multisig via `unpause_pool`.
+  - Emits CPI event `PoolRecapitalized` with `is_solvent` indicating whether liabilities are covered.
 - **Expected Errors:**
   - If `amount == 0`: `ErrorCode::InvalidRecapitalizeAmount` (6087)
-  - If pool is not paused: `ErrorCode::PoolNotPaused` (6088)
+  - If pool is neither paused nor closed: `ErrorCode::PoolNotPausedOrClosed` (6101)
   - If deposit produces zero $PST shares: `ErrorCode::ZeroSharesMinted` (6046)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
@@ -919,6 +923,8 @@ stateDiagram-v2
 - **Expected Errors:**
   - If prepared cumulative count does not match locked ticket count: `ErrorCode::DrawSnapshotMismatch` (6072)
   - If draw preparation incomplete: `ErrorCode::InvalidDrawStatus` (6015)
+  - If pool is closed: `ErrorCode::PoolClosed` (6040)
+  - If pool is impaired: `ErrorCode::PoolImpaired` (6085)
   - If randomness not resolved: `ErrorCode::RandomnessNotResolved` (6029)
   - If seed slot mismatch: `ErrorCode::RandomnessCommitmentTampered` (6070)
   - If freshness window exceeded (> 1000 slots): `ErrorCode::StaleRandomnessRequest` (6030)

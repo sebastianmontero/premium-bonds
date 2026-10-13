@@ -469,7 +469,8 @@ pub struct PoolRecapitalized {
     pub current_value: u64,
     pub book_value: u64,
     pub deficit: u64,
-    pub is_unpaused: bool,
+    /// True if pool's book liabilities are fully covered by assets after recapitalization.
+    pub is_solvent: bool,
     pub timestamp: i64,
 }
 

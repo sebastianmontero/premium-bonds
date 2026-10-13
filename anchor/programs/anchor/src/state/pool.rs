@@ -89,7 +89,9 @@ pub struct PrizePool {
     pub stake_cycle_duration_hrs: i64,
     pub min_yield_threshold: u64,
     pub current_cycle_end_at: i64,
-    pub paused_at: i64,
+    /// Unix timestamp at which the pool left `Active` (pause or close). 0 while Active.
+    /// Anchors the permissionless impairment timelock.
+    pub deactivated_at: i64,
 
     // ── Primary Liabilities & Accounting (8 bytes each, offset 40..80) ─────
     pub total_deposited_principal: u64,
@@ -295,13 +297,18 @@ impl PrizePool {
         self.status == PoolStatus::Impaired as u8
     }
 
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.status == PoolStatus::Closed as u8
+    }
+
     pub fn pause(&mut self, timestamp: i64) -> Result<PoolStatus> {
         self.ensure_current_version()?;
         require!(timestamp > 0, PremiumBondsError::MathOverflow);
         let prev = self.pool_status()?;
         require!(prev == PoolStatus::Active, PremiumBondsError::PoolNotActive);
         self.status = PoolStatus::Paused as u8;
-        self.paused_at = timestamp;
+        self.deactivated_at = timestamp;
         Ok(prev)
     }
 
@@ -310,7 +317,23 @@ impl PrizePool {
         let prev = self.pool_status()?;
         require!(prev == PoolStatus::Paused, PremiumBondsError::PoolNotPaused);
         self.status = PoolStatus::Active as u8;
-        self.paused_at = 0;
+        self.deactivated_at = 0;
+        Ok(prev)
+    }
+
+    /// Transitions Active|Paused -> Closed. Impaired and Closed pools cannot be closed.
+    pub fn close(&mut self, timestamp: i64) -> Result<PoolStatus> {
+        self.ensure_current_version()?;
+        require!(timestamp > 0, PremiumBondsError::MathOverflow);
+        require!(!self.is_frozen(), PremiumBondsError::AwaitingRandomnessFreeze);
+        let prev = self.pool_status()?;
+        match prev {
+            PoolStatus::Active => self.deactivated_at = timestamp,
+            PoolStatus::Paused => {} // Preserve initial pause timestamp to protect timelock
+            PoolStatus::Closed => return err!(PremiumBondsError::PoolClosed),
+            PoolStatus::Impaired => return err!(PremiumBondsError::PoolImpaired),
+        }
+        self.set_status(PoolStatus::Closed);
         Ok(prev)
     }
 
@@ -596,13 +619,19 @@ impl PrizePool {
         Ok(())
     }
 
-    pub fn transition_to_impaired(&mut self) -> Result<()> {
-        require!(self.is_paused(), PremiumBondsError::PoolNotPaused);
+    pub fn transition_to_impaired(&mut self) -> Result<PoolStatus> {
+        self.ensure_current_version()?;
+        require!(!self.is_frozen(), PremiumBondsError::AwaitingRandomnessFreeze);
+        let prev = self.pool_status()?;
+        require!(
+            prev == PoolStatus::Paused || prev == PoolStatus::Closed,
+            PremiumBondsError::PoolNotPausedOrClosed
+        );
         self.total_fees_accrued = self.total_fees_withdrawn;
         self.total_prizes_allocated = 0;
         self.is_frozen_for_draw = 0;
-        self.status = PoolStatus::Impaired as u8;
-        Ok(())
+        self.set_status(PoolStatus::Impaired);
+        Ok(prev)
     }
 
     /// Validates all pre-CPI guard checks for the `buy_bonds` instruction.
@@ -921,7 +950,7 @@ mod tests {
             stake_cycle_duration_hrs,
             min_yield_threshold: 0,
             current_cycle_end_at: 0,
-            paused_at: 0,
+            deactivated_at: 0,
             total_deposited_principal: 0,
             total_fees_accrued: 0,
             total_fees_withdrawn: 0,
@@ -1528,7 +1557,7 @@ mod tests {
             stake_cycle_duration_hrs: 24,
             min_yield_threshold: 0,
             current_cycle_end_at: 0,
-            paused_at: 0,
+            deactivated_at: 0,
             total_deposited_principal: 0,
             total_fees_accrued: 0,
             total_fees_withdrawn: 0,
@@ -2220,4 +2249,82 @@ mod tests {
 
         assert!(PrizePool::validate_fee_wallet(&fee_wallet, &ctx).is_ok());
     }
+
+    #[test]
+    fn test_close_active_sets_deactivated_at() {
+        let mut pool = default_pool(500, 24);
+        assert_eq!(pool.status, PoolStatus::Active as u8);
+        assert_eq!(pool.deactivated_at, 0);
+
+        let prev = pool.close(1_700_000_000).expect("close should succeed");
+        assert_eq!(prev, PoolStatus::Active);
+        assert_eq!(pool.status, PoolStatus::Closed as u8);
+        assert_eq!(pool.deactivated_at, 1_700_000_000);
+    }
+
+    #[test]
+    fn test_close_paused_preserves_deactivated_at() {
+        let mut pool = default_pool(500, 24);
+        pool.pause(1_600_000_000).expect("pause should succeed");
+        assert_eq!(pool.deactivated_at, 1_600_000_000);
+
+        let prev = pool.close(1_700_000_000).expect("close from paused should succeed");
+        assert_eq!(prev, PoolStatus::Paused);
+        assert_eq!(pool.status, PoolStatus::Closed as u8);
+        // Deactivated at must preserve the original pause timestamp!
+        assert_eq!(pool.deactivated_at, 1_600_000_000);
+    }
+
+    #[test]
+    fn test_close_closed_rejected() {
+        let mut pool = default_pool(500, 24);
+        pool.close(1_700_000_000).unwrap();
+        let err = pool.close(1_700_001_000).unwrap_err();
+        assert_eq!(err, error!(PremiumBondsError::PoolClosed));
+    }
+
+    #[test]
+    fn test_close_impaired_rejected() {
+        let mut pool = default_pool(500, 24);
+        pool.pause(1_600_000_000).unwrap();
+        pool.transition_to_impaired().unwrap();
+        assert_eq!(pool.status, PoolStatus::Impaired as u8);
+
+        let err = pool.close(1_700_000_000).unwrap_err();
+        assert_eq!(err, error!(PremiumBondsError::PoolImpaired));
+    }
+
+    #[test]
+    fn test_close_frozen_rejected() {
+        let mut pool = default_pool(500, 24);
+        pool.set_frozen(true);
+        let err = pool.close(1_700_000_000).unwrap_err();
+        assert_eq!(err, error!(PremiumBondsError::AwaitingRandomnessFreeze));
+    }
+
+    #[test]
+    fn test_transition_to_impaired_from_closed() {
+        let mut pool = default_pool(500, 24);
+        pool.close(1_700_000_000).unwrap();
+        pool.total_fees_accrued = 50_000;
+        pool.total_fees_withdrawn = 20_000;
+        pool.total_prizes_allocated = 100_000;
+
+        let prev = pool.transition_to_impaired().expect("closed -> impaired should succeed");
+        assert_eq!(prev, PoolStatus::Closed);
+        assert_eq!(pool.status, PoolStatus::Impaired as u8);
+        assert_eq!(pool.total_fees_accrued, pool.total_fees_withdrawn);
+        assert_eq!(pool.total_prizes_allocated, 0);
+    }
+
+    #[test]
+    fn test_transition_to_impaired_frozen_rejected() {
+        let mut pool = default_pool(500, 24);
+        pool.pause(1_600_000_000).unwrap();
+        pool.set_frozen(true);
+
+        let err = pool.transition_to_impaired().unwrap_err();
+        assert_eq!(err, error!(PremiumBondsError::AwaitingRandomnessFreeze));
+    }
 }
+
