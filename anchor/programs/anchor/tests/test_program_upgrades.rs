@@ -438,16 +438,16 @@ fn test_v4_protocol_pending_redemptions_conservation() {
     );
     let (pool_vault, _) = pool_vault_pda(1);
     let (pool_pda_addr, _) = pool_pda(1);
-    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda_addr, 5_000_000);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_vault,
+        ctx.usdc_mint,
+        pool_pda_addr,
+        5_000_000,
+    );
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
-    send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_kp,
-        user_token,
-        0,
-    )
-    .unwrap();
+    send_e2e_claim_redemption_for_user(&mut ctx, &user_kp, user_token, 0).unwrap();
 
     let pool_after = read_pool_state(&ctx.svm, 1);
     assert_eq!(
@@ -484,18 +484,18 @@ fn test_v5_pending_redemption_closure_100_percent_refund() {
     );
     let (pool_vault, _) = pool_vault_pda(1);
     let (pool_pda_addr, _) = pool_pda(1);
-    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda_addr, 5_000_000);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_vault,
+        ctx.usdc_mint,
+        pool_pda_addr,
+        5_000_000,
+    );
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
     let user_bal_pre_claim = ctx.svm.get_account(&user_kp.pubkey()).unwrap().lamports;
 
-    send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_kp,
-        user_token,
-        0,
-    )
-    .unwrap();
+    send_e2e_claim_redemption_for_user(&mut ctx, &user_kp, user_token, 0).unwrap();
 
     // Pending account must now be closed / deleted
     let pending_acc_post = ctx.svm.get_account(&pending_pda);
@@ -982,8 +982,12 @@ fn test_v1_rejection_of_unsupported_batch_version_all_entrypoints() {
                 rb.version = bad_version;
             });
             inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 5_000_000, 0);
-            let user_token =
-                create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
+            let user_token = create_spl_token_account(
+                &mut ctx.svm,
+                &ctx.user,
+                &ctx.usdc_mint,
+                &ctx.user.pubkey(),
+            );
             let ix = ClaimRedemptionBuilder::new(&ctx)
                 .with_user(&ctx.user.pubkey(), user_token)
                 .with_caller(ctx.user.pubkey())
@@ -1017,6 +1021,7 @@ fn test_v1_rejection_of_unsupported_batch_version_all_entrypoints() {
             let res = CrankSubmitRedemptionBatchBuilder::for_pool(1, 0, 1, ctx.admin.pubkey())
                 .with_huma_mode_mint(ctx.pst_mint)
                 .with_huma_pool_state(ctx.huma_pool_state)
+                .with_huma_lender_state(ctx.huma_lender_state)
                 .send(&mut ctx.svm, &ctx.admin);
             assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
         }
@@ -1039,6 +1044,7 @@ fn test_v1_rejection_of_unsupported_batch_version_all_entrypoints() {
             let res = SettleRedemptionBatchBuilder::for_pool(1, 0, ctx.admin.pubkey())
                 .with_token_mint(ctx.usdc_mint)
                 .with_huma_pool_state(ctx.huma_pool_state)
+                .with_huma_lender_state(ctx.huma_lender_state)
                 .send(&mut ctx.svm, &ctx.admin);
             assert_custom_error(res, PremiumBondsError::UnsupportedAccountVersion);
         }
@@ -1071,10 +1077,7 @@ fn test_v1_rejection_of_unsupported_batch_version_all_entrypoints() {
 // 2. test_v1_reinvest_winnings_rejects_unsupported_ticket_registry_version
 #[test]
 fn test_v1_reinvest_winnings_rejects_unsupported_ticket_registry_version() {
-    for bad_version in [
-        anchor::state::TicketRegistry::CURRENT_VERSION + 1,
-        u8::MAX,
-    ] {
+    for bad_version in [anchor::state::TicketRegistry::CURRENT_VERSION + 1, u8::MAX] {
         let (mut svm, _admin) = setup_global_config();
         let crank = Keypair::new();
         svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
@@ -1225,26 +1228,33 @@ fn test_v2_pool_and_batch_lazy_migration_on_claim_redemption() {
     });
     assert_eq!(read_redemption_batch(&ctx.svm, pool_id, 0).version, 0);
 
-    inject_pending_redemption(&mut ctx.svm, pool_id, 0, ctx.user.pubkey(), redemption_amount, 0);
+    inject_pending_redemption(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        ctx.user.pubkey(),
+        redemption_amount,
+        0,
+    );
 
     inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, redemption_amount);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     let (pool_vault, _) = pool_vault_pda(pool_id);
     let (pool_pda_addr, _) = pool_pda(pool_id);
-    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda_addr, redemption_amount);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_vault,
+        ctx.usdc_mint,
+        pool_pda_addr,
+        redemption_amount,
+    );
 
     let user_token =
         create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
 
     let user_kp = clone_keypair(&ctx.user);
-    send_e2e_claim_redemption_for_user(
-        &mut ctx,
-        &user_kp,
-        user_token,
-        0,
-    )
-    .unwrap();
+    send_e2e_claim_redemption_for_user(&mut ctx, &user_kp, user_token, 0).unwrap();
 
     assert_eq!(
         read_pool_state(&ctx.svm, pool_id).version,
@@ -1405,7 +1415,10 @@ fn test_v2_read_only_instructions_do_not_mutate_legacy_version_zero() {
 // 9. test_simulated_v2_struct_field_carving_zero_copy
 #[test]
 fn test_simulated_v2_struct_field_carving_zero_copy() {
-    use anchor::state::{PayoutRegistry, PrizePool, PrizeTier, RedemptionBatch, RedemptionBatchStatus, TicketRegistry, UserEntry, Winner};
+    use anchor::state::{
+        PayoutRegistry, PrizePool, PrizeTier, RedemptionBatch, RedemptionBatchStatus,
+        TicketRegistry, UserEntry, Winner,
+    };
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -1564,7 +1577,8 @@ fn test_simulated_v2_struct_field_carving_zero_copy() {
     };
     payout_bytes[104..104 + 56].copy_from_slice(bytemuck::bytes_of(&winner));
 
-    let _v2_payout_header = bytemuck::try_from_bytes::<PayoutRegistryV2>(&payout_bytes[8..104]).unwrap();
+    let _v2_payout_header =
+        bytemuck::try_from_bytes::<PayoutRegistryV2>(&payout_bytes[8..104]).unwrap();
     let v2_winners = bytemuck::try_cast_slice::<u8, Winner>(&payout_bytes[104..]).unwrap();
     assert_eq!(v2_winners[0].winner, sample_user);
     assert_eq!(v2_winners[0].amount_owed, 1_000_000);

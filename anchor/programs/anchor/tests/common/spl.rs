@@ -350,4 +350,3 @@ pub fn inject_canonical_token_2022_ata(
     .unwrap();
     ata
 }
-

@@ -284,7 +284,8 @@ impl SellBondsBuilder {
         let pool = read_pool_state(&ctx.svm, pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, pool.next_redemption_id);
         let (user_winnings, _) = user_winnings_pda(pool_id, &ctx.user.pubkey());
-        let (redemption_batch, _) = redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
+        let (redemption_batch, _) =
+            redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
 
         Self {
             pool_id,
@@ -605,7 +606,8 @@ impl WithdrawFeesBuilder {
         let (pool_pda_addr, _) = pool_pda(pool_id);
         let pool = read_pool_state(&ctx.svm, pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, pool.next_redemption_id);
-        let (redemption_batch, _) = redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
+        let (redemption_batch, _) =
+            redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
 
         Self {
             pool_id,
@@ -1275,7 +1277,8 @@ impl ClaimNonReinvestedWinningsBuilder {
         let pool = read_pool_state(&ctx.svm, pool_id);
         let (pending_redemption, _) = pending_redemption_pda(pool_id, pool.next_redemption_id);
         let (user_winnings, _) = user_winnings_pda(pool_id, &ctx.user.pubkey());
-        let (redemption_batch, _) = redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
+        let (redemption_batch, _) =
+            redemption_batch_pda(pool_id, pool.accumulating_redemption_batch_id);
 
         Self {
             pool_id,
@@ -1547,6 +1550,7 @@ pub struct InitializeHumaLenderBuilder {
 impl InitializeHumaLenderBuilder {
     pub fn from_ctx(ctx: &E2eContext) -> Self {
         Self::new(ctx.admin.pubkey(), 1, ctx.huma_pool_state, ctx.pst_mint)
+            .with_huma_lender_state(ctx.huma_lender_state)
     }
 
     pub fn new(admin: Pubkey, pool_id: u32, huma_pool_state: Pubkey, pst_mint: Pubkey) -> Self {
@@ -1885,7 +1889,10 @@ impl AdminForceUnlockDrawBuilder {
             current_randomness_account = dc.randomness_account;
         }
         let mut accounts = self.build_metas();
-        accounts[4] = solana_program::instruction::AccountMeta::new_readonly(current_randomness_account, false);
+        accounts[4] = solana_program::instruction::AccountMeta::new_readonly(
+            current_randomness_account,
+            false,
+        );
         let ix = Instruction {
             program_id: anchor::id(),
             accounts,
@@ -1908,7 +1915,10 @@ impl AdminForceUnlockDrawBuilder {
             current_randomness_account = dc.randomness_account;
         }
         let mut accounts = self.build_metas();
-        accounts[4] = solana_program::instruction::AccountMeta::new_readonly(current_randomness_account, false);
+        accounts[4] = solana_program::instruction::AccountMeta::new_readonly(
+            current_randomness_account,
+            false,
+        );
         let ix = Instruction {
             program_id: anchor::id(),
             accounts,
@@ -2269,7 +2279,8 @@ impl UpdatePoolConfigBuilder {
     }
 
     pub fn with_token_mint(mut self, mint: Pubkey) -> Self {
-        self.remaining_accounts.push(AccountMeta::new_readonly(mint, false));
+        self.remaining_accounts
+            .push(AccountMeta::new_readonly(mint, false));
         self
     }
 

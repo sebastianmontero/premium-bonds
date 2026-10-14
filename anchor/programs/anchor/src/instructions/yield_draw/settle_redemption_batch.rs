@@ -1,6 +1,4 @@
-use crate::constants::{
-    POOL_VAULT_SEED, PRIZE_POOL_SEED, REDEMPTION_BATCH_SEED,
-};
+use crate::constants::{POOL_VAULT_SEED, PRIZE_POOL_SEED, REDEMPTION_BATCH_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::RedemptionBatchSettled;
 use crate::huma;
@@ -77,7 +75,10 @@ pub struct SettleRedemptionBatch<'info> {
     pub huma_mode_config: UncheckedAccount<'info>,
 
     /// CHECK: Huma lender state account for pool PDA.
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = huma_lender_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaLenderState,
+    )]
     pub huma_lender_state: UncheckedAccount<'info>,
 
     /// CHECK: Huma pool authority PDA.
@@ -112,7 +113,11 @@ pub fn handle(ctx: Context<SettleRedemptionBatch>) -> Result<()> {
             pool.submitted_batch_id() == Some(batch_id),
             PremiumBondsError::MismatchedBatchId
         );
-        (pool.pool_id, pool.pool_id.to_le_bytes(), pool.vault_authority_bump)
+        (
+            pool.pool_id,
+            pool.pool_id.to_le_bytes(),
+            pool.vault_authority_bump,
+        )
     };
 
     let signer_seeds: &[&[&[u8]]] =
@@ -140,7 +145,8 @@ pub fn handle(ctx: Context<SettleRedemptionBatch>) -> Result<()> {
     )?;
 
     // Verify Huma queue has progressed past the batch request
-    let huma_snapshot = huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+    let huma_snapshot =
+        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
     require!(
         huma_snapshot.is_redemption_settled(huma_request_id),
         PremiumBondsError::HumaQueueNotSettled

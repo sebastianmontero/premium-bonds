@@ -82,7 +82,6 @@ pub fn read_redemption_batch(
     anchor::state::RedemptionBatch::try_deserialize(&mut &acct.data[..]).unwrap()
 }
 
-
 pub fn read_ticket_registry(svm: &LiteSVM, address: Pubkey) -> anchor::state::TicketRegistry {
     let acc = svm
         .get_account(&address)

@@ -1,6 +1,4 @@
-use crate::constants::{
-    GLOBAL_CONFIG_SEED, POOL_PST_SEED, PRIZE_POOL_SEED, REDEMPTION_BATCH_SEED,
-};
+use crate::constants::{GLOBAL_CONFIG_SEED, POOL_PST_SEED, PRIZE_POOL_SEED, REDEMPTION_BATCH_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::RedemptionBatchSubmitted;
 use crate::huma;
@@ -105,7 +103,10 @@ pub struct CrankSubmitRedemptionBatch<'info> {
     pub huma_redemption_request: UncheckedAccount<'info>,
 
     /// CHECK: Huma lender state account for pool PDA.
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = huma_lender_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaLenderState,
+    )]
     pub huma_lender_state: UncheckedAccount<'info>,
 
     /// CHECK: Huma pool authority PDA.
@@ -133,7 +134,10 @@ pub struct CrankSubmitRedemptionBatch<'info> {
 pub fn handle(ctx: Context<CrankSubmitRedemptionBatch>) -> Result<()> {
     ctx.accounts.batch.ensure_current_version()?;
     let principal_requested = ctx.accounts.batch.total_principal_requested;
-    require!(principal_requested > 0, PremiumBondsError::EmptyRedemptionBatch);
+    require!(
+        principal_requested > 0,
+        PremiumBondsError::EmptyRedemptionBatch
+    );
 
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
     let pool_pst_vault_amount = ctx.accounts.pool_pst_vault.amount;
@@ -142,12 +146,20 @@ pub fn handle(ctx: Context<CrankSubmitRedemptionBatch>) -> Result<()> {
         let pool = ctx.accounts.pool.load()?;
         pool.check_version()?;
 
-        require!(!pool.has_submitted_batch(), PremiumBondsError::SubmittedBatchInFlight);
-        require!(pool.is_frozen_for_draw == 0, PremiumBondsError::AwaitingRandomnessFreeze);
+        require!(
+            !pool.has_submitted_batch(),
+            PremiumBondsError::SubmittedBatchInFlight
+        );
+        require!(
+            pool.is_frozen_for_draw == 0,
+            PremiumBondsError::AwaitingRandomnessFreeze
+        );
 
         // Solvency check: assert live solvency unless impaired
         let huma_snapshot = if pool.is_impaired() {
-            crate::huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?
+            crate::huma::read_huma_assets_and_queue(
+                &ctx.accounts.huma_pool_state.to_account_info(),
+            )?
         } else {
             pool.assert_huma_solvency(
                 &ctx.accounts.huma_pool_state.to_account_info(),
@@ -202,7 +214,9 @@ pub fn handle(ctx: Context<CrankSubmitRedemptionBatch>) -> Result<()> {
     let timestamp = clock.unix_timestamp;
 
     // Mutate batch: Accumulating -> Submitted
-    ctx.accounts.batch.submit(huma_request_id, pst_shares, timestamp)?;
+    ctx.accounts
+        .batch
+        .submit(huma_request_id, pst_shares, timestamp)?;
 
     // Advance pool pipeline and initialize next accumulating batch
     let batch_id = ctx.accounts.batch.batch_id;

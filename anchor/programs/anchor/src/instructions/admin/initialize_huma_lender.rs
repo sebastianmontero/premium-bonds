@@ -134,6 +134,12 @@ pub fn handle(ctx: Context<InitializeHumaLender>) -> Result<()> {
         signer_seeds,
     )?;
 
+    require_keys_eq!(
+        *ctx.accounts.huma_lender_state.owner,
+        crate::constants::HUMA_PROGRAM_ID,
+        PremiumBondsError::InvalidHumaLenderState
+    );
+
     #[cfg(feature = "debug-logs")]
     msg!(
         "InitializeHumaLender: pool={}, pool_pda={}",

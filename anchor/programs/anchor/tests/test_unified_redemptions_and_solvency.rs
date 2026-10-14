@@ -29,14 +29,12 @@ use {
         constants::*,
         error::PremiumBondsError,
         huma,
-        state::{
-            PendingRedemption, PrizePool, RedemptionBatch, RedemptionBatchStatus,
-        },
+        state::{PendingRedemption, PrizePool, RedemptionBatch, RedemptionBatchStatus},
         DrawStatus, PoolStatus,
     },
     anchor_lang::{
-        AccountDeserialize, AnchorDeserialize, AnchorSerialize, Discriminator,
-        InstructionData, Space, ToAccountMetas,
+        AccountDeserialize, AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData,
+        Space, ToAccountMetas,
     },
     litesvm::LiteSVM,
     solana_keypair::Keypair,
@@ -171,6 +169,26 @@ fn test_v3_single_in_flight_pipeline_enforcement() {
     assert_eq!(next_id2, 2);
     assert_eq!(pool.submitted_batch_id, 1);
     assert_eq!(pool.total_accumulating_redemptions, 0);
+
+    // LiteSVM transaction-level pipeline enforcement
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 20).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert!(res.is_ok(), "Submit batch 0 must succeed");
+
+    let pool = read_pool_state(&ctx.svm, ctx.pool_id);
+    assert_eq!(pool.submitted_batch_id, 0);
+    assert_eq!(pool.accumulating_redemption_batch_id, 1);
+
+    // Queue sales into batch 1
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    // Attempt to submit batch 1 while batch 0 is in flight
+    let res2 = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 1).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res2, PremiumBondsError::SubmittedBatchInFlight);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,12 +210,7 @@ fn test_v4_submit_enforces_anti_dilution_and_solvency() {
     // Available vault shares: 10_000_000, pst_supply: 15_000_000
     // Requesting 5_000_000 USDC -> converts to 5_000_000 shares
     let shares = pool
-        .calculate_batch_submission_shares(
-            5_000_000,
-            &huma_snapshot,
-            10_000_000,
-            15_000_000,
-        )
+        .calculate_batch_submission_shares(5_000_000, &huma_snapshot, 10_000_000, 15_000_000)
         .unwrap();
     assert_eq!(shares, 5_000_000);
 
@@ -217,12 +230,7 @@ fn test_v4_submit_enforces_anti_dilution_and_solvency() {
 
     // If vault has 0 shares, errors with ZeroSharesRedeemed
     let err = pool
-        .calculate_batch_submission_shares(
-            5_000_000,
-            &huma_snapshot,
-            0,
-            15_000_000,
-        )
+        .calculate_batch_submission_shares(5_000_000, &huma_snapshot, 0, 15_000_000)
         .unwrap_err();
     assert_eq!(err, PremiumBondsError::ZeroSharesRedeemed.into());
 }
@@ -232,16 +240,22 @@ fn test_v4_submit_enforces_anti_dilution_and_solvency() {
 // ─────────────────────────────────────────────────────────────────────────────
 #[test]
 fn test_v5_batch_submit_blocked_during_vrf_freeze() {
-    let mut pool = PrizePoolTestBuilder::new(1).build();
-    pool.is_frozen_for_draw = 1;
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
 
-    // Direct check of the contract invariant enforced at submit
-    assert_eq!(
-        pool.is_frozen_for_draw, 1,
-        "Pool is frozen for draw"
-    );
-    // require!(pool.is_frozen_for_draw == 0, PremiumBondsError::AwaitingRandomnessFreeze)
-    assert!(pool.is_frozen());
+    mutate_pool_state(&mut ctx.svm, ctx.pool_id, |p| {
+        p.is_frozen_for_draw = 1;
+    });
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
+
+    let batch = read_redemption_batch(&ctx.svm, ctx.pool_id, 0);
+    assert_eq!(batch.status, RedemptionBatchStatus::Accumulating);
+    let pool = read_pool_state(&ctx.svm, ctx.pool_id);
+    assert_eq!(pool.submitted_batch_id, NO_SUBMITTED_BATCH);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -304,17 +318,11 @@ fn test_v7_batch_settlement_with_huma_haircut_pro_rata() {
 
     // User A ($50 principal) claims
     let payout_a = batch.claim(50_000_000).unwrap();
-    assert_eq!(
-        payout_a, 45_000_000,
-        "User A gets exactly $45.00 pro-rata"
-    );
+    assert_eq!(payout_a, 45_000_000, "User A gets exactly $45.00 pro-rata");
 
     // User B ($50 principal) claims
     let payout_b = batch.claim(50_000_000).unwrap();
-    assert_eq!(
-        payout_b, 45_000_000,
-        "User B gets exactly $45.00 pro-rata"
-    );
+    assert_eq!(payout_b, 45_000_000, "User B gets exactly $45.00 pro-rata");
 
     assert_eq!(payout_a + payout_b, 90_000_000, "Zero dust stuck");
     assert!(batch.is_fully_claimed());
@@ -483,93 +491,164 @@ fn test_v11_prize_and_fee_batch_queueing_conserves_liabilities() {
 // ─────────────────────────────────────────────────────────────────────────────
 #[test]
 fn test_v12_batch_closure_early_attempt_fails() {
-    let batch = RedemptionBatch {
-        huma_request_id: 1,
-        batch_id: 0,
-        total_principal_requested: 10_000_000,
-        total_pst_shares_locked: 10_000_000,
-        settled_usdc_received: 10_000_000,
-        claimed_principal: 5_000_000, // Only 50% claimed!
-        created_at: 100,
-        submitted_at: 200,
-        settled_at: 300,
-        pool_id: 1,
-        status: RedemptionBatchStatus::Settled,
-        bump: 255,
-        version: 1,
-        _padding: [0; 1],
-        _reserved: [0; 72],
-    };
+    let mut ctx = setup_e2e();
+    let pool_id = ctx.pool_id;
+    let unclaimed = 5_000_000;
 
-    let now = 300 + 1000; // Far before 180 days (300 + 15,552,000)
-    assert!(
-        !batch.can_close(now),
-        "Batch cannot close before 100% claimed and before 180 days"
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        RedemptionBatchStatus::Settled,
+        10_000_000,
+        10_000_000,
     );
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let now = clock.unix_timestamp;
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.claimed_principal = unclaimed;
+        rb.settled_at = now;
+    });
+
+    let res = CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, ctx.admin.pubkey())
+        .with_token_mint(ctx.usdc_mint)
+        .with_fee_wallet(ctx.fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::BatchNotFullyClaimed);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Vector 13: Batch Closure After 100% Claimed
-// ─────────────────────────────────────────────────────────────────────────────
+#[test]
+fn test_crank_close_batch_fails_unauthorized_crank() {
+    let mut ctx = setup_e2e();
+    let pool_id = ctx.pool_id;
+
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        RedemptionBatchStatus::Settled,
+        1_000_000,
+        1_000_000,
+    );
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.claimed_principal = 1_000_000;
+    });
+
+    let hacker = Keypair::new();
+    ctx.svm.airdrop(&hacker.pubkey(), 1_000_000_000).unwrap();
+
+    let res = CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, hacker.pubkey())
+        .with_token_mint(ctx.usdc_mint)
+        .with_fee_wallet(ctx.fee_wallet)
+        .send(&mut ctx.svm, &hacker);
+    assert_custom_error(res, PremiumBondsError::UnauthorizedCrank);
+}
+
 #[test]
 fn test_v13_batch_closure_after_100_percent_claimed() {
-    let mut batch = RedemptionBatch {
-        huma_request_id: 1,
-        batch_id: 0,
-        total_principal_requested: 10_000_000,
-        total_pst_shares_locked: 10_000_000,
-        settled_usdc_received: 10_000_000,
-        claimed_principal: 0,
-        created_at: 100,
-        submitted_at: 200,
-        settled_at: 300,
-        pool_id: 1,
-        status: RedemptionBatchStatus::Settled,
-        bump: 255,
-        version: 1,
-        _padding: [0; 1],
-        _reserved: [0; 72],
-    };
+    let mut ctx = setup_e2e();
+    let pool_id = ctx.pool_id;
 
-    batch.claim(10_000_000).unwrap();
-    assert!(batch.is_fully_claimed());
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        RedemptionBatchStatus::Settled,
+        10_000_000,
+        10_000_000,
+    );
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.claimed_principal = 10_000_000;
+    });
+
+    let (batch_pda, _) = redemption_batch_pda(pool_id, 0);
+    assert!(ctx.svm.get_account(&batch_pda).is_some());
+    let batch_rent = ctx.svm.get_balance(&batch_pda).unwrap();
+    let initial_crank_sol = ctx.svm.get_balance(&ctx.admin.pubkey()).unwrap();
+
+    let res = CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, ctx.admin.pubkey())
+        .with_token_mint(ctx.usdc_mint)
+        .with_fee_wallet(ctx.fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert!(res.is_ok(), "Batch closure must succeed after 100% claimed");
+
     assert!(
-        batch.can_close(301),
-        "Batch can close immediately upon 100% claims"
+        ctx.svm.get_account(&batch_pda).is_none(),
+        "Batch account must be destroyed upon closure"
+    );
+    let final_crank_sol = ctx.svm.get_balance(&ctx.admin.pubkey()).unwrap();
+    assert_eq!(
+        final_crank_sol,
+        initial_crank_sol + batch_rent - 5_000,
+        "Crank must recover 100% of batch rent lamports minus tx fee"
     );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Vector 14: Batch Closure 180d Expiry Sweeps to Fee Wallet
-// ─────────────────────────────────────────────────────────────────────────────
 #[test]
 fn test_v14_batch_closure_180d_expiry_sweeps_to_fee_wallet() {
-    let batch = RedemptionBatch {
-        huma_request_id: 1,
-        batch_id: 0,
-        total_principal_requested: 10_000_000,
-        total_pst_shares_locked: 10_000_000,
-        settled_usdc_received: 10_000_000,
-        claimed_principal: 6_000_000, // 4 USDC abandoned
-        created_at: 100,
-        submitted_at: 200,
-        settled_at: 300,
-        pool_id: 1,
-        status: RedemptionBatchStatus::Settled,
-        bump: 255,
-        version: 1,
-        _padding: [0; 1],
-        _reserved: [0; 72],
-    };
+    let mut ctx = setup_e2e();
+    let pool_id = ctx.pool_id;
+    let unclaimed = 4_000_000;
 
-    let now_before_expiry = 300 + BATCH_CLAIM_EXPIRY_SECONDS - 1;
-    assert!(!batch.can_close(now_before_expiry));
+    PrizePoolTestBuilder::from_state(&ctx.svm, pool_id)
+        .with_pending_redemptions(unclaimed)
+        .inject(&mut ctx.svm);
 
-    let now_after_expiry = 300 + BATCH_CLAIM_EXPIRY_SECONDS;
-    assert!(batch.can_close(now_after_expiry));
+    let (pool_vault, _) = pool_vault_pda(pool_id);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &pool_vault,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
 
-    assert_eq!(batch.unclaimed_principal(), 4_000_000);
-    assert_eq!(batch.calculate_unclaimed_payout().unwrap(), 4_000_000);
+    inject_redemption_batch_with_state(
+        &mut ctx.svm,
+        pool_id,
+        0,
+        RedemptionBatchStatus::Settled,
+        10_000_000,
+        10_000_000,
+    );
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let now = clock.unix_timestamp;
+    mutate_redemption_batch(&mut ctx.svm, pool_id, 0, |rb| {
+        rb.claimed_principal = 6_000_000;
+        rb.settled_at = now;
+    });
+
+    let (batch_pda, _) = redemption_batch_pda(pool_id, 0);
+    let batch_rent = ctx.svm.get_balance(&batch_pda).unwrap();
+    let initial_crank_sol = ctx.svm.get_balance(&ctx.admin.pubkey()).unwrap();
+    let initial_fee_wallet_usdc = read_token_balance(&ctx.svm, ctx.fee_wallet);
+
+    // Warp forward beyond 180 days
+    warp_forward_seconds(&mut ctx.svm, BATCH_CLAIM_EXPIRY_SECONDS + 100);
+
+    let res = CrankCloseRedemptionBatchBuilder::for_pool(pool_id, 0, ctx.admin.pubkey())
+        .with_token_mint(ctx.usdc_mint)
+        .with_fee_wallet(ctx.fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert!(res.is_ok(), "180d expired batch closure must succeed");
+
+    assert!(
+        ctx.svm.get_account(&batch_pda).is_none(),
+        "Batch account must be destroyed upon closure"
+    );
+    let final_fee_wallet_usdc = read_token_balance(&ctx.svm, ctx.fee_wallet);
+    assert_eq!(
+        final_fee_wallet_usdc,
+        initial_fee_wallet_usdc + unclaimed,
+        "Unclaimed USDC must be swept to fee_wallet"
+    );
+    let final_crank_sol = ctx.svm.get_balance(&ctx.admin.pubkey()).unwrap();
+    assert_eq!(
+        final_crank_sol,
+        initial_crank_sol + batch_rent - 5_000,
+        "Crank must recover batch rent lamports minus tx fee"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -596,8 +675,8 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
 
     // 1. Negative Test: Batch is not settled (it is Accumulating) -> fails even before 180 days
     warp_to_timestamp(&mut ctx.svm, now + BATCH_CLAIM_EXPIRY_SECONDS - 1);
-    let res_unsettled = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0)
-        .send(&mut ctx.svm, &user_a);
+    let res_unsettled =
+        CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0).send(&mut ctx.svm, &user_a);
     assert_custom_error(res_unsettled, PremiumBondsError::RedemptionNotExpired);
 
     // 2. Open Expired Batch Test:
@@ -610,8 +689,7 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
     ctx.svm.expire_blockhash();
 
     // At now + BATCH_CLAIM_EXPIRY_SECONDS - 1: close attempt still fails with RedemptionNotExpired
-    let res_early = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0)
-        .send(&mut ctx.svm, &user_a);
+    let res_early = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0).send(&mut ctx.svm, &user_a);
     assert_custom_error(res_early, PremiumBondsError::RedemptionNotExpired);
 
     // Negative path: Attacker cannot close another user's pending redemption
@@ -624,9 +702,11 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
 
     // Warp past settled_at + 180 days: succeeds, closes account, refunds rent
     warp_to_timestamp(&mut ctx.svm, now + BATCH_CLAIM_EXPIRY_SECONDS);
-    let res_valid = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0)
-        .send(&mut ctx.svm, &user_a);
-    assert!(res_valid.is_ok(), "CloseExpiredRedemption must succeed: {res_valid:?}");
+    let res_valid = CloseExpiredRedemptionBuilder::from_ctx(&ctx, 0, 0).send(&mut ctx.svm, &user_a);
+    assert!(
+        res_valid.is_ok(),
+        "CloseExpiredRedemption must succeed: {res_valid:?}"
+    );
     let meta = res_valid.unwrap();
     let event = assert_cpi_event::<anchor::events::ExpiredRedemptionClosed>(&meta);
     assert_eq!(event.pool_id, 1);
@@ -647,22 +727,36 @@ fn test_v15_close_expired_redemption_recovers_sol_rent() {
     // Ensure batch 1 account does not exist on SVM (simulating swept and closed by crank)
     assert!(ctx.svm.get_account(&batch_swept_pda).is_none());
 
-    let swept_requested_at = ctx.svm.get_sysvar::<solana_sdk::clock::Clock>().unix_timestamp;
+    let swept_requested_at = ctx
+        .svm
+        .get_sysvar::<solana_sdk::clock::Clock>()
+        .unix_timestamp;
     mutate_anchor_account::<PendingRedemption, _>(&mut ctx.svm, pda_swept, |pr| {
         pr.requested_at = swept_requested_at;
     });
 
     // Before requested_at + 180d, swept batch closure fails
-    warp_to_timestamp(&mut ctx.svm, swept_requested_at + BATCH_CLAIM_EXPIRY_SECONDS - 1);
-    let res_swept_early = CloseExpiredRedemptionBuilder::for_accounts(user_a.pubkey(), batch_swept_pda, pda_swept)
-        .send(&mut ctx.svm, &user_a);
+    warp_to_timestamp(
+        &mut ctx.svm,
+        swept_requested_at + BATCH_CLAIM_EXPIRY_SECONDS - 1,
+    );
+    let res_swept_early =
+        CloseExpiredRedemptionBuilder::for_accounts(user_a.pubkey(), batch_swept_pda, pda_swept)
+            .send(&mut ctx.svm, &user_a);
     assert_custom_error(res_swept_early, PremiumBondsError::RedemptionNotExpired);
 
     // At or past requested_at + 180d, swept batch closure succeeds
-    warp_to_timestamp(&mut ctx.svm, swept_requested_at + BATCH_CLAIM_EXPIRY_SECONDS);
-    let res_swept_valid = CloseExpiredRedemptionBuilder::for_accounts(user_a.pubkey(), batch_swept_pda, pda_swept)
-        .send(&mut ctx.svm, &user_a);
-    assert!(res_swept_valid.is_ok(), "Swept CloseExpiredRedemption must succeed: {res_swept_valid:?}");
+    warp_to_timestamp(
+        &mut ctx.svm,
+        swept_requested_at + BATCH_CLAIM_EXPIRY_SECONDS,
+    );
+    let res_swept_valid =
+        CloseExpiredRedemptionBuilder::for_accounts(user_a.pubkey(), batch_swept_pda, pda_swept)
+            .send(&mut ctx.svm, &user_a);
+    assert!(
+        res_swept_valid.is_ok(),
+        "Swept CloseExpiredRedemption must succeed: {res_swept_valid:?}"
+    );
     assert!(
         ctx.svm.get_account(&pda_swept).is_none(),
         "Swept account closed and rent refunded"
@@ -729,7 +823,10 @@ fn test_v17_binary_solvency_circuit_breaker_halts_on_deficit() {
         PoolStatus::Paused as u8,
         "Pool paused by solvency circuit breaker"
     );
-    assert!(pool_post.deactivated_at > 0, "deactivated_at timestamp recorded");
+    assert!(
+        pool_post.deactivated_at > 0,
+        "deactivated_at timestamp recorded"
+    );
 
     let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
     assert_eq!(
@@ -887,7 +984,9 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
 
     // 3. Admin immediate workout path: admin can transition immediately without waiting 90 days
     let other_keeper = Keypair::new();
-    ctx.svm.airdrop(&other_keeper.pubkey(), 10_000_000_000).unwrap();
+    ctx.svm
+        .airdrop(&other_keeper.pubkey(), 10_000_000_000)
+        .unwrap();
     let clock_post: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
     let now_admin = clock_post.unix_timestamp;
     mutate_pool_state(&mut ctx.svm, 1, |p| {
@@ -895,8 +994,7 @@ fn test_v20_permissionless_impaired_mode_90day_timelock() {
         p.deactivated_at = now_admin;
     });
     // Non-admin immediately fails at now_admin (< now_admin + 90 days)
-    let res_keeper_now =
-        send_user_tx(&mut ctx.svm, &other_keeper, build_ix(other_keeper.pubkey()));
+    let res_keeper_now = send_user_tx(&mut ctx.svm, &other_keeper, build_ix(other_keeper.pubkey()));
     assert_custom_error(res_keeper_now, PremiumBondsError::ImpairmentTimelockActive);
     // Admin immediately succeeds without waiting 90 days!
     let res_admin = send_user_tx(&mut ctx.svm, &ctx.admin, build_ix(ctx.admin.pubkey()));
@@ -1017,7 +1115,10 @@ fn test_v21_recapitalize_pool_restores_solvency_and_unpauses() {
         event_full.book_value, 10_000_000,
         "Book value must equal exactly 10M after full recap"
     );
-    assert_eq!(event_full.deficit, 0, "Deficit must be zero after full recap");
+    assert_eq!(
+        event_full.deficit, 0,
+        "Deficit must be zero after full recap"
+    );
     assert!(event_full.is_solvent);
 
     // Recapitalization no longer automatically unpauses the pool!
@@ -1077,16 +1178,28 @@ fn test_v22_full_error_code_coverage_commitment() {
     };
 
     // 1. EmptyRedemptionBatch
-    assert_eq!(err_code(anchor::error::PremiumBondsError::EmptyRedemptionBatch), 6073);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::EmptyRedemptionBatch),
+        6073
+    );
 
     // 2. InvalidBatchStatus
-    assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidBatchStatus), 6074);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::InvalidBatchStatus),
+        6074
+    );
 
     // 3. RedemptionBatchNotSettled
-    assert_eq!(err_code(anchor::error::PremiumBondsError::RedemptionBatchNotSettled), 6075);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::RedemptionBatchNotSettled),
+        6075
+    );
 
     // 4. HumaQueueNotSettled
-    assert_eq!(err_code(anchor::error::PremiumBondsError::HumaQueueNotSettled), 6076);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::HumaQueueNotSettled),
+        6076
+    );
 
     // 5. MismatchedBatchId
     let mut pool = PrizePoolTestBuilder::new(1).build();
@@ -1095,10 +1208,16 @@ fn test_v22_full_error_code_coverage_commitment() {
         pool.advance_submitted_batch(1, 100).unwrap_err(),
         PremiumBondsError::MismatchedBatchId.into()
     );
-    assert_eq!(err_code(anchor::error::PremiumBondsError::MismatchedBatchId), 6077);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::MismatchedBatchId),
+        6077
+    );
 
     // 6. MismatchedPoolId
-    assert_eq!(err_code(anchor::error::PremiumBondsError::MismatchedPoolId), 6078);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::MismatchedPoolId),
+        6078
+    );
 
     // 7. SubmittedBatchInFlight
     pool.submitted_batch_id = 0;
@@ -1107,14 +1226,20 @@ fn test_v22_full_error_code_coverage_commitment() {
         pool.advance_submitted_batch(1, 100).unwrap_err(),
         PremiumBondsError::SubmittedBatchInFlight.into()
     );
-    assert_eq!(err_code(anchor::error::PremiumBondsError::SubmittedBatchInFlight), 6079);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::SubmittedBatchInFlight),
+        6079
+    );
 
     // 8. BatchNotFullyClaimed
     batch.status = RedemptionBatchStatus::Settled;
     batch.total_principal_requested = 100;
     batch.claimed_principal = 50;
     assert!(!batch.can_close(0));
-    assert_eq!(err_code(anchor::error::PremiumBondsError::BatchNotFullyClaimed), 6080);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::BatchNotFullyClaimed),
+        6080
+    );
 
     // 9. ZeroSharesRedeemed
     let huma_snapshot = huma::HumaPoolSnapshot {
@@ -1127,7 +1252,10 @@ fn test_v22_full_error_code_coverage_commitment() {
             .unwrap_err(),
         PremiumBondsError::ZeroSharesRedeemed.into()
     );
-    assert_eq!(err_code(anchor::error::PremiumBondsError::ZeroSharesRedeemed), 6081);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::ZeroSharesRedeemed),
+        6081
+    );
 
     // 10. BatchOverclaimed
     batch.total_principal_requested = 100;
@@ -1137,67 +1265,130 @@ fn test_v22_full_error_code_coverage_commitment() {
         batch.claim(20).unwrap_err(),
         PremiumBondsError::BatchOverclaimed.into()
     );
-    assert_eq!(err_code(anchor::error::PremiumBondsError::BatchOverclaimed), 6082);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::BatchOverclaimed),
+        6082
+    );
 
     // 11. InvalidHumaLenderState
-    assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidHumaLenderState), 6083);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::InvalidHumaLenderState),
+        6083
+    );
 
     // 12. UnauthorizedCrank
-    assert_eq!(err_code(anchor::error::PremiumBondsError::UnauthorizedCrank), 6011);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::UnauthorizedCrank),
+        6011
+    );
 
     // 13. CannotImpairSolventPool
-    assert_eq!(err_code(anchor::error::PremiumBondsError::CannotImpairSolventPool), 6084);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::CannotImpairSolventPool),
+        6084
+    );
 
     // 14. PoolImpaired
-    assert_eq!(err_code(anchor::error::PremiumBondsError::PoolImpaired), 6085);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::PoolImpaired),
+        6085
+    );
 
     // 15. ImpairmentTimelockActive
-    assert_eq!(err_code(anchor::error::PremiumBondsError::ImpairmentTimelockActive), 6086);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::ImpairmentTimelockActive),
+        6086
+    );
 
     // 16. InvalidFeeWallet
-    assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidFeeWallet), 6037);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::InvalidFeeWallet),
+        6037
+    );
 
     // 17. InvalidRecapitalizeAmount
-    assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidRecapitalizeAmount), 6087);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::InvalidRecapitalizeAmount),
+        6087
+    );
 
     // 18. PoolNotPaused
-    assert_eq!(err_code(anchor::error::PremiumBondsError::PoolNotPaused), 6088);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::PoolNotPaused),
+        6088
+    );
 
     // 19. RedemptionNotExpired
-    assert_eq!(err_code(anchor::error::PremiumBondsError::RedemptionNotExpired), 6089);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::RedemptionNotExpired),
+        6089
+    );
 
     // 20. InvalidGuardianAddress
-    assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidGuardianAddress), 6090);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::InvalidGuardianAddress),
+        6090
+    );
 
     // 21. InvalidJobsAccountAddress
-    assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidJobsAccountAddress), 6091);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::InvalidJobsAccountAddress),
+        6091
+    );
 
     // 22. MissingFeeWalletAccount
-    assert_eq!(err_code(anchor::error::PremiumBondsError::MissingFeeWalletAccount), 6092);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::MissingFeeWalletAccount),
+        6092
+    );
 
     // 23. MissingTokenMintAccount
-    assert_eq!(err_code(anchor::error::PremiumBondsError::MissingTokenMintAccount), 6093);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::MissingTokenMintAccount),
+        6093
+    );
 
     // 24. FeeWalletFrozen
-    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletFrozen), 6094);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::FeeWalletFrozen),
+        6094
+    );
 
     // 25. FeeWalletAliasedToVault
-    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletAliasedToVault), 6095);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::FeeWalletAliasedToVault),
+        6095
+    );
 
     // 26. FeeWalletInvalidOwner
-    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletInvalidOwner), 6096);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::FeeWalletInvalidOwner),
+        6096
+    );
 
     // 27. FeeWalletHasAuthority
-    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletHasAuthority), 6097);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::FeeWalletHasAuthority),
+        6097
+    );
 
     // 28. FeeWalletNotAssociatedTokenAccount
-    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletNotAssociatedTokenAccount), 6098);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::FeeWalletNotAssociatedTokenAccount),
+        6098
+    );
 
     // 29. FeeWalletUnsupportedExtension
-    assert_eq!(err_code(anchor::error::PremiumBondsError::FeeWalletUnsupportedExtension), 6099);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::FeeWalletUnsupportedExtension),
+        6099
+    );
 
     // 30. InvalidTokenProgram
-    assert_eq!(err_code(anchor::error::PremiumBondsError::InvalidTokenProgram), 6100);
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::InvalidTokenProgram),
+        6100
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1364,4 +1555,330 @@ fn test_crank_close_batch_succeeds_after_admin_updates_frozen_wallet() {
 
     res.expect("crank_close_redemption_batch must succeed after admin updates frozen fee wallet");
     assert_token_balance(&ctx.svm, &new_fee_wallet, unclaimed);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Boundary Guard Tests: INV-BATCH-001 (Submission Constraints)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_crank_submit_batch_fails_empty_batch() {
+    let mut ctx = setup_e2e();
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::EmptyRedemptionBatch);
+}
+
+#[test]
+fn test_crank_submit_batch_fails_unauthorized_crank() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    let hacker = Keypair::new();
+    ctx.svm.airdrop(&hacker.pubkey(), 1_000_000_000).unwrap();
+
+    let pool = read_pool_state(&ctx.svm, ctx.pool_id);
+    let res = CrankSubmitRedemptionBatchBuilder::for_pool(
+        ctx.pool_id,
+        0,
+        pool.next_redemption_batch_id,
+        hacker.pubkey(),
+    )
+    .with_huma_pool_state(ctx.huma_pool_state)
+    .with_huma_mode_mint(ctx.pst_mint)
+    .with_huma_redemption_request(Keypair::new().pubkey())
+    .with_huma_lender_state(ctx.huma_lender_state)
+    .with_huma_pool_authority(ctx.huma_pool_authority)
+    .with_huma_pool_mode_token(ctx.huma_pool_mode_token)
+    .send(&mut ctx.svm, &hacker);
+
+    assert_custom_error(res, PremiumBondsError::UnauthorizedCrank);
+}
+
+#[test]
+fn test_crank_submit_batch_fails_mismatched_pool_id() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    mutate_redemption_batch(&mut ctx.svm, ctx.pool_id, 0, |b| {
+        b.pool_id = 999;
+    });
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::MismatchedPoolId);
+}
+
+#[test]
+fn test_crank_submit_batch_fails_invalid_huma_lender_state() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    let bogus_lender_state = Keypair::new().pubkey();
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0)
+        .with_huma_lender_state(bogus_lender_state)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::InvalidHumaLenderState);
+}
+
+#[test]
+fn test_crank_submit_batch_fails_zero_shares_redeemed() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    // Set pool status to Impaired to bypass solvency assertion
+    mutate_pool_state(&mut ctx.svm, ctx.pool_id, |p| {
+        p.status = PoolStatus::Impaired as u8;
+    });
+
+    let (pool_pst_vault, _) = pool_pst_vault_pda(ctx.pool_id);
+    let (pool_pda_addr, _) = pool_pda(ctx.pool_id);
+    inject_token_account(&mut ctx.svm, pool_pst_vault, ctx.pst_mint, pool_pda_addr, 0);
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::ZeroSharesRedeemed);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Boundary Guard Tests: INV-BATCH-002 (Settlement Constraints)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_settle_batch_fails_invalid_batch_status() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    mutate_pool_state(&mut ctx.svm, ctx.pool_id, |p| {
+        p.submitted_batch_id = 0;
+    });
+
+    let res = SettleRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::InvalidBatchStatus);
+}
+
+#[test]
+fn test_settle_batch_fails_mismatched_batch_id() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert!(res.is_ok(), "Submit batch 0 must succeed");
+
+    mutate_pool_state(&mut ctx.svm, ctx.pool_id, |p| {
+        p.submitted_batch_id = 999;
+    });
+
+    let res2 = SettleRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res2, PremiumBondsError::MismatchedBatchId);
+}
+
+#[test]
+fn test_settle_batch_fails_mismatched_pool_id() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert!(res.is_ok(), "Submit batch 0 must succeed");
+
+    mutate_redemption_batch(&mut ctx.svm, ctx.pool_id, 0, |b| {
+        b.pool_id = 999;
+    });
+
+    let res2 = SettleRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res2, PremiumBondsError::MismatchedPoolId);
+}
+
+#[test]
+fn test_settle_batch_fails_huma_queue_not_settled() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert!(res.is_ok(), "Submit batch 0 must succeed");
+
+    set_mock_huma_next_request_id(&mut ctx.svm, ctx.huma_pool_state, 0);
+
+    let res2 = SettleRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res2, PremiumBondsError::HumaQueueNotSettled);
+}
+
+#[test]
+fn test_settle_batch_fails_invalid_huma_lender_state() {
+    let mut ctx = setup_e2e();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    send_e2e_sell_bonds(&mut ctx, &user, 0, 5).unwrap();
+
+    let res = CrankSubmitRedemptionBatchBuilder::from_ctx(&ctx, 0).send(&mut ctx.svm, &ctx.admin);
+    assert!(res.is_ok(), "Submit batch 0 must succeed");
+
+    let bogus_lender_state = Keypair::new().pubkey();
+
+    let res2 = SettleRedemptionBatchBuilder::from_ctx(&ctx, 0)
+        .with_huma_lender_state(bogus_lender_state)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res2, PremiumBondsError::InvalidHumaLenderState);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Metamorphic Invariance Runners (MTR-011, MTR-012, MTR-013)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_mtr011_unified_batch_aggregation_monotonicity() {
+    let total_principal = 100_000_000u64;
+    let haircuts = [0u64, 10, 25, 50, 90];
+
+    for haircut in haircuts {
+        let settled_usdc = total_principal * (100 - haircut) / 100;
+        let batch = RedemptionBatch {
+            huma_request_id: 1,
+            batch_id: 0,
+            total_principal_requested: total_principal,
+            total_pst_shares_locked: total_principal,
+            settled_usdc_received: settled_usdc,
+            claimed_principal: 0,
+            created_at: 0,
+            submitted_at: 0,
+            settled_at: 100,
+            pool_id: 1,
+            status: RedemptionBatchStatus::Settled,
+            bump: 255,
+            version: 1,
+            _padding: [0; 1],
+            _reserved: [0; 72],
+        };
+
+        let test_pairs = [
+            (1_000_000u64, 2_000_000u64),
+            (12_345_678, 34_567_890),
+            (500, 999),
+            (1, 1),
+            (49_999_999, 50_000_001),
+        ];
+
+        for (p1, p2) in test_pairs {
+            let payout_combined = batch.calculate_payout(p1 + p2).unwrap();
+            let payout_separate =
+                batch.calculate_payout(p1).unwrap() + batch.calculate_payout(p2).unwrap();
+            assert!(
+                payout_combined >= payout_separate,
+                "Aggregation monotonicity violated for haircut {}%: combined {} < separate {}",
+                haircut,
+                payout_combined,
+                payout_separate
+            );
+        }
+    }
+}
+
+#[test]
+fn test_mtr012_pro_rata_solvency_bounds_under_arbitrary_haircuts() {
+    let user_principals = [
+        12_345_678u64,
+        23_456_789u64,
+        34_567_890u64,
+        4_567_891u64,
+        25_061_752u64,
+    ];
+    let total_principal: u64 = user_principals.iter().sum();
+
+    for haircut in (0..=100).step_by(5) {
+        let disbursed_usdc = total_principal * (100 - haircut) / 100;
+        let batch = RedemptionBatch {
+            huma_request_id: 1,
+            batch_id: 0,
+            total_principal_requested: total_principal,
+            total_pst_shares_locked: total_principal,
+            settled_usdc_received: disbursed_usdc,
+            claimed_principal: 0,
+            created_at: 0,
+            submitted_at: 0,
+            settled_at: 100,
+            pool_id: 1,
+            status: RedemptionBatchStatus::Settled,
+            bump: 255,
+            version: 1,
+            _padding: [0; 1],
+            _reserved: [0; 72],
+        };
+
+        let total_payout: u64 = user_principals
+            .iter()
+            .map(|&p| batch.calculate_payout(p).unwrap())
+            .sum();
+
+        assert!(
+            total_payout <= disbursed_usdc,
+            "Solvency bound violated for haircut {}%: total payout {} > disbursed {}",
+            haircut,
+            total_payout,
+            disbursed_usdc
+        );
+    }
+}
+
+#[test]
+fn test_mtr013_dynamic_solvency_clamping_monotonicity() {
+    let pool = PrizePoolTestBuilder::new(1).build();
+
+    let min_tol = anchor::constants::MIN_SOLVENCY_TOLERANCE;
+    let max_tol = anchor::constants::MAX_SOLVENCY_TOLERANCE;
+
+    let mut prev_tol = 0u64;
+
+    let tvl_steps: Vec<u64> = vec![
+        1_000_000,
+        10_000_000,
+        50_000_000,
+        100_000_000,
+        500_000_000,
+        1_000_000_000,
+        5_000_000_000,
+        10_000_000_000,
+        50_000_000_000,
+        100_000_000_000,
+        200_000_000_000,
+        500_000_000_000,
+    ];
+
+    for tvl in tvl_steps {
+        let tol = pool.calculate_solvency_tolerance(tvl).unwrap();
+
+        assert!(
+            tol >= min_tol,
+            "Tolerance {} below minimum {}",
+            tol,
+            min_tol
+        );
+        assert!(
+            tol <= max_tol,
+            "Tolerance {} above maximum {}",
+            tol,
+            max_tol
+        );
+
+        assert!(
+            tol >= prev_tol,
+            "Tolerance non-monotonic: current {} < previous {}",
+            tol,
+            prev_tol
+        );
+        prev_tol = tol;
+    }
 }

@@ -94,8 +94,10 @@ pub fn setup_svm() -> LiteSVM {
         huma_program_id(),
         include_bytes!("../../../../target/deploy/mock_huma.so"),
     );
-    set_clock_timestamp(&mut svm, 1_700_000_000);
-    svm.warp_to_slot(100);
+    let mut clock: solana_sdk::clock::Clock = svm.get_sysvar();
+    clock.slot = 100;
+    clock.unix_timestamp = 1_700_000_000;
+    svm.set_sysvar(&clock);
     svm
 }
 
@@ -457,6 +459,9 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
         .send(&mut svm, &admin)
         .expect("Create PrizePool must succeed");
 
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut svm, huma_lender_state, 0);
+
     let dummy = Keypair::new().pubkey();
     let ix_init_lender = build_initialize_huma_lender_ix(
         admin.pubkey(),
@@ -468,14 +473,11 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
         huma_pool_state,
         dummy,
         pst_mint,
-        dummy,
+        huma_lender_state,
         dummy,
     );
     send_initialize_huma_lender(&mut svm, &admin, ix_init_lender)
         .expect("Initialize Huma Lender must succeed");
-
-    let huma_lender_state = Keypair::new().pubkey();
-    inject_lender_state(&mut svm, huma_lender_state, 0);
 
     let alice_usdc = Keypair::new().pubkey();
     inject_token_account(&mut svm, alice_usdc, usdc_mint, alice.pubkey(), 200_000_000);
@@ -542,12 +544,6 @@ pub fn warp_forward_seconds(svm: &mut LiteSVM, seconds: i64) {
     warp_to_timestamp(svm, clock.unix_timestamp + seconds);
 }
 
-#[deprecated(since = "0.1.0", note = "Use warp_forward_seconds or warp_to_timestamp to advance slot and clock in unison")]
-pub fn set_clock_timestamp(svm: &mut LiteSVM, unix_timestamp: i64) {
-    let mut clock: solana_sdk::clock::Clock = svm.get_sysvar();
-    clock.unix_timestamp = unix_timestamp;
-    svm.set_sysvar(&clock);
-}
 
 pub fn substitute_account_meta(
     ix: &mut solana_program::instruction::Instruction,
@@ -1091,7 +1087,13 @@ impl ClaimRedemptionFixtureBuilder {
             .inject(&mut svm);
 
         let (pool_vault, _) = pool_vault_pda(self.pool_id);
-        inject_token_account(&mut svm, pool_vault, token_mint, pool_key, self.vault_balance);
+        inject_token_account(
+            &mut svm,
+            pool_vault,
+            token_mint,
+            pool_key,
+            self.vault_balance,
+        );
 
         let owner = self.redemption_owner.unwrap_or_else(|| user.pubkey());
 
@@ -1380,4 +1382,3 @@ impl Default for HarvestFixtureBuilder {
         Self::new()
     }
 }
-

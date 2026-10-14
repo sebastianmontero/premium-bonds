@@ -7,7 +7,8 @@ use solana_sdk::{signature::Keypair, signer::Signer};
 mod common;
 use common::*;
 
-pub const TEST_TOKEN_MINT: Pubkey = solana_program::pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+pub const TEST_TOKEN_MINT: Pubkey =
+    solana_program::pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
 fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
     inject_mint(svm, TEST_TOKEN_MINT, 6);
@@ -66,12 +67,7 @@ fn test_update_pool_config_succeeds_all_fields() {
 
     let new_owner = Keypair::new();
     svm.airdrop(&new_owner.pubkey(), 1_000_000_000).unwrap();
-    let new_fee_wallet = inject_canonical_ata(
-        &mut svm,
-        &new_owner.pubkey(),
-        &TEST_TOKEN_MINT,
-        0,
-    );
+    let new_fee_wallet = inject_canonical_ata(&mut svm, &new_owner.pubkey(), &TEST_TOKEN_MINT, 0);
 
     let meta = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
         .with_fee_basis_points(50)
@@ -567,4 +563,57 @@ fn test_update_pool_config_fails_missing_token_mint_account() {
         .send(&mut svm, &admin);
 
     assert_custom_error(res, PremiumBondsError::MissingTokenMintAccount);
+}
+
+#[test]
+fn test_update_pool_config_fails_fee_wallet_has_authority() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let new_owner = Keypair::new();
+    svm.airdrop(&new_owner.pubkey(), 1_000_000_000).unwrap();
+    let new_fee_wallet = inject_canonical_ata_with_delegate(
+        &mut svm,
+        &new_owner.pubkey(),
+        &TEST_TOKEN_MINT,
+        Keypair::new().pubkey(),
+    );
+
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_wallet(new_fee_wallet)
+        .with_token_mint(TEST_TOKEN_MINT)
+        .send(&mut svm, &admin);
+
+    assert_custom_error(res, PremiumBondsError::FeeWalletHasAuthority);
+}
+
+#[test]
+fn test_update_pool_config_fails_fee_wallet_unsupported_extension() {
+    let (mut svm, admin) = setup_global_config();
+    let token_2022_mint = Keypair::new().pubkey();
+    inject_token_2022_mint(&mut svm, token_2022_mint, 6, None);
+    inject_pool_with_huma_state(
+        &mut svm,
+        1,
+        token_2022_mint,
+        Keypair::new().pubkey(),
+        anchor::PoolStatus::Active,
+        false,
+        Keypair::new().pubkey(),
+    );
+
+    let new_owner = Keypair::new();
+    svm.airdrop(&new_owner.pubkey(), 1_000_000_000).unwrap();
+    let new_fee_wallet = inject_token_2022_canonical_ata_with_unsupported_extension(
+        &mut svm,
+        &new_owner.pubkey(),
+        &token_2022_mint,
+    );
+
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_wallet(new_fee_wallet)
+        .with_token_mint(token_2022_mint)
+        .send(&mut svm, &admin);
+
+    assert_custom_error(res, PremiumBondsError::FeeWalletUnsupportedExtension);
 }

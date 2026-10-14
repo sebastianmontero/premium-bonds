@@ -1,5 +1,9 @@
 use {
-    crate::common::{constants::*, pda::*, state_builders::{DrawCycleTestBuilder, UserWinningsBuilder}},
+    crate::common::{
+        constants::*,
+        pda::*,
+        state_builders::{DrawCycleTestBuilder, UserWinningsBuilder},
+    },
     anchor_lang::{AccountSerialize, AnchorSerialize, Discriminator, Space},
     anchor_spl::token::spl_token::state::{Account as SplAccount, Mint as SplMint},
     litesvm::LiteSVM,
@@ -129,6 +133,135 @@ pub fn inject_token_account(
         },
     )
     .unwrap();
+}
+
+pub fn inject_canonical_ata_with_delegate(
+    svm: &mut LiteSVM,
+    owner: &Pubkey,
+    mint: &Pubkey,
+    delegate: Pubkey,
+) -> Pubkey {
+    let ata = anchor_spl::associated_token::get_associated_token_address(owner, mint);
+    let token_state = SplAccount {
+        mint: *mint,
+        owner: *owner,
+        amount: 0,
+        delegate: solana_program::program_option::COption::Some(delegate),
+        state: anchor_spl::token::spl_token::state::AccountState::Initialized,
+        is_native: solana_program::program_option::COption::None,
+        delegated_amount: 1,
+        close_authority: solana_program::program_option::COption::None,
+    };
+    let mut data = vec![0u8; SplAccount::get_packed_len()];
+    Pack::pack_into_slice(&token_state, &mut data);
+
+    svm.set_account(
+        ata,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor_spl::token::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    ata
+}
+
+pub fn inject_canonical_ata_with_close_authority(
+    svm: &mut LiteSVM,
+    owner: &Pubkey,
+    mint: &Pubkey,
+    close_authority: Pubkey,
+) -> Pubkey {
+    let ata = anchor_spl::associated_token::get_associated_token_address(owner, mint);
+    let token_state = SplAccount {
+        mint: *mint,
+        owner: *owner,
+        amount: 0,
+        delegate: solana_program::program_option::COption::None,
+        state: anchor_spl::token::spl_token::state::AccountState::Initialized,
+        is_native: solana_program::program_option::COption::None,
+        delegated_amount: 0,
+        close_authority: solana_program::program_option::COption::Some(close_authority),
+    };
+    let mut data = vec![0u8; SplAccount::get_packed_len()];
+    Pack::pack_into_slice(&token_state, &mut data);
+
+    svm.set_account(
+        ata,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor_spl::token::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    ata
+}
+
+pub fn inject_token_2022_canonical_ata_with_unsupported_extension(
+    svm: &mut LiteSVM,
+    owner: &Pubkey,
+    mint: &Pubkey,
+) -> Pubkey {
+    use anchor_spl::token_2022::spl_token_2022::extension::{
+        BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut,
+    };
+    let ata = anchor_spl::associated_token::get_associated_token_address_with_program_id(
+        owner,
+        mint,
+        &anchor_spl::token_2022::ID,
+    );
+    let space = ExtensionType::try_calculate_account_len::<
+        anchor_spl::token_2022::spl_token_2022::state::Account,
+    >(&[ExtensionType::ImmutableOwner, ExtensionType::CpiGuard])
+    .unwrap();
+
+    let mut data = vec![0u8; space];
+    let mut state = StateWithExtensionsMut::<
+        anchor_spl::token_2022::spl_token_2022::state::Account,
+    >::unpack_uninitialized(&mut data)
+    .unwrap();
+    state.init_account_type().unwrap();
+    state
+        .init_extension::<anchor_spl::token_2022::spl_token_2022::extension::immutable_owner::ImmutableOwner>(
+            true,
+        )
+        .unwrap();
+    state
+        .init_extension::<anchor_spl::token_2022::spl_token_2022::extension::cpi_guard::CpiGuard>(
+            true,
+        )
+        .unwrap();
+
+    let token_state = SplAccount {
+        mint: *mint,
+        owner: *owner,
+        amount: 0,
+        delegate: solana_program::program_option::COption::None,
+        state: anchor_spl::token::spl_token::state::AccountState::Initialized,
+        is_native: solana_program::program_option::COption::None,
+        delegated_amount: 0,
+        close_authority: solana_program::program_option::COption::None,
+    };
+    Pack::pack_into_slice(&token_state, &mut data[..SplAccount::LEN]);
+
+    svm.set_account(
+        ata,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor_spl::token_2022::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    ata
 }
 
 // ─── Protocol Account Injectors ──────────────────────────────────────────────
@@ -372,17 +505,32 @@ pub fn inject_randomness_account_data_with_owner(
 pub fn inject_corrupted_randomness_discriminator(svm: &mut LiteSVM, address: Pubkey) {
     let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
     data[0..8].copy_from_slice(&[0xff; 8]); // Explicit invalid discriminator
-    inject_raw_account(svm, address, anchor::constants::SWITCHBOARD_ON_DEMAND_PID, data);
+    inject_raw_account(
+        svm,
+        address,
+        anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
+        data,
+    );
 }
 
 pub fn inject_truncated_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
     let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN - 1];
     data[0..8].copy_from_slice(&anchor::constants::SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
-    inject_raw_account(svm, address, anchor::constants::SWITCHBOARD_ON_DEMAND_PID, data);
+    inject_raw_account(
+        svm,
+        address,
+        anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
+        data,
+    );
 }
 
 pub fn inject_zero_byte_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
-    inject_raw_account(svm, address, anchor::constants::SWITCHBOARD_ON_DEMAND_PID, vec![]);
+    inject_raw_account(
+        svm,
+        address,
+        anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
+        vec![],
+    );
 }
 
 pub fn inject_unconfigured_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
@@ -396,18 +544,13 @@ pub fn inject_unconfigured_randomness_account(svm: &mut LiteSVM, address: Pubkey
     );
 }
 
-pub fn inject_foreign_owner_randomness_account(svm: &mut LiteSVM, address: Pubkey, foreign_owner: Pubkey) {
-    inject_randomness_account_data_with_owner(
-        svm,
-        address,
-        0,
-        0,
-        [0u8; 32],
-        foreign_owner,
-    );
+pub fn inject_foreign_owner_randomness_account(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    foreign_owner: Pubkey,
+) {
+    inject_randomness_account_data_with_owner(svm, address, 0, 0, [0u8; 32], foreign_owner);
 }
-
-
 
 pub fn inject_current_slot_randomness(svm: &mut LiteSVM, address: Pubkey, value: [u8; 32]) {
     let clock: solana_sdk::clock::Clock = svm.get_sysvar();
@@ -538,11 +681,7 @@ pub fn inject_pending_redemption_with_params(
     pda
 }
 
-pub fn inject_redemption_batch(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    batch_id: u64,
-) -> Pubkey {
+pub fn inject_redemption_batch(svm: &mut LiteSVM, pool_id: u32, batch_id: u64) -> Pubkey {
     let (pda, bump) = redemption_batch_pda(pool_id, batch_id);
     let mut batch = anchor::state::RedemptionBatch::new(pool_id, batch_id, bump, 0);
     batch.init_accumulating(pool_id, batch_id, bump, 0);

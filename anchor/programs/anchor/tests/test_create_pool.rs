@@ -505,4 +505,57 @@ fn test_create_pool_fails_non_canonical_ata() {
     assert_custom_error(res, PremiumBondsError::FeeWalletNotAssociatedTokenAccount);
 }
 
+#[test]
+fn test_create_pool_fails_fee_wallet_has_delegate() {
+    let mut ctx = setup_create_pool_context();
+    let fee_wallet = inject_canonical_ata_with_delegate(
+        &mut ctx.svm,
+        &ctx.admin.pubkey(),
+        &ctx.token_mint,
+        Keypair::new().pubkey(),
+    );
 
+    let res = ctx
+        .pool_builder(1)
+        .with_fee_wallet(fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::FeeWalletHasAuthority);
+}
+
+#[test]
+fn test_create_pool_fails_fee_wallet_has_close_authority() {
+    let mut ctx = setup_create_pool_context();
+    let fee_wallet = inject_canonical_ata_with_close_authority(
+        &mut ctx.svm,
+        &ctx.admin.pubkey(),
+        &ctx.token_mint,
+        Keypair::new().pubkey(),
+    );
+
+    let res = ctx
+        .pool_builder(1)
+        .with_fee_wallet(fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::FeeWalletHasAuthority);
+}
+
+#[test]
+fn test_create_pool_fails_fee_wallet_unsupported_extension() {
+    let mut ctx = setup_create_pool_context();
+    let token_2022_mint = Keypair::new().pubkey();
+    inject_token_2022_mint(&mut ctx.svm, token_2022_mint, 6, None);
+
+    let fee_wallet = inject_token_2022_canonical_ata_with_unsupported_extension(
+        &mut ctx.svm,
+        &ctx.admin.pubkey(),
+        &token_2022_mint,
+    );
+
+    let res = ctx
+        .pool_builder(1)
+        .with_token_mint(token_2022_mint)
+        .with_token_program(anchor_spl::token_2022::ID)
+        .with_fee_wallet(fee_wallet)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res, PremiumBondsError::FeeWalletUnsupportedExtension);
+}

@@ -168,3 +168,17 @@ fn test_initialize_huma_lender_fails_invalid_mode_mint() {
         .send(&mut ctx.svm, &ctx.admin);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
 }
+
+#[test]
+fn test_initialize_huma_lender_fails_invalid_lender_state() {
+    let mut ctx = setup_e2e();
+    let bogus_lender_state = Keypair::new().pubkey();
+
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_huma_lender_state(bogus_lender_state)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidHumaLenderState,
+    );
+}

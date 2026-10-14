@@ -1,6 +1,9 @@
 use {
     crate::common::{account_builders::*, context::*, injectors::*, pda::*, readers::*, spl::*},
-    anchor_lang::{AccountDeserialize, AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData, Space, ToAccountMetas},
+    anchor_lang::{
+        AccountDeserialize, AnchorDeserialize, AnchorSerialize, Discriminator, InstructionData,
+        Space, ToAccountMetas,
+    },
     litesvm::LiteSVM,
     solana_program::{
         instruction::{AccountMeta, Instruction},
@@ -569,12 +572,7 @@ pub fn send_admin_force_unlock(
     cycle_id: u32,
 ) -> TxResult {
     let dc = crate::common::readers::read_draw_cycle_state(svm, pool_id, cycle_id);
-    let ix = build_admin_force_unlock_ix(
-        &admin.pubkey(),
-        pool_id,
-        cycle_id,
-        dc.randomness_account,
-    );
+    let ix = build_admin_force_unlock_ix(&admin.pubkey(), pool_id, cycle_id, dc.randomness_account);
     send_user_tx(svm, admin, ix)
 }
 
@@ -830,50 +828,36 @@ pub fn send_e2e_claim_redemption_for_user(
     user_token_account: Pubkey,
     redemption_id: u64,
 ) -> TxResult {
-    send_e2e_claim_redemption_full(
-        ctx,
-        user,
-        user.pubkey(),
-        user_token_account,
-        redemption_id,
-    )
+    send_e2e_claim_redemption_full(ctx, user, user.pubkey(), user_token_account, redemption_id)
 }
 
-pub fn send_e2e_claim_redemption(
-    ctx: &mut E2eContext,
-    redemption_id: u64,
-) -> TxResult {
+pub fn send_e2e_claim_redemption(ctx: &mut E2eContext, redemption_id: u64) -> TxResult {
     let user = clone_keypair(&ctx.user);
     let user_token_account = ctx.user_usdc_account;
     send_e2e_claim_redemption_for_user(ctx, &user, user_token_account, redemption_id)
 }
 
-pub fn send_e2e_submit_redemption_batch(
-    ctx: &mut E2eContext,
-    batch_id: u64,
-) -> TxResult {
+pub fn send_e2e_submit_redemption_batch(ctx: &mut E2eContext, batch_id: u64) -> TxResult {
     let admin = clone_keypair(&ctx.admin);
     CrankSubmitRedemptionBatchBuilder::from_ctx(ctx, batch_id).send(&mut ctx.svm, &admin)
 }
 
-pub fn send_e2e_settle_redemption_batch(
-    ctx: &mut E2eContext,
-    batch_id: u64,
-) -> TxResult {
+pub fn send_e2e_settle_redemption_batch(ctx: &mut E2eContext, batch_id: u64) -> TxResult {
     let admin = clone_keypair(&ctx.admin);
     SettleRedemptionBatchBuilder::from_ctx(ctx, batch_id).send(&mut ctx.svm, &admin)
 }
 
-pub fn send_e2e_submit_and_settle_batch(
-    ctx: &mut E2eContext,
-    batch_id: u64,
-) -> TxResult {
+pub fn send_e2e_submit_and_settle_batch(ctx: &mut E2eContext, batch_id: u64) -> TxResult {
     // 1. Submit accumulating batch on-chain (PST burned/escrowed, next batch initialized)
     send_e2e_submit_redemption_batch(ctx, batch_id)?;
 
     // 2. Prepare mock Huma queue & lender state credit so disburse transfers exact funds
     let batch = read_redemption_batch(&ctx.svm, ctx.pool_id, batch_id);
-    inject_lender_state(&mut ctx.svm, ctx.huma_lender_state, batch.total_principal_requested);
+    inject_lender_state(
+        &mut ctx.svm,
+        ctx.huma_lender_state,
+        batch.total_principal_requested,
+    );
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // 3. Settle batch on-chain (invokes Huma disburse CPI into pool_vault and unlocks pipeline)
@@ -895,7 +879,11 @@ pub fn send_e2e_harvest_yield_and_commit_with_crank(
 
     let randomness_account = Keypair::new().pubkey();
     let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
-    let seed_slot = if clock.slot > 0 { clock.slot.saturating_sub(1) } else { 1 };
+    let seed_slot = if clock.slot > 0 {
+        clock.slot.saturating_sub(1)
+    } else {
+        1
+    };
     crate::common::injectors::inject_randomness_account_data(
         &mut ctx.svm,
         randomness_account,
