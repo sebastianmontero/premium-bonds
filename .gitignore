@@ -60,3 +60,12 @@ scripts/localnet-state/
 scripts/devnet-state/
 .surfpool/
 anchor/show_output.txt
+
+# claude code local settings and runtime state
+.claude/settings.local.json
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-memory-local/
+.claude/*.lock
+.claude/scheduled_tasks.json

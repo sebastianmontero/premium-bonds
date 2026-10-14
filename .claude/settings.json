@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(cargo *)",
+      "Bash(NO_DNA=1 cargo *)",
+      "Bash(anchor *)",
+      "Bash(NO_DNA=1 anchor *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git show*)",
+      "Bash(rg *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(which *)",
+      "Read",
+      "Edit",
+      "Write"
+    ],
+    "deny": [
+      "Read(**/.env*)",
+      "Write(**/.env*)",
+      "Edit(**/.env*)",
+      "Read(**/*-key*.json)",
+      "Write(**/*-key*.json)",
+      "Edit(**/*-key*.json)",
+      "Read(**/anchor/keys/**)",
+      "Write(**/anchor/keys/**)",
+      "Edit(**/anchor/keys/**)",
+      "Read(~/.config/solana/**)",
+      "Write(~/.config/solana/**)",
+      "Edit(~/.config/solana/**)",
+      "Read(**/*.pem)",
+      "Write(**/*.pem)",
+      "Edit(**/*.pem)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(rm -rf *)"
+    ]
+  }
+}

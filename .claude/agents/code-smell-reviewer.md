@@ -1,0 +1,1 @@
+../../.agents/agents/code_smell_reviewer/agent.md

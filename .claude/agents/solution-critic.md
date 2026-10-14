@@ -1,0 +1,1 @@
+../../.agents/agents/solution_critic/agent.md

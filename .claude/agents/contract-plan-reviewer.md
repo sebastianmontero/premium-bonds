@@ -1,0 +1,1 @@
+../../.agents/agents/contract_plan_reviewer/agent.md

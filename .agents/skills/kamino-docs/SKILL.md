@@ -1,3 +1,8 @@
+---
+name: kamino-docs
+description: Reference documentation, REST endpoints, and SDK specifications for Kamino Finance (lending, vaults, KTX API). Use when integrating or interacting with Kamino DeFi protocols on Solana.
+---
+
 > ## Documentation Index
 >
 > Fetch the complete documentation index at: https://kamino.com/docs/llms.txt

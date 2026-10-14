@@ -1,6 +1,7 @@
 ---
 name: solution-critic
 description: A critical software architect subagent that reviews proposed plans, assesses if they represent the best solution, and identifies superior alternatives or optimizations.
+tools: Read, Grep, Glob
 ---
 
 # Identity
