@@ -20,9 +20,9 @@ pub enum PremiumBondsError {
     /// The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.
     #[msg("The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.")]
     RegistryTooSmall,
-    /// The registry account has reached Solana's 10 MB maximum size.
-    #[msg("The registry account has reached Solana's 10 MB maximum size.")]
-    RegistryAtMaxSize,
+    /// Pool must be Paused or Closed for this operation.
+    #[msg("Pool must be paused or closed.")]
+    PoolNotPausedOrClosed,
     /// The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.
     #[msg("The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.")]
     AwaitingRandomnessFreeze,
@@ -62,9 +62,9 @@ pub enum PremiumBondsError {
     /// Stake cycle duration must be greater than 0 hours.
     #[msg("Stake cycle duration must be greater than 0 hours.")]
     InvalidStakeCycleDuration,
-    /// Huma redemption has not been settled yet.
-    #[msg("Huma redemption has not been settled yet.")]
-    HumaRedemptionNotSettled,
+    /// Invalid token program provided.
+    #[msg("Invalid token program provided.")]
+    InvalidTokenProgram,
     /// Beneficiary does not match the pending redemption owner.
     #[msg("Beneficiary does not match pending redemption owner.")]
     InvalidRedemptionOwner,
@@ -304,11 +304,5 @@ pub enum PremiumBondsError {
     /// Fee wallet configures unsupported Token-2022 account extensions.
     #[msg("Fee wallet configures unsupported Token-2022 account extensions.")]
     FeeWalletUnsupportedExtension,
-    /// Invalid token program provided.
-    #[msg("Invalid token program provided.")]
-    InvalidTokenProgram,
-    /// Pool must be Paused or Closed for this operation.
-    #[msg("Pool must be paused or closed.")]
-    PoolNotPausedOrClosed,
 }
 

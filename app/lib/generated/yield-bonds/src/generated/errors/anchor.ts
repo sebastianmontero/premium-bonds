@@ -26,8 +26,8 @@ export const ANCHOR_ERROR__INVALID_BOND_QUANTITY = 0x1773; // 6003
 export const ANCHOR_ERROR__REGISTRY_FULL = 0x1774; // 6004
 /** RegistryTooSmall: The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes. */
 export const ANCHOR_ERROR__REGISTRY_TOO_SMALL = 0x1775; // 6005
-/** RegistryAtMaxSize: The registry account has reached Solana's 10 MB maximum size. */
-export const ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE = 0x1776; // 6006
+/** PoolNotPausedOrClosed: Pool must be paused or closed. */
+export const ANCHOR_ERROR__POOL_NOT_PAUSED_OR_CLOSED = 0x1776; // 6006
 /** AwaitingRandomnessFreeze: The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused. */
 export const ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE = 0x1777; // 6007
 /** AlreadyClaimed: Trying to claim a prize that has already been claimed. */
@@ -54,8 +54,8 @@ export const ANCHOR_ERROR__UNAUTHORIZED_ADMIN = 0x1781; // 6017
 export const ANCHOR_ERROR__INVALID_BOND_PRICE = 0x1782; // 6018
 /** InvalidStakeCycleDuration: Stake cycle duration must be greater than 0 hours. */
 export const ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION = 0x1783; // 6019
-/** HumaRedemptionNotSettled: Huma redemption has not been settled yet. */
-export const ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED = 0x1784; // 6020
+/** InvalidTokenProgram: Invalid token program provided. */
+export const ANCHOR_ERROR__INVALID_TOKEN_PROGRAM = 0x1784; // 6020
 /** InvalidRedemptionOwner: Beneficiary does not match pending redemption owner. */
 export const ANCHOR_ERROR__INVALID_REDEMPTION_OWNER = 0x1785; // 6021
 /** InsufficientFeeBalance: Insufficient accrued fee balance for withdrawal. */
@@ -214,10 +214,6 @@ export const ANCHOR_ERROR__FEE_WALLET_HAS_AUTHORITY = 0x17d1; // 6097
 export const ANCHOR_ERROR__FEE_WALLET_NOT_ASSOCIATED_TOKEN_ACCOUNT = 0x17d2; // 6098
 /** FeeWalletUnsupportedExtension: Fee wallet configures unsupported Token-2022 account extensions. */
 export const ANCHOR_ERROR__FEE_WALLET_UNSUPPORTED_EXTENSION = 0x17d3; // 6099
-/** InvalidTokenProgram: Invalid token program provided. */
-export const ANCHOR_ERROR__INVALID_TOKEN_PROGRAM = 0x17d4; // 6100
-/** PoolNotPausedOrClosed: Pool must be paused or closed. */
-export const ANCHOR_ERROR__POOL_NOT_PAUSED_OR_CLOSED = 0x17d5; // 6101
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -241,7 +237,6 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__FEE_WALLET_NOT_ASSOCIATED_TOKEN_ACCOUNT
   | typeof ANCHOR_ERROR__FEE_WALLET_UNSUPPORTED_EXTENSION
   | typeof ANCHOR_ERROR__HUMA_QUEUE_NOT_SETTLED
-  | typeof ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED
   | typeof ANCHOR_ERROR__IMPAIRMENT_TIMELOCK_ACTIVE
   | typeof ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS
   | typeof ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE
@@ -305,7 +300,6 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__REBIND_LIMIT_REACHED
   | typeof ANCHOR_ERROR__REDEMPTION_BATCH_NOT_SETTLED
   | typeof ANCHOR_ERROR__REDEMPTION_NOT_EXPIRED
-  | typeof ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE
   | typeof ANCHOR_ERROR__REGISTRY_FULL
   | typeof ANCHOR_ERROR__REGISTRY_TOO_SMALL
   | typeof ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT
@@ -347,7 +341,6 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__FEE_WALLET_NOT_ASSOCIATED_TOKEN_ACCOUNT]: `Fee wallet must be the canonical Associated Token Account (ATA).`,
     [ANCHOR_ERROR__FEE_WALLET_UNSUPPORTED_EXTENSION]: `Fee wallet configures unsupported Token-2022 account extensions.`,
     [ANCHOR_ERROR__HUMA_QUEUE_NOT_SETTLED]: `Huma redemption queue has not progressed past the submitted request.`,
-    [ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED]: `Huma redemption has not been settled yet.`,
     [ANCHOR_ERROR__IMPAIRMENT_TIMELOCK_ACTIVE]: `Impairment workout timelock is still active.`,
     [ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS]: `Insufficient active tickets for this transaction`,
     [ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE]: `Insufficient accrued fee balance for withdrawal.`,
@@ -411,7 +404,6 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__REBIND_LIMIT_REACHED]: `Maximum crank rebind limit reached for this draw cycle.`,
     [ANCHOR_ERROR__REDEMPTION_BATCH_NOT_SETTLED]: `Redemption batch has not been settled yet.`,
     [ANCHOR_ERROR__REDEMPTION_NOT_EXPIRED]: `Redemption receipt has not expired yet.`,
-    [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: `The registry account has reached Solana's 10 MB maximum size.`,
     [ANCHOR_ERROR__REGISTRY_FULL]: `The prize pool registration capability has hit absolute capacity constraints.`,
     [ANCHOR_ERROR__REGISTRY_TOO_SMALL]: `The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.`,
     [ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT]: `Cannot rebind to the same randomness account.`,

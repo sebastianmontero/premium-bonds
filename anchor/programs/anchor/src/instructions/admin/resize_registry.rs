@@ -1,4 +1,4 @@
-use crate::constants::{PRIZE_POOL_SEED, REGISTRY_MAX_SIZE, REGISTRY_REALLOC_STEP};
+use crate::constants::{PRIZE_POOL_SEED, REGISTRY_REALLOC_STEP};
 use crate::error::PremiumBondsError;
 use crate::events::RegistryResized;
 use crate::state::{PrizePool, TicketRegistry};
@@ -30,9 +30,6 @@ pub struct ResizeRegistry<'info> {
     /// Reallocates additional space (`REGISTRY_REALLOC_STEP`) and charges rent to `payer`.
     #[account(
         mut,
-        // Guard: ensure we won't exceed Solana's 10 MB limit after this step.
-        constraint = ticket_registry.to_account_info().data_len() + REGISTRY_REALLOC_STEP <= REGISTRY_MAX_SIZE
-            @ PremiumBondsError::RegistryAtMaxSize,
         // Anchor handles the CPI rent transfer from `payer` and calls realloc for us.
         realloc = ticket_registry.to_account_info().data_len() + REGISTRY_REALLOC_STEP,
         realloc::payer = payer,

@@ -408,7 +408,7 @@ stateDiagram-v2
   - If mint has permanent delegate or close authority: `ErrorCode::InvalidTokenMint` (6057)
   - If `token_mint.decimals != 6 || pst_mint.decimals != 6`: `ErrorCode::InvalidTokenDecimals` (6067)
   - If Huma pool state invalid: `ErrorCode::InvalidHumaPoolState` (6062)
-  - If fee wallet token program invalid: `ErrorCode::InvalidTokenProgram` (6100)
+  - If fee wallet token program invalid: `ErrorCode::InvalidTokenProgram` (6020)
   - If fee wallet aliases pool PDA or vault account: `ErrorCode::FeeWalletAliasedToVault` (6095)
   - If fee wallet owner address is invalid: `ErrorCode::FeeWalletInvalidOwner` (6096)
   - If fee wallet is frozen or uninitialized: `ErrorCode::FeeWalletFrozen` (6094)
@@ -434,7 +434,7 @@ stateDiagram-v2
   - If fee wallet token account mint does not match `token_mint`: `ErrorCode::InvalidFeeWallet` (6037)
   - If `new_fee_wallet` provided but remaining account missing: `ErrorCode::MissingFeeWalletAccount` (6092)
   - If `new_fee_wallet` provided but token mint remaining account missing: `ErrorCode::MissingTokenMintAccount` (6093)
-  - If fee wallet token program invalid: `ErrorCode::InvalidTokenProgram` (6100)
+  - If fee wallet token program invalid: `ErrorCode::InvalidTokenProgram` (6020)
   - If fee wallet aliases pool PDA or vault account: `ErrorCode::FeeWalletAliasedToVault` (6095)
   - If fee wallet owner address is invalid: `ErrorCode::FeeWalletInvalidOwner` (6096)
   - If fee wallet is frozen or uninitialized: `ErrorCode::FeeWalletFrozen` (6094)
@@ -541,7 +541,7 @@ stateDiagram-v2
   - Emits `RegistryResized`.
 - **Expected Errors:**
   - If pool is frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
-  - If account exceeds 10 MB: `ErrorCode::RegistryAtMaxSize` (6006)
+  - If account exceeds 10 MB: native Solana SVM runtime rejection with `InstructionError::InvalidRealloc`
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-IMPR-001`: Transition to Impaired Workout Mode (`enable_impaired_mode`)
@@ -560,7 +560,7 @@ stateDiagram-v2
   - `pool.status = PoolStatus::Impaired (3)`.
   - Emits CPI event `PoolImpairedModeEnabled`.
 - **Expected Errors:**
-  - If pool is neither paused nor closed: `ErrorCode::PoolNotPausedOrClosed` (6101)
+  - If pool is neither paused nor closed: `ErrorCode::PoolNotPausedOrClosed` (6006)
   - If pool is solvent against book value: `ErrorCode::CannotImpairSolventPool` (6084)
   - If caller is not admin and 90-day timelock has not elapsed: `ErrorCode::ImpairmentTimelockActive` (6086)
   - If pool frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
@@ -582,7 +582,7 @@ stateDiagram-v2
   - Emits CPI event `PoolRecapitalized` with `is_solvent` indicating whether liabilities are covered.
 - **Expected Errors:**
   - If `amount == 0`: `ErrorCode::InvalidRecapitalizeAmount` (6087)
-  - If pool is neither paused nor closed: `ErrorCode::PoolNotPausedOrClosed` (6101)
+  - If pool is neither paused nor closed: `ErrorCode::PoolNotPausedOrClosed` (6006)
   - If deposit produces zero $PST shares: `ErrorCode::ZeroSharesMinted` (6046)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
@@ -1215,7 +1215,7 @@ stateDiagram-v2
 
 ---
 
-## 6. Canonical Error Code Mapping Matrix (102 Errors: 6000–6101)
+## 6. Canonical Error Code Mapping Matrix (100 Errors: 6000–6099)
 
 |  Code  | Anchor Error Variant                      | Error Message                                                                                                                   | Subsystem / Instruction                                                                                                                                       | Vector Tag  |
 | :----: | :---------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------: |
@@ -1225,7 +1225,7 @@ stateDiagram-v2
 | `6003` | `InvalidBondQuantity`                     | "Invalid bond quantity."                                                                                                        | `buy_bonds`, `sell_bonds`                                                                                                                                     | `Boundary`  |
 | `6004` | `RegistryFull`                            | "The prize pool registration capability has hit absolute capacity constraints."                                                 | `buy_bonds`, `reinvest_winnings`                                                                                                                              | `Boundary`  |
 | `6005` | `RegistryTooSmall`                        | "The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes."                             | `create_pool`                                                                                                                                                 | `Boundary`  |
-| `6006` | `RegistryAtMaxSize`                       | "The registry account has reached Solana's 10 MB maximum size."                                                                 | `resize_registry`                                                                                                                                             | `Boundary`  |
+| `6006` | `PoolNotPausedOrClosed`                   | "Pool must be paused or closed."                                                                                                | `recapitalize_pool`, `enable_impaired_mode`, `transition_to_impaired`                                                                                         | `Lifecycle` |
 | `6007` | `AwaitingRandomnessFreeze`                | "The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused."                  | `buy_bonds`, `sell_bonds`, `harvest_yield_and_commit`, `update_pool_config`, `set_prize_tiers`                                                                | `Lifecycle` |
 | `6008` | `AlreadyClaimed`                          | "Trying to claim a prize that has already been claimed."                                                                        | `reinvest_winnings`, `validate_winner`                                                                                                                        | `Lifecycle` |
 | `6009` | `MathOverflow`                            | "Calculation overflow occurred natively."                                                                                       | Math Utilities, Registry, Pool Accounting                                                                                                                     |   `Math`    |
@@ -1239,7 +1239,7 @@ stateDiagram-v2
 | `6017` | `UnauthorizedAdmin`                       | "Unauthorized admin."                                                                                                           | Protocol Governance, Pool Administration                                                                                                                      |  `Access`   |
 | `6018` | `InvalidBondPrice`                        | "Bond price must be greater than 0."                                                                                            | `create_pool`, `update_pool_config`                                                                                                                           | `Boundary`  |
 | `6019` | `InvalidStakeCycleDuration`               | "Stake cycle duration must be greater than 0 hours."                                                                            | `create_pool`, `update_pool_config`                                                                                                                           | `Boundary`  |
-| `6020` | `HumaRedemptionNotSettled`                | "Huma redemption has not been settled yet."                                                                                     | Legacy Huma CPI Handler                                                                                                                                       |   `Time`    |
+| `6020` | `InvalidTokenProgram`                     | "Invalid token program provided."                                                                                               | `create_pool`, `update_pool_config`, `validate_fee_wallet`                                                                                                    |    `CPI`    |
 | `6021` | `InvalidRedemptionOwner`                  | "Beneficiary does not match pending redemption owner."                                                                          | `claim_redemption`, `close_expired_redemption`                                                                                                                |  `Access`   |
 | `6022` | `InsufficientFeeBalance`                  | "Insufficient accrued fee balance for withdrawal."                                                                              | `withdraw_fees`                                                                                                                                               |   `Math`    |
 | `6023` | `NoWinningsToClaim`                       | "No unclaimed non-reinvested winnings to claim."                                                                                | `claim_non_reinvested_winnings`                                                                                                                               | `Boundary`  |
@@ -1319,8 +1319,6 @@ stateDiagram-v2
 | `6097` | `FeeWalletHasAuthority`                   | "Fee wallet cannot have a delegate or close authority."                                                                         | `create_pool`, `update_pool_config`, `validate_fee_wallet`                                                                                                    |  `Access`   |
 | `6098` | `FeeWalletNotAssociatedTokenAccount`      | "Fee wallet must be the canonical Associated Token Account (ATA)."                                                              | `create_pool`, `update_pool_config`, `validate_fee_wallet`                                                                                                    |  `Access`   |
 | `6099` | `FeeWalletUnsupportedExtension`           | "Fee wallet configures unsupported Token-2022 account extensions."                                                              | `create_pool`, `update_pool_config`, `assert_supported_account_extensions`                                                                                    |    `CPI`    |
-| `6100` | `InvalidTokenProgram`                     | "Invalid token program provided."                                                                                               | `create_pool`, `update_pool_config`, `validate_fee_wallet`                                                                                                    |    `CPI`    |
-| `6101` | `PoolNotPausedOrClosed`                   | "Pool must be paused or closed."                                                                                                | `recapitalize_pool`, `enable_impaired_mode`, `transition_to_impaired`                                                                                         | `Lifecycle` |
 
 ---
 

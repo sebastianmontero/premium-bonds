@@ -1384,10 +1384,16 @@ fn test_v22_full_error_code_coverage_commitment() {
         6099
     );
 
-    // 30. InvalidTokenProgram
+    // 30. InvalidTokenProgram (swapped into slot 6020)
     assert_eq!(
         err_code(anchor::error::PremiumBondsError::InvalidTokenProgram),
-        6100
+        6020
+    );
+
+    // 31. PoolNotPausedOrClosed (swapped into slot 6006)
+    assert_eq!(
+        err_code(anchor::error::PremiumBondsError::PoolNotPausedOrClosed),
+        6006
     );
 }
 

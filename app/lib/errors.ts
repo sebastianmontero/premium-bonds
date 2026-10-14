@@ -11,7 +11,7 @@ import {
   ANCHOR_ERROR__INVALID_BOND_QUANTITY,
   ANCHOR_ERROR__REGISTRY_FULL,
   ANCHOR_ERROR__REGISTRY_TOO_SMALL,
-  ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE,
+  ANCHOR_ERROR__POOL_NOT_PAUSED_OR_CLOSED,
   ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE,
   ANCHOR_ERROR__ALREADY_CLAIMED,
   ANCHOR_ERROR__MATH_OVERFLOW,
@@ -25,7 +25,7 @@ import {
   ANCHOR_ERROR__UNAUTHORIZED_ADMIN,
   ANCHOR_ERROR__INVALID_BOND_PRICE,
   ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION,
-  ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED,
+  ANCHOR_ERROR__INVALID_TOKEN_PROGRAM,
   ANCHOR_ERROR__INVALID_REDEMPTION_OWNER,
   ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE,
   ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM,
@@ -87,7 +87,7 @@ export {
   ANCHOR_ERROR__INVALID_BOND_QUANTITY,
   ANCHOR_ERROR__REGISTRY_FULL,
   ANCHOR_ERROR__REGISTRY_TOO_SMALL,
-  ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE,
+  ANCHOR_ERROR__POOL_NOT_PAUSED_OR_CLOSED,
   ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE,
   ANCHOR_ERROR__ALREADY_CLAIMED,
   ANCHOR_ERROR__MATH_OVERFLOW,
@@ -101,7 +101,7 @@ export {
   ANCHOR_ERROR__UNAUTHORIZED_ADMIN,
   ANCHOR_ERROR__INVALID_BOND_PRICE,
   ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION,
-  ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED,
+  ANCHOR_ERROR__INVALID_TOKEN_PROGRAM,
   ANCHOR_ERROR__INVALID_REDEMPTION_OWNER,
   ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE,
   ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM,
@@ -350,10 +350,11 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     message: "The ticket registry account pre-allocation is too small.",
     actionable: "Pre-allocate sufficient byte size for ticket entries.",
   },
-  [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: {
-    name: "RegistryAtMaxSize",
-    message:
-      "The ticket registry has reached Solana's 10 MB maximum account size.",
+  [ANCHOR_ERROR__POOL_NOT_PAUSED_OR_CLOSED]: {
+    name: "PoolNotPausedOrClosed",
+    message: "Pool must be paused or closed for this operation.",
+    actionable:
+      "Ensure the pool is paused or closed before performing workout or recapitalization.",
   },
   [ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE]: {
     name: "AwaitingRandomnessFreeze",
@@ -411,11 +412,11 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     name: "InvalidStakeCycleDuration",
     message: "Stake cycle duration must be greater than 0 hours.",
   },
-  [ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED]: {
-    name: "HumaRedemptionNotSettled",
-    message: "Huma Protocol liquidity redemption is still settling on-chain.",
+  [ANCHOR_ERROR__INVALID_TOKEN_PROGRAM]: {
+    name: "InvalidTokenProgram",
+    message: "The provided token program is invalid or unsupported.",
     actionable:
-      "Please wait for the settlement window to expire before claiming.",
+      "Provide either the canonical SPL Token program or Token-2022 program.",
   },
   [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: {
     name: "InvalidRedemptionOwner",

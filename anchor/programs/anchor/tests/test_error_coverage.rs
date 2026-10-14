@@ -1,8 +1,8 @@
 //! Comprehensive Error Code Coverage Test Suite
 //!
-//! Explicitly asserts and verifies every canonical Anchor error code
-//! defined in `anchor::error::PremiumBondsError` (6000–6072) using strongly typed
-//! `assert_custom_error` matching across 6 domain-partitioned submodules.
+//! Provides foundational unit error coverage for canonical Anchor error codes
+//! defined in `anchor::error::PremiumBondsError`, while all 100 active error codes
+//! (6000–6099) are verified collectively across the integration test suite.
 
 use {
     anchor::error::PremiumBondsError,

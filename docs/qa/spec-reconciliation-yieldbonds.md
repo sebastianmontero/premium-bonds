@@ -13,7 +13,7 @@
 
 A full 2-pass AST code mining sweep was performed across all 32 Anchor instruction handlers, 8 state account structs, constants, error enums, and CPI modules in `anchor/programs/anchor/src/**`. The mined on-chain implementation on branch `version/hume-finance-solvency-hardening` was reconciled against the protocol's Single Source of Truth (SSOT) formal invariant specification.
 
-The reconciliation incorporates 6 newly introduced instructions (`crank_submit_redemption_batch`, `settle_redemption_batch`, `crank_close_redemption_batch`, `close_expired_redemption`, `enable_impaired_mode`, `recapitalize_pool`), the unified asynchronous batch redemption pipeline (`RedemptionBatch`), pro-rata haircut settlement math, impairment workout state transitions, sponsor recapitalization, dynamic solvency tolerance clamping, 36 newly mapped Anchor error codes (`6066` through `6101`), and 3 new metamorphic theorems (`MTR-011` through `MTR-013`).
+The reconciliation incorporates 6 newly introduced instructions (`crank_submit_redemption_batch`, `settle_redemption_batch`, `crank_close_redemption_batch`, `close_expired_redemption`, `enable_impaired_mode`, `recapitalize_pool`), the unified asynchronous batch redemption pipeline (`RedemptionBatch`), pro-rata haircut settlement math, impairment workout state transitions, sponsor recapitalization, dynamic solvency tolerance clamping, 34 newly mapped Anchor error codes (`6066` through `6099`), and 3 new metamorphic theorems (`MTR-011` through `MTR-013`).
 
 | Verification Dimension                |        Ingested / Expected         | Code Verified | Discrepancies Flagged | Conformance Rate |
 | :------------------------------------ | :--------------------------------: | :-----------: | :-------------------: | :--------------: |
@@ -22,7 +22,7 @@ The reconciliation incorporates 6 newly introduced instructions (`crank_submit_r
 | **State Account Layouts**             |                 8                  |       8       |           0           |    **100.0%**    |
 | **Lifecycle FSM Models**              | 5 (Pool, Draw, Gov, Payout, Batch) |       5       |           0           |    **100.0%**    |
 | **Metamorphic Relations**             |        13 (`MTR-001`–`013`)        |      13       |           0           |    **100.0%**    |
-| **Anchor Error Codes**                |        102 (`6000`–`6101`)         |      102      |           0           |    **100.0%**    |
+| **Anchor Error Codes**                |        100 (`6000`–`6099`)         |      100      |           0           |    **100.0%**    |
 | **Circuit Breakers / Workout Guards** |  3 (Solvency, Spike, Impairment)   |       3       |           0           |    **100.0%**    |
 
 ---

@@ -359,8 +359,8 @@ fn test_resize_registry_fails_registry_at_max_size() {
 
     let res =
         ResizeRegistryBuilder::new(pool_id, ticket_registry, payer.pubkey()).send(&mut svm, &payer);
-    // Since Anchor evaluates realloc before user constraints, growing beyond 10MB
-    // fails at the Solana runtime system level with InvalidRealloc rather than RegistryAtMaxSize.
+    // The 10 MB maximum account size is enforced natively by the Solana SVM runtime
+    // during the account reallocation step with InvalidRealloc.
     assert_instruction_error(res, solana_program::instruction::InstructionError::InvalidRealloc);
 }
 

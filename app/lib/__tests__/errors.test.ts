@@ -459,7 +459,7 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
       data: {
         logs: [
           `Program ${PROGRAM_ID} invoke [1]`,
-          "Program log: AnchorError thrown in programs/yield_bonds/src/instructions/claim_redemption.rs:42. Error Code: HumaRedemptionNotSettled. Error Number: 6020. Error Message: Huma redemption request is not yet settled or approved.",
+          "Program log: AnchorError thrown in programs/yield_bonds/src/instructions/create_pool.rs:120. Error Code: InvalidTokenProgram. Error Number: 6020. Error Message: Invalid token program provided.",
           `Program ${PROGRAM_ID} failed: custom program error: 0x1784`,
         ],
       },
@@ -469,7 +469,7 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
     assert.strictEqual(parsed.layer, "anchor");
     assert.strictEqual(parsed.category, "anchor_custom");
     assert.strictEqual(parsed.code, 6020);
-    assert.strictEqual(parsed.title, "Program Error: HumaRedemptionNotSettled");
+    assert.strictEqual(parsed.title, "Program Error: InvalidTokenProgram");
   });
 
   it("should disambiguate -32002 between duplicate transaction and non-duplicate simulation failure", () => {
