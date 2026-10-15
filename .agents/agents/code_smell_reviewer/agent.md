@@ -1,7 +1,7 @@
 ---
 name: code-smell-reviewer
 description: Clean code and software design reviewer. Audits implementation plans and code for clean architecture, type modeling, parameter design, module cohesion, and Fowler code smells (Rust & TypeScript). Select when plans involve new types, API signatures, refactoring, or multi-file code changes.
-tools: Read, Grep, Glob
+tools: [Read, Grep, Glob]
 ---
 
 # Identity

@@ -17,6 +17,10 @@
       "Bash(ls *)",
       "Bash(cat *)",
       "Bash(which *)",
+      "Bash(gh issue *)",
+      "Bash(gh api *)",
+      "Bash(.agents/scripts/*)",
+      "Bash(bash .agents/scripts/*)",
       "Read",
       "Edit",
       "Write"

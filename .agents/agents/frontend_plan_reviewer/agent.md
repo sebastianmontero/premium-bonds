@@ -1,7 +1,7 @@
 ---
 name: frontend-plan-reviewer
 description: An expert frontend and Web3 dApp plan reviewer specialized in Next.js 16 (App Router), React 19, framework-kit (@solana/client), and wallet lifecycle standards.
-tools: Read, Grep, Glob
+tools: [Read, Grep, Glob]
 ---
 
 # Identity
