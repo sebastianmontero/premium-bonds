@@ -13,6 +13,7 @@ Commands:
 
   --parse-reviews [--issue <number>] [--file <json_file>]
       Parse review comments and ledger from issue payload, outputting structured JSON
+      (--issue always fetches live state; --file parses a saved snapshot)
 
   --append-ledger --issue <number> --review-id <id> --comment-id <id> \
                   --applied '<json_array>' --declined '<json_array>' \
@@ -24,6 +25,7 @@ Commands:
 
   --patch-comment <comment_id> <body_file>
       Best-effort patch of a comment body on GitHub with graceful error fallback
+      (<comment_id> may be a GraphQL node ID or a numeric REST databaseId)
 
   --help
       Show this help message
@@ -87,14 +89,9 @@ cmd_parse_reviews() {
   if [[ -n "$file" && -f "$file" ]]; then
     json_payload="$(cat "$file")"
   elif [[ -n "$issue" ]]; then
-    # Check if a cached file exists in /tmp
-    if [[ -f "/tmp/issue_${issue}_full.json" ]]; then
-      json_payload="$(cat "/tmp/issue_${issue}_full.json")"
-    elif [[ -f "/tmp/issue_${issue}_raw.json" ]]; then
-      json_payload="$(cat "/tmp/issue_${issue}_raw.json")"
-    else
-      json_payload="$(gh issue view "$issue" --json number,title,body,author,labels,comments,updatedAt)"
-    fi
+    # Always fetch live state: --issue is used to re-check after writes, so a cached
+    # snapshot would report stale results. Pass --file to parse a saved snapshot.
+    json_payload="$(gh issue view "$issue" --json number,title,body,author,labels,comments,updatedAt)"
   else
     # Try reading from stdin if available
     if [ ! -t 0 ]; then
@@ -452,8 +449,24 @@ cmd_patch_comment() {
 
   set +e
   local err_output
-  err_output="$(gh api --method PATCH "repos/:owner/:repo/issues/comments/${comment_id}" -F body=@"${body_file}" 2>&1)"
-  local exit_code=$?
+  local exit_code=0
+  # --parse-reviews emits GraphQL node IDs (e.g. IC_kwDO...), but the REST endpoint
+  # needs the numeric databaseId, so resolve node IDs first.
+  if [[ ! "$comment_id" =~ ^[0-9]+$ ]]; then
+    err_output="$(gh api graphql -f query='query($id: ID!) { node(id: $id) { ... on IssueComment { databaseId } } }' \
+      -f id="$comment_id" -q '.data.node.databaseId' 2>&1)"
+    exit_code=$?
+    if [[ $exit_code -eq 0 && "$err_output" =~ ^[0-9]+$ ]]; then
+      comment_id="$err_output"
+    elif [[ $exit_code -eq 0 ]]; then
+      exit_code=1
+      err_output="could not resolve node ID '$comment_id' to a comment databaseId"
+    fi
+  fi
+  if [[ $exit_code -eq 0 ]]; then
+    err_output="$(gh api --method PATCH "repos/:owner/:repo/issues/comments/${comment_id}" -F body=@"${body_file}" 2>&1)"
+    exit_code=$?
+  fi
   set -e
 
   if [[ $exit_code -eq 0 ]]; then
