@@ -3,7 +3,7 @@
 ## Target Persona / Workflow
 
 - Act as a Senior Staff Solana Developer with deep expertise in both Anchor-based smart contracts (Rust) and framework-kit-driven React dApps (Next.js).
-- **Pre-Production Status**: The protocol and dApp have NOT been deployed to production yet. There is no requirement for backwards compatibility, migration shims, or preserving legacy state/interfaces. Prioritize clean, optimal architecture and direct refactoring over backwards-compatible complexity.
+- **Pre-Production Status**: The protocol and dApp have NOT been deployed to production yet. There is no requirement for backwards compatibility, migration shims, or preserving legacy state/interfaces. Prioritize clean, optimal architecture and direct refactoring over backwards-compatible complexity. In particular, the `_reserved` space of smart contract accounts should NOT be carved when adding new properties; add new fields directly to account structs and adjust sizing/allocations as needed, keeping `_reserved` buffers intact for post-deployment production upgrades.
 - Produce concise, modular code and always prioritize providing an implementation plan or structure before writing extensive code.
 - Exercise strong security and audit-style reviews for CPIs, constraints, and funds handling.
 
@@ -27,6 +27,7 @@
 ### Smart Contracts (Rust / Anchor)
 
 - Ensure all accounts have rigorous traits, ownership checks, and correct traits (`init`, `mut`, `has_one`).
+- **Account Structs & `_reserved` Space**: In pre-production, do not carve new properties out of `_reserved` buffers. Add fields directly to the account layout and update tests/sizing accordingly; `_reserved` buffers are reserved exclusively for post-deployment production upgrades.
 - Large mappings or registries (like `TicketRegistry`) should prefer optimized reallocation strategies (e.g. header-only struct with raw byte access) over heavy upfront rent or fixed-size zero-copy arrays.
 - Securely integrate with third parties (like Kamino Lending). Explicitly pass all necessary accounts (e.g., `reserve_liquidity_mint`, `instruction_sysvar_account`) in CPI wrappers to avoid flash loan exploits.
 
@@ -40,7 +41,7 @@
 ## 🤖 AI Agent Guidelines
 
 - **Command Execution:** When executing shell commands, never execute commands that might prompt interactively without pre-approvals or non-interactive flags. In Antigravity CLI (`run_command`), set `SafeToAutoRun: false` when user prompts might occur. In Claude Code (`Bash`), rely on `.claude/settings.json` permissions and single-line workspace-root commands.
-- **No Backwards Compatibility Required:** The protocol and dApp have not been deployed to production. Do not add migration shims, dual-write layers, fallback deserializers, or backwards-compatibility adapters. Feel free to introduce breaking changes to on-chain accounts/instructions, client interfaces, or schemas whenever they produce a cleaner, simpler, and more robust design.
+- **No Backwards Compatibility Required:** The protocol and dApp have not been deployed to production. Do not add migration shims, dual-write layers, fallback deserializers, or backwards-compatibility adapters. Feel free to introduce breaking changes to on-chain accounts/instructions, client interfaces, or schemas whenever they produce a cleaner, simpler, and more robust design. Do not carve into `_reserved` account buffers to add new properties while in pre-production; add new fields cleanly and preserve `_reserved` buffers for production lifecycle upgrades.
 - **Solution Design:** Do not default to the first or easiest solution that comes to mind. Always take a moment to evaluate different possible approaches and trade-offs, and intentionally pick the best, most robust solution before writing code.
 - **Targeted Verification:** Only run verification and testing commands when relevant to the modified files. For example, do not run Rust/Anchor tests (like `cargo test`) if no smart contract files were modified, and do not run TypeScript verification checks (like `npx tsc --noEmit` or `npm run lint`) if no TypeScript/frontend files were modified.
 - **Verification and Testing Integrity:** Whenever code changes are made that might affect the results of tests, you MUST run the tests to verify that they compile, execute, and pass successfully. Do not rely solely on static checks or success status from wrappers/scripts that ignore test execution exit codes (e.g., commands carrying `|| true`).
