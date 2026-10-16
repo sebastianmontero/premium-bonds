@@ -138,16 +138,22 @@ if ledger_match:
 applied_keys = set()
 declined_keys = set()
 declined_items = []
+# Keys like ARCH-1 are only unique within a review, so resolution status is scoped per review_id.
+resolved_by_review = {}
 
 for entry in ledger:
+    scope = resolved_by_review.setdefault(entry.get("review_id", ""), {"applied": set(), "declined": set()})
     for a in entry.get("applied", []):
         applied_keys.add(a)
+        scope["applied"].add(a)
     for d in entry.get("declined", []):
         if isinstance(d, dict) and "id" in d:
             declined_keys.add(d["id"])
+            scope["declined"].add(d["id"])
             declined_items.append(d)
         elif isinstance(d, str):
             declined_keys.add(d)
+            scope["declined"].add(d)
             declined_items.append({"id": d, "reason": ""})
 
 # 2. Parse review comments
@@ -195,10 +201,11 @@ for comment in comments:
         text = match.group(6).strip()
         is_checked = (checked_char.lower() == "x")
 
+        scope = resolved_by_review.get(review_id, {"applied": set(), "declined": set()})
         status = "pending"
-        if key in applied_keys:
+        if key in scope["applied"]:
             status = "applied"
-        elif key in declined_keys:
+        elif key in scope["declined"]:
             status = "declined"
 
         item_obj = {
