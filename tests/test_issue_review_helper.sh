@@ -316,4 +316,51 @@ if [[ -z "$AUTO_MODEL" || "$AUTO_MODEL" == "null" ]]; then
 fi
 echo "PASSED"
 
+# Test 9: Manual review fallback requires an "Issue Review" heading (no false positives)
+echo -n "Test 9: Manual review detection ignores non-review comments ... "
+cat << 'EOF' > "$TMP_DIR/manual_detect.json"
+{
+  "number": 23,
+  "title": "Manual review detection",
+  "body": "## Overview",
+  "updatedAt": "2026-10-16T10:00:00Z",
+  "comments": [
+    {
+      "id": 3001,
+      "author": {"login": "maintainer"},
+      "body": "# Issue Review\n- [ ] **[MAN-1]**: Manual finding"
+    },
+    {
+      "id": 3002,
+      "author": {"login": "maintainer"},
+      "body": "## 🔍 AI Issue Review\n- [ ] **[MAN-2]**: Heading without metadata"
+    },
+    {
+      "id": 3003,
+      "author": {"login": "maintainer"},
+      "body": "### ✅ Integrated Review `rev-1`\n- [x] **[ARCH-5]**: Pool `worktrees/review-<slot>` *(Integrated)*"
+    },
+    {
+      "id": 3004,
+      "author": {"login": "maintainer"},
+      "body": "Ran /review on this and see the # Issue Review notes.\n- [ ] **[NOPE-1]**: Inline mention only"
+    },
+    {
+      "id": 3005,
+      "author": {"login": "maintainer"},
+      "body": "### Issue Reviewer notes\n- [ ] **[NOPE-2]**: Different word"
+    }
+  ]
+}
+EOF
+"$HELPER" --parse-reviews --file "$TMP_DIR/manual_detect.json" > "$TMP_DIR/manual_detect_out.json"
+
+DETECTED_IDS="$(jq -c '[.reviews[].comment_id]' "$TMP_DIR/manual_detect_out.json")"
+PENDING_IDS="$(jq -c '[.pending_items[].id]' "$TMP_DIR/manual_detect_out.json")"
+if [[ "$DETECTED_IDS" != "[3001,3002]" || "$PENDING_IDS" != '["MAN-1","MAN-2"]' ]]; then
+  echo "FAILED: Expected reviews [3001,3002] and pending [MAN-1,MAN-2], got reviews=$DETECTED_IDS pending=$PENDING_IDS"
+  exit 1
+fi
+echo "PASSED"
+
 echo "=== All issue_review_helper.sh tests passed successfully! ==="

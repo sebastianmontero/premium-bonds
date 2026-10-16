@@ -160,6 +160,8 @@ for entry in ledger:
 # 2. Parse review comments
 # Check for <!-- ai-issue-review: {...} -->
 review_meta_pattern = re.compile(r"<!--\s*ai-issue-review:\s*(\{.*?\})\s*-->")
+# Fallback for manual reviews: a markdown heading line containing the phrase "Issue Review"
+manual_review_heading_pattern = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(?:.*?[ \t])?Issue Review\b", re.MULTILINE)
 checklist_pattern = re.compile(
     r"^[ \t]*-[ \t]*\[([ xX])\][ \t]*(?:\*\*\[([A-Za-z0-9_-]+)\]\*\*|\[([A-Za-z0-9_-]+)\]|\*\*([A-Za-z0-9_-]+)\*\*|([A-Za-z0-9_-]+)):?[ \t]*(.+)$",
     re.MULTILINE
@@ -189,7 +191,7 @@ for comment in comments:
             agent_models = metadata.get("agent_models", {})
         except Exception as e:
             sys.stderr.write(f"Warning: Failed to parse ai-issue-review metadata in comment {c_id}: {e}\n")
-    elif "# Issue Review" in c_body or "/review" in c_body:
+    elif manual_review_heading_pattern.search(c_body):
         # Fallback manual review comment detection
         is_review_comment = True
         review_id = f"manual-review-{c_id}"
