@@ -1,7 +1,7 @@
 ---
 name: pr-verify
 description: "Audits a pull request against its linked issue specification without moving goalposts, runs targeted deterministic test gates, handles GitHub self-approval restrictions, submits an authoritative PR review with tracking metadata, and merges into dev by default (with graceful fallback if auto-merge is disabled)."
-argument-hint: "<pr_or_issue_number> [--not-auto-merge]"
+argument-hint: "<pr_or_issue_number> [--model <model>] [--not-auto-merge]"
 ---
 
 # Autonomous PR Verification Skill (`/pr-verify`)
@@ -23,10 +23,14 @@ Use this skill to audit an open Pull Request against the closed specification of
 
 ## Step-by-Step Execution Protocol
 
-### Step 1: Resolve PR & Linked Issue
+### Step 1: Resolve PR, Linked Issue & Model Provenance
 
-1. **Parse Input Argument**:
+1. **Parse Input Argument & Resolve Model**:
    - Extract numeric ID from argument: `#25`, `25`, or GitHub PR/Issue URL.
+   - Resolve active model slug:
+     ```bash
+     MODEL="$(bash .agents/scripts/issue_lifecycle_helper.sh --resolve-model ${MODEL_FLAG:-})"
+     ```
    - If argument refers to an issue, discover its linked PR:
      ```bash
      PR_NUMBER="$(bash .agents/scripts/issue_lifecycle_helper.sh --get-linked-pr <number>)"
@@ -37,12 +41,13 @@ Use this skill to audit an open Pull Request against the closed specification of
      PR_NUMBER="<number>"
      ```
 
-2. **Parse Current Verification State**:
-   Retrieve existing review cycles and readiness:
+2. **Parse Current Verification State & Implementing Model**:
+   Retrieve existing review cycles, readiness, and implementing model:
    ```bash
    STATE_JSON="$(bash .agents/scripts/issue_lifecycle_helper.sh --check-revision-readiness "$PR_NUMBER")"
    STATUS="$(echo "$STATE_JSON" | jq -r .status)"
    CYCLE="$(echo "$STATE_JSON" | jq -r .cycle)"
+   IMPL_MODEL="$(echo "$STATE_JSON" | jq -r '.implementing_model // empty')"
    ```
    - If `STATUS == "ALREADY_APPROVED"`: Inform user that PR is already approved.
    - If `STATUS == "AWAITING_REVISION"`: Warn that changes were requested and no new commits have been pushed since.
@@ -135,6 +140,8 @@ Use this skill to audit an open Pull Request against the closed specification of
      --verification-id "$VERIFICATION_ID" \
      --issue "$ISSUE_NUMBER" \
      --pr "$PR_NUMBER" \
+     --model "$MODEL" \
+     ${IMPL_MODEL:+--implementing-model "$IMPL_MODEL"} \
      --commit-sha "$COMMIT_SHA" \
      --cycle "$CYCLE" \
      --verdict "$VERDICT" \

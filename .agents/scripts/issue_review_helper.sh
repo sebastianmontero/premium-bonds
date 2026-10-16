@@ -17,7 +17,8 @@ Commands:
 
   --append-ledger --issue <number> --review-id <id> --comment-id <id> \
                   --applied '<json_array>' --declined '<json_array>' \
-                  --input-body-file <path> --output-body-file <path> [--integrated-at <iso_timestamp>]
+                  --input-body-file <path> --output-body-file <path> \
+                  [--model <slug>] [--integrated-at <iso_timestamp>]
       Safely append or update a review record in the issue-side hidden ledger
 
   --check-drift <issue_number> <expected_updated_at>
@@ -176,12 +177,16 @@ for comment in comments:
     is_review_comment = False
     metadata = {}
     review_id = ""
+    model = "unknown"
+    agent_models = {}
 
     if meta_match:
         is_review_comment = True
         try:
             metadata = json.loads(meta_match.group(1))
             review_id = metadata.get("review_id", "")
+            model = metadata.get("model", "unknown")
+            agent_models = metadata.get("agent_models", {})
         except Exception as e:
             sys.stderr.write(f"Warning: Failed to parse ai-issue-review metadata in comment {c_id}: {e}\n")
     elif "# Issue Review" in c_body or "/review" in c_body:
@@ -189,6 +194,8 @@ for comment in comments:
         is_review_comment = True
         review_id = f"manual-review-{c_id}"
         metadata = {"review_id": review_id, "type": "manual"}
+        model = "unknown"
+        agent_models = {}
 
     if not is_review_comment:
         continue
@@ -243,6 +250,8 @@ for comment in comments:
         "review_id": review_id,
         "comment_id": c_id,
         "author": c_author,
+        "model": model,
+        "agent_models": agent_models,
         "status": review_status,
         "metadata": metadata,
         "checklist": items
@@ -269,6 +278,7 @@ cmd_append_ledger() {
   local issue=""
   local review_id=""
   local comment_id=""
+  local model=""
   local applied="[]"
   local declined="[]"
   local input_body_file=""
@@ -287,6 +297,10 @@ cmd_append_ledger() {
         ;;
       --comment-id)
         comment_id="$2"
+        shift 2
+        ;;
+      --model)
+        model="$2"
         shift 2
         ;;
       --applied)
@@ -326,6 +340,19 @@ cmd_append_ledger() {
     exit 1
   fi
 
+  if [[ -z "$model" ]]; then
+    local helper_dir
+    helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "${helper_dir}/issue_lifecycle_helper.sh" ]]; then
+      model="$(bash "${helper_dir}/issue_lifecycle_helper.sh" --resolve-model 2>/dev/null || echo "unknown")"
+    else
+      model="unknown"
+    fi
+  fi
+  if [[ -z "$model" ]]; then
+    model="unknown"
+  fi
+
   if [[ -z "$integrated_at" ]]; then
     integrated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   fi
@@ -352,6 +379,7 @@ applied_raw = sys.argv[4]
 declined_raw = sys.argv[5]
 input_file = sys.argv[6]
 output_file = sys.argv[7]
+model = sys.argv[8] if len(sys.argv) > 8 and sys.argv[8] else "unknown"
 
 with open(input_file, "r", encoding="utf-8") as f:
     content = f.read()
@@ -369,6 +397,7 @@ new_entry = {
     "review_id": review_id,
     "comment_id": comment_id_val,
     "integrated_at": integrated_at,
+    "model": model,
     "applied": applied,
     "declined": declined
 }
@@ -413,7 +442,7 @@ with open(output_file, "w", encoding="utf-8") as f:
     f.write(new_content)
 
 print(f"Ledger updated successfully: {len(ledger)} record(s), {char_count} total characters.")
-' "$review_id" "$comment_id" "$integrated_at" "$applied" "$declined" "$input_body_file" "$output_body_file"
+' "$review_id" "$comment_id" "$integrated_at" "$applied" "$declined" "$input_body_file" "$output_body_file" "$model"
 }
 
 # --- Command: --check-drift ---

@@ -1,7 +1,7 @@
 ---
 name: issue-implement
 description: "Autonomously claims a fully specified issue (ready-for-agent), implements code and tests against the closed issue specification, runs targeted local test gates, commits, and opens a PR into dev linked via 'Closes #<id>'. Also features an idempotent Revision Mode to resolve verification findings on an existing PR."
-argument-hint: "<issue_number_or_url> [--dry-run]"
+argument-hint: "<issue_number_or_url> [--model <model>] [--dry-run]"
 ---
 
 # Autonomous Issue Implementation Skill (`/issue-implement`)
@@ -26,11 +26,15 @@ The skill operates in one of two modes:
 
 ## Step-by-Step Execution Protocol
 
-### Step 1: Parse Issue & Detect Execution Mode
+### Step 1: Parse Issue, Resolve Model & Detect Execution Mode
 
-1. **Parse Target Issue Number**:
+1. **Parse Target Issue Number & Resolve Model**:
    - Extract numeric ID from argument: `#42`, `42`, or `https://github.com/<owner>/<repo>/issues/42` $\rightarrow$ `42`.
    - If omitted, prompt the user for the target issue number.
+   - Resolve active model slug:
+     ```bash
+     MODEL="$(bash .agents/scripts/issue_lifecycle_helper.sh --resolve-model ${MODEL_FLAG:-})"
+     ```
 
 2. **Check for Linked Open PR**:
    Run the lifecycle helper to discover if an open PR already exists for this issue:
@@ -99,10 +103,10 @@ The skill operates in one of two modes:
      ```
 
 6. **Commit & Push**:
-   - Stage and commit changes:
+   - Stage and commit changes with model trailer:
      ```bash
      git add -A
-     git commit -m "feat(<scope>): <short_summary> (Closes #<issue_number>)"
+     git commit -m "feat(<scope>): <short_summary> (Closes #<issue_number>)" --trailer "AI-Model: $MODEL"
      ```
    - Push topic branch:
      ```bash
@@ -110,12 +114,15 @@ The skill operates in one of two modes:
      ```
 
 7. **Open Pull Request Targeting `dev`**:
-   - Open PR linked to the issue:
+   - Open PR linked to the issue with embedded metadata and trailer:
      ```bash
      gh pr create \
        --base dev \
        --title "feat(<scope>): <short_summary> (Closes #<issue_number>)" \
-       --body "Closes #<issue_number>. Implements closed specification from issue."
+       --body "<!-- ai-issue-implement: {\"version\":\"1.0\",\"issue_number\":<issue_number>,\"model\":\"$MODEL\"} -->
+Closes #<issue_number>. Implements closed specification from issue.
+
+AI-Model: $MODEL"
      ```
 
 8. **Notify Developer**:
@@ -174,17 +181,17 @@ The skill operates in one of two modes:
    - Run relevant test suites (`NO_DNA=1 cargo test`, `npm test`, etc.) matching modified files.
 
 6. **Commit & Push Revision**:
-   - Stage and commit with explicit finding references:
+   - Stage and commit with explicit finding references and model trailer:
      ```bash
      git add -A
-     git commit -m "fix(issue-<issue_number>): address verification findings [VER-1]"
+     git commit -m "fix(issue-<issue_number>): address verification findings [VER-1]" --trailer "AI-Model: $MODEL"
      git push origin HEAD
      ```
 
 7. **Notify on PR**:
    - Post comment on the PR informing maintainers that revision is complete:
      ```bash
-     gh pr comment "$LINKED_PR" --body "✅ Revision commits pushed to address verification findings. Ready for \`/pr-verify $LINKED_PR\`."
+     gh pr comment "$LINKED_PR" --body "✅ Revision commits pushed by \`$MODEL\` to address verification findings. Ready for \`/pr-verify $LINKED_PR\`."
      ```
 
 ---

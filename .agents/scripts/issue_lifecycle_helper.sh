@@ -22,10 +22,14 @@ Commands:
   --parse-verification <pr_number> [--file <json_file>]
       Parse latest PR verification review/comment and return structured JSON.
 
+  --resolve-model [--model <override>]
+      Resolve active AI model slug across CLI flag, environment variables, and process inspection.
+
   --check-revision-readiness <pr_number> [--file <json_file>]
       Determine whether PR is awaiting revision or ready for verification.
 
   --format-verification-review --verification-id <id> --issue <num> --pr <num> \
+                               [--model <slug>] [--implementing-model <slug>] \
                                --commit-sha <sha> --cycle <cycle> --verdict <verdict> \
                                --test-results '<json>' --checklist '<json>' \
                                --findings '<json>' --output-file <path>
@@ -38,6 +42,150 @@ Commands:
       Show this help message.
 EOF
   exit 1
+}
+
+# --- Command: --resolve-model ---
+cmd_resolve_model() {
+  local model_arg=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --model)
+        model_arg="$2"
+        shift 2
+        ;;
+      *)
+        if [[ -z "$model_arg" ]]; then
+          model_arg="$1"
+          shift
+        else
+          shift
+        fi
+        ;;
+    esac
+  done
+
+  python3 -c '
+import os
+import sys
+import re
+import glob
+
+override = sys.argv[1] if len(sys.argv) > 1 else ""
+
+def normalize_slug(m):
+    if not m:
+        return "unknown"
+    m = m.strip().lower()
+    if m in ("unknown", "none", "null", "undefined", ""):
+        return "unknown"
+    
+    # Strip common wrapper prefixes if present
+    if "/" in m:
+        m = m.split("/")[-1]
+
+    aliases = {
+        "gemini-3.8-flash": "gemini-3.8-flash",
+        "gemini-3-8-flash": "gemini-3.8-flash",
+        "gemini-3.8-flash-high": "gemini-3.8-flash-high",
+        "gemini-3-8-flash-high": "gemini-3.8-flash-high",
+        "gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
+        "gemini-3-8-flash-medium": "gemini-3.8-flash-medium",
+        "gemini-3.8-pro": "gemini-3.8-pro",
+        "gemini-3-8-pro": "gemini-3.8-pro",
+        "claude-3.7-sonnet": "claude-3-7-sonnet",
+        "claude-3-7-sonnet": "claude-3-7-sonnet",
+        "claude-3.5-sonnet": "claude-3-5-sonnet",
+        "claude-3-5-sonnet": "claude-3-5-sonnet",
+        "claude-3.5-haiku": "claude-3-5-haiku",
+        "claude-3-5-haiku": "claude-3-5-haiku",
+        "claude-opus-4.5": "claude-opus-4-5",
+        "claude-opus-4-5": "claude-opus-4-5",
+        "claude-opus-5.5": "claude-opus-5-5-high",
+        "claude-opus-5-5": "claude-opus-5-5-high",
+        "claude-opus-5-5-high": "claude-opus-5-5-high",
+        "gpt-oss-120b": "gpt-oss-120b",
+    }
+    if m in aliases:
+        return aliases[m]
+
+    slug = re.sub(r"[\s_]+", "-", m)
+    slug = re.sub(r"[^a-z0-9.-]", "", slug)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    if slug in aliases:
+        return aliases[slug]
+    return slug if slug else "unknown"
+
+# Tier 1: Explicit argument
+if override.strip():
+    print(normalize_slug(override))
+    sys.exit(0)
+
+# Tier 2: Environment variables
+for env_key in ("AI_MODEL", "AGY_MODEL", "GEMINI_MODEL", "MODEL"):
+    val = os.environ.get(env_key, "").strip()
+    if val:
+        print(normalize_slug(val))
+        sys.exit(0)
+
+# Tier 3: Process tree inspection and CLI logs
+def inspect_process_tree():
+    pid = os.getppid()
+    while pid > 1:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                raw = f.read().decode("utf-8", errors="ignore")
+                parts = raw.split("\x00")
+                proc_bin = os.path.basename(parts[0]) if parts else ""
+                cmd = raw.replace("\x00", " ")
+                if proc_bin not in ("bash", "sh", "zsh", "dash"):
+                    m = re.search(r"(?:--model|-m)(?:\s+|=)([^\s]+)", cmd)
+                    if m:
+                        return m.group(1)
+            with open(f"/proc/{pid}/stat", "r") as f:
+                stat = f.read().split()
+                pid = int(stat[3])
+        except Exception:
+            break
+    return None
+
+def inspect_cli_logs():
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, ".gemini", "antigravity-cli", "cli.log")
+    ]
+    log_dir = os.path.join(home, ".gemini", "antigravity-cli", "log")
+    if os.path.isdir(log_dir):
+        files = glob.glob(os.path.join(log_dir, "cli-*.log"))
+        files.sort(key=os.path.getmtime, reverse=True)
+        candidates.extend(files[:3])
+
+    for log_path in candidates:
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for _ in range(50):
+                        line = f.readline()
+                        if not line:
+                            break
+                        m = re.search(r"Model ID\s+([^\s]+)", line)
+                        if m:
+                            return m.group(1)
+            except Exception:
+                pass
+    return None
+
+detected = inspect_process_tree()
+if detected:
+    print(normalize_slug(detected))
+    sys.exit(0)
+
+detected = inspect_cli_logs()
+if detected:
+    print(normalize_slug(detected))
+    sys.exit(0)
+
+print("unknown")
+' "$model_arg"
 }
 
 # --- Command: --generate-verification-id ---
@@ -53,6 +201,8 @@ cmd_generate_verification_id() {
 
   issue="${issue#\#}"
   pr="${pr#\#}"
+  pr="${pr#pr}"
+  pr="${pr#PR}"
   local date_str
   date_str="$(date -u +%Y%m%d)"
   echo "ver-${date_str}-${issue}-pr${pr}-${cycle}"
@@ -216,7 +366,7 @@ cmd_parse_verification() {
   if [[ -n "$file" && -f "$file" ]]; then
     payload="$(cat "$file")"
   elif [[ -n "$pr" ]]; then
-    payload="$(gh pr view "$pr" --json number,title,author,reviews,comments,commits,headRefName,baseRefName,state 2>/dev/null || echo '{}')"
+    payload="$(gh pr view "$pr" --json number,title,body,author,reviews,comments,commits,headRefName,baseRefName,state 2>/dev/null || echo '{}')"
   else
     if [ ! -t 0 ]; then
       payload="$(cat)"
@@ -245,6 +395,7 @@ except Exception as e:
 
 pr_number = data.get("number")
 title = data.get("title", "")
+body = data.get("body", "") or ""
 author = (data.get("author") or {}).get("login", "")
 state = data.get("state", "OPEN")
 head_ref = data.get("headRefName", "")
@@ -252,6 +403,17 @@ base_ref = data.get("baseRefName", "")
 commits = data.get("commits", []) or []
 reviews = data.get("reviews", []) or []
 comments = data.get("comments", []) or []
+
+# Search PR body for <!-- ai-issue-implement: {...} -->
+implement_pattern = re.compile(r"<!--\s*ai-issue-implement:\s*(\{.*?\})\s*-->", re.DOTALL)
+implementing_model = ""
+m_impl = implement_pattern.search(body)
+if m_impl:
+    try:
+        impl_meta = json.loads(m_impl.group(1))
+        implementing_model = impl_meta.get("model", "")
+    except Exception:
+        pass
 
 # Sort commits to find latest commit date and SHA
 latest_commit_sha = ""
@@ -324,6 +486,10 @@ checklist = latest_meta.get("acceptance_checklist", [])
 findings = latest_meta.get("findings", [])
 pending_findings = [f.get("id") for f in findings if f.get("id")]
 
+model = latest_meta.get("model", "")
+if not implementing_model:
+    implementing_model = latest_meta.get("implementing_model", "")
+
 result = {
     "pr_number": pr_number,
     "issue_number": latest_meta.get("issue_number"),
@@ -335,6 +501,8 @@ result = {
     "verification_id": latest_meta.get("verification_id", ""),
     "verdict": latest_meta.get("verdict", ""),
     "cycle": latest_meta.get("cycle", 0),
+    "model": model,
+    "implementing_model": implementing_model,
     "latest_review_submitted_at": latest_submitted_at,
     "latest_commit_sha": latest_commit_sha,
     "latest_commit_date": latest_commit_date,
@@ -388,53 +556,72 @@ has_v = data.get("has_verification", False)
 verdict = data.get("verdict", "")
 cycle = data.get("cycle", 0)
 ahead = data.get("commits_ahead_of_review", 0)
+implementing_model = data.get("implementing_model", "")
+model = data.get("model", "")
+
+common = {
+    "implementing_model": implementing_model,
+    "model": model
+}
 
 if not has_v:
-    print(json.dumps({
+    res = {
         "status": "READY_FOR_INITIAL_VERIFICATION",
         "cycle": 1,
         "message": "PR has not been verified yet."
-    }))
+    }
+    res.update(common)
+    print(json.dumps(res))
     sys.exit(0)
 
 if verdict == "APPROVED":
-    print(json.dumps({
+    res = {
         "status": "ALREADY_APPROVED",
         "cycle": cycle,
         "message": "PR verification passed and was approved."
-    }))
+    }
+    res.update(common)
+    print(json.dumps(res))
     sys.exit(0)
 
 if verdict == "CHANGES_REQUESTED":
     if cycle >= 2 and ahead == 0:
-        print(json.dumps({
+        res = {
             "status": "CIRCUIT_BREAKER_TRIPPED",
             "cycle": cycle,
             "message": "Cycle limit of 2 reached. Escalated to human review."
-        }))
+        }
+        res.update(common)
+        print(json.dumps(res))
         sys.exit(0)
     elif ahead > 0:
-        print(json.dumps({
+        res = {
             "status": "READY_FOR_RE_VERIFICATION",
             "cycle": cycle + 1,
             "commits_ahead": ahead,
             "message": f"{ahead} new commit(s) pushed since last review. Ready for /pr-verify cycle {cycle + 1}."
-        }))
+        }
+        res.update(common)
+        print(json.dumps(res))
         sys.exit(0)
     else:
-        print(json.dumps({
+        res = {
             "status": "AWAITING_REVISION",
             "cycle": cycle,
             "commits_ahead": 0,
             "message": "Changes requested on PR. Awaiting fixes from /issue-implement."
-        }))
+        }
+        res.update(common)
+        print(json.dumps(res))
         sys.exit(0)
 
-print(json.dumps({
+res = {
     "status": "UNKNOWN",
     "cycle": cycle,
     "message": f"PR in status: {verdict}"
-}))
+}
+res.update(common)
+print(json.dumps(res))
 ' "$parsed_json"
 }
 
@@ -443,6 +630,8 @@ cmd_format_verification_review() {
   local verification_id=""
   local issue=""
   local pr=""
+  local model=""
+  local implementing_model=""
   local commit_sha=""
   local cycle=""
   local verdict=""
@@ -463,6 +652,14 @@ cmd_format_verification_review() {
         ;;
       --pr)
         pr="$2"
+        shift 2
+        ;;
+      --model)
+        model="$2"
+        shift 2
+        ;;
+      --implementing-model)
+        implementing_model="$2"
         shift 2
         ;;
       --commit-sha)
@@ -505,6 +702,13 @@ cmd_format_verification_review() {
     usage
   fi
 
+  if [[ -z "$model" ]]; then
+    model="$(cmd_resolve_model)"
+  fi
+  if [[ -z "$model" ]]; then
+    model="unknown"
+  fi
+
   issue="${issue#\#}"
   pr="${pr#\#}"
 
@@ -522,6 +726,8 @@ test_results = json.loads(sys.argv[7])
 checklist = json.loads(sys.argv[8])
 findings = json.loads(sys.argv[9])
 output_file = sys.argv[10]
+model = sys.argv[11] if len(sys.argv) > 11 and sys.argv[11] else "unknown"
+implementing_model = sys.argv[12] if len(sys.argv) > 12 else ""
 
 meta_obj = {
     "version": "1.0",
@@ -531,6 +737,8 @@ meta_obj = {
     "commit_sha": commit_sha,
     "cycle": cycle,
     "verdict": verdict,
+    "model": model,
+    "implementing_model": implementing_model,
     "test_results": test_results,
     "acceptance_checklist": checklist,
     "findings": findings
@@ -544,6 +752,9 @@ lines = []
 lines.append(f"<!-- ai-pr-verification: {meta_json_str} -->\n")
 lines.append(f"## {icon} PR Verification Report: `{verification_id}`")
 lines.append(f"**Target Issue:** #{issue}")
+if implementing_model:
+    lines.append(f"**Implementing Model:** `{implementing_model}`")
+lines.append(f"**Verified by Model:** `{model}`")
 lines.append(f"**Verdict:** `{verdict}` (Cycle {cycle}/2)")
 commit_label = commit_sha[:10] if commit_sha else "HEAD"
 lines.append(f"**Commit:** `{commit_label}`\n")
@@ -590,13 +801,13 @@ if verdict != "APPROVED" and findings:
     lines.append("")
 
 lines.append("---")
-lines.append("<sub>*Generated by `/pr-verify` against closed issue specification.*</sub>\n")
+lines.append(f"<sub>*Generated by `/pr-verify` using `{model}` against closed issue specification.*</sub>\n")
 
 with open(output_file, "w", encoding="utf-8") as out:
     out.write("\n".join(lines))
 
 print(f"Verification review formatted successfully at: {output_file}")
-' "$verification_id" "$issue" "$pr" "$commit_sha" "$cycle" "$verdict" "$test_results" "$checklist" "$findings" "$output_file"
+' "$verification_id" "$issue" "$pr" "$commit_sha" "$cycle" "$verdict" "$test_results" "$checklist" "$findings" "$output_file" "$model" "$implementing_model"
 }
 
 # --- Command: --merge-pr ---
@@ -634,6 +845,9 @@ command="$1"
 shift
 
 case "$command" in
+  --resolve-model)
+    cmd_resolve_model "$@"
+    ;;
   --generate-verification-id)
     cmd_generate_verification_id "$@"
     ;;

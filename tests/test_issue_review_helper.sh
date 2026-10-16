@@ -32,18 +32,18 @@ cat << 'EOF' > "$TMP_DIR/mock_issue.json"
 {
   "number": 42,
   "title": "Implement Ticket Registry Reallocation",
-  "body": "## Overview\nWe need to optimize ticket storage.\n\n<!-- issue-review-ledger: [\n  {\n    \"review_id\": \"rev-20261014-42-0001\",\n    \"comment_id\": 1001,\n    \"integrated_at\": \"2026-10-14T12:00:00Z\",\n    \"applied\": [\"OLD-1\"],\n    \"declined\": [{\"id\": \"OLD-2\", \"reason\": \"Out of scope\"}]\n  }\n] -->",
+  "body": "## Overview\nWe need to optimize ticket storage.\n\n<!-- issue-review-ledger: [\n  {\n    \"review_id\": \"rev-20261014-42-0001\",\n    \"comment_id\": 1001,\n    \"integrated_at\": \"2026-10-14T12:00:00Z\",\n    \"model\": \"claude-3-7-sonnet\",\n    \"applied\": [\"OLD-1\"],\n    \"declined\": [{\"id\": \"OLD-2\", \"reason\": \"Out of scope\"}]\n  }\n] -->",
   "updatedAt": "2026-10-15T10:00:00Z",
   "comments": [
     {
       "id": 1001,
       "author": {"login": "ai-reviewer"},
-      "body": "<!-- ai-issue-review: {\"version\":\"1.0\",\"review_id\":\"rev-20261014-42-0001\",\"issue_number\":42,\"agents\":[\"solution-critic\"],\"timestamp\":\"2026-10-14T11:00:00Z\",\"status\":\"pending\"} -->\n### Checklist\n- [x] **[OLD-1]**: Implement baseline storage\n- [ ] **[OLD-2]**: Use deprecated zero-copy"
+      "body": "<!-- ai-issue-review: {\"version\":\"1.0\",\"review_id\":\"rev-20261014-42-0001\",\"issue_number\":42,\"model\":\"claude-3-7-sonnet\",\"agents\":[\"solution-critic\"],\"agent_models\":{\"solution-critic\":\"claude-3-7-sonnet\"},\"timestamp\":\"2026-10-14T11:00:00Z\",\"status\":\"pending\"} -->\n### Checklist\n- [x] **[OLD-1]**: Implement baseline storage\n- [ ] **[OLD-2]**: Use deprecated zero-copy"
     },
     {
       "id": 1002,
       "author": {"login": "ai-reviewer"},
-      "body": "<!-- ai-issue-review: {\"version\":\"1.0\",\"review_id\":\"rev-20261015-42-a1b2\",\"issue_number\":42,\"agents\":[\"solution-critic\",\"contract-plan-reviewer\"],\"timestamp\":\"2026-10-15T09:30:00Z\",\"status\":\"pending\"} -->\n## Assessment\nActionable findings:\n- [ ] **[ARCH-1]**: Refactor account reallocation to header-only dynamic sizing\n- [ ] **[SEC-1]**: Enforce canonical bump validation on vault authority PDA\n- [ ] **[OPT-1]**: Use zero-copy array"
+      "body": "<!-- ai-issue-review: {\"version\":\"1.0\",\"review_id\":\"rev-20261015-42-a1b2\",\"issue_number\":42,\"model\":\"gemini-3.8-flash-high\",\"agents\":[\"solution-critic\",\"contract-plan-reviewer\"],\"agent_models\":{\"solution-critic\":\"gemini-3.8-flash-high\",\"contract-plan-reviewer\":\"gemini-3.8-flash-high\"},\"timestamp\":\"2026-10-15T09:30:00Z\",\"status\":\"pending\"} -->\n## Assessment\nActionable findings:\n- [ ] **[ARCH-1]**: Refactor account reallocation to header-only dynamic sizing\n- [ ] **[SEC-1]**: Enforce canonical bump validation on vault authority PDA\n- [ ] **[OPT-1]**: Use zero-copy array"
     }
   ]
 }
@@ -71,6 +71,14 @@ if [[ "$REV1_STATUS" != "integrated" || "$REV2_STATUS" != "pending" ]]; then
   echo "FAILED: Review status mismatch: rev1=$REV1_STATUS (expected integrated), rev2=$REV2_STATUS (expected pending)"
   exit 1
 fi
+
+REV2_MODEL="$(jq -r '.reviews[] | select(.review_id=="rev-20261015-42-a1b2") | .model' "$PARSE_OUT")"
+REV2_SUBMODEL="$(jq -r '.reviews[] | select(.review_id=="rev-20261015-42-a1b2") | .agent_models."contract-plan-reviewer"' "$PARSE_OUT")"
+
+if [[ "$REV2_MODEL" != "gemini-3.8-flash-high" || "$REV2_SUBMODEL" != "gemini-3.8-flash-high" ]]; then
+  echo "FAILED: Model extraction mismatch: model=$REV2_MODEL, submodel=$REV2_SUBMODEL"
+  exit 1
+fi
 echo "PASSED"
 
 # Test 3: --append-ledger appending and idempotency
@@ -95,6 +103,7 @@ OUTPUT_BODY="$TMP_DIR/output_body.md"
   --issue 42 \
   --review-id "rev-20261015-42-a1b2" \
   --comment-id 1002 \
+  --model "gemini-3.8-flash-high" \
   --applied '["ARCH-1", "SEC-1"]' \
   --declined '[{"id": "OPT-1", "reason": "Dynamic reallocation preferred per ADR-002"}]' \
   --input-body-file "$TMP_DIR/input_body.md" \
@@ -118,11 +127,18 @@ if [[ "$ENTRY_COUNT" -ne 2 ]]; then
   exit 1
 fi
 
+ENTRY_MODEL="$(jq -r '.ledger[] | select(.review_id=="rev-20261015-42-a1b2") | .model' "$TMP_DIR/parse_after_append.json")"
+if [[ "$ENTRY_MODEL" != "gemini-3.8-flash-high" ]]; then
+  echo "FAILED: Expected model gemini-3.8-flash-high in ledger, got $ENTRY_MODEL"
+  exit 1
+fi
+
 # Test idempotency (updating existing review_id)
 "$HELPER" --append-ledger \
   --issue 42 \
   --review-id "rev-20261015-42-a1b2" \
   --comment-id 1002 \
+  --model "gemini-3.8-flash-high" \
   --applied '["ARCH-1", "SEC-1", "OPT-1"]' \
   --declined '[]' \
   --input-body-file "$OUTPUT_BODY" \
@@ -250,6 +266,52 @@ fi
 if ! grep -q "Warning: Could not patch review comment" "$TMP_DIR/patch_warn.txt"; then
   echo "FAILED: Expected warning about patch error in stderr"
   cat "$TMP_DIR/patch_warn.txt"
+  exit 1
+fi
+echo "PASSED"
+
+# Test 8: Backward compatibility without --model
+echo -n "Test 8: Backward compatibility without --model ... "
+cat << 'EOF' > "$TMP_DIR/legacy_body.md"
+# Legacy Issue
+<!-- issue-review-ledger: [
+  {
+    "review_id": "rev-legacy-01",
+    "comment_id": 999,
+    "integrated_at": "2026-10-10T10:00:00Z",
+    "applied": ["LEGACY-1"],
+    "declined": []
+  }
+] -->
+EOF
+
+"$HELPER" --append-ledger \
+  --issue 77 \
+  --review-id "rev-auto-model" \
+  --comment-id 888 \
+  --applied '["AUTO-1"]' \
+  --declined '[]' \
+  --input-body-file "$TMP_DIR/legacy_body.md" \
+  --output-body-file "$TMP_DIR/legacy_out.md" >/dev/null
+
+cat << 'EOF' > "$TMP_DIR/verify_legacy.json"
+{
+  "number": 77,
+  "body": "",
+  "comments": []
+}
+EOF
+jq --rawfile b "$TMP_DIR/legacy_out.md" '.body = $b' "$TMP_DIR/verify_legacy.json" > "$TMP_DIR/verify_legacy_populated.json"
+"$HELPER" --parse-reviews --file "$TMP_DIR/verify_legacy_populated.json" > "$TMP_DIR/parse_legacy.json"
+
+LEGACY_ENTRY_COUNT="$(jq '.ledger | length' "$TMP_DIR/parse_legacy.json")"
+if [[ "$LEGACY_ENTRY_COUNT" -ne 2 ]]; then
+  echo "FAILED: Expected 2 ledger entries in legacy test, got $LEGACY_ENTRY_COUNT"
+  exit 1
+fi
+AUTO_MODEL="$(jq -r '.ledger[] | select(.review_id=="rev-auto-model") | .model' "$TMP_DIR/parse_legacy.json")"
+if [[ -z "$AUTO_MODEL" || "$AUTO_MODEL" == "null" ]]; then
+  echo "FAILED: Auto-resolved model was empty or null in ledger: $AUTO_MODEL"
   exit 1
 fi
 echo "PASSED"
