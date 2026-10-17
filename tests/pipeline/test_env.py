@@ -46,6 +46,51 @@ class TestPipelineEnv(unittest.TestCase):
         self.assertEqual(res["GH_TRUSTED_AUTHOR"], "bot-user")
         self.assertEqual(res["HOME"], "/home/developer")
 
+    def test_subprocess_call_sites_pass_pipeline_env(self):
+        from unittest.mock import patch, MagicMock
+        from pipeline.executor import LocalGitClient
+        from pipeline.gh import GhClient
+        from pipeline.snapshot import LocalHelperClient
+
+        # 1. LocalHelperClient
+        captured_env = None
+        def mock_subprocess_run(cmd, **kwargs):
+            nonlocal captured_env
+            captured_env = kwargs.get("env")
+            mock = MagicMock()
+            mock.returncode = 0
+            mock.stdout = ""
+            mock.stderr = ""
+            return mock
+
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            helpers = LocalHelperClient(repo_root=Path("/fake/repo"))
+            helpers.run_review_helper(["--help"])
+            self.assertIsNotNone(captured_env)
+            self.assertEqual(captured_env.get("GH_PROMPT_DISABLED"), "1")
+            self.assertEqual(captured_env.get("GIT_TERMINAL_PROMPT"), "0")
+            self.assertEqual(captured_env.get("NO_DNA"), "1")
+
+            helpers.run_lifecycle_helper(["--help"])
+            self.assertIsNotNone(captured_env)
+            self.assertEqual(captured_env.get("GH_PROMPT_DISABLED"), "1")
+
+        # 2. LocalGitClient
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            git_client = LocalGitClient(repo_root="/fake/repo")
+            git_client.run(["status"])
+            self.assertIsNotNone(captured_env)
+            self.assertEqual(captured_env.get("GIT_TERMINAL_PROMPT"), "0")
+            self.assertEqual(captured_env.get("NO_DNA"), "1")
+
+        # 3. GhClient
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            gh_client = GhClient()
+            gh_client.read(["api", "user"])
+            self.assertIsNotNone(captured_env)
+            self.assertEqual(captured_env.get("GH_PROMPT_DISABLED"), "1")
+            self.assertEqual(captured_env.get("NO_DNA"), "1")
+
 
 if __name__ == "__main__":
     unittest.main()

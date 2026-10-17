@@ -131,6 +131,19 @@ class TestWorktrees(unittest.TestCase):
             check_and_run_npm_ci(worktree, {}, timeout=30.0)
             self.assertEqual(npm_runs, 2)
 
+    def test_concurrent_review_slots_prepared_concurrently_both_succeed(self):
+        import concurrent.futures
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+                f0 = ex.submit(prepare_workspace, ReviewSlot(0), self.paths, self.repo_root)
+                f1 = ex.submit(prepare_workspace, ReviewSlot(1), self.paths, self.repo_root)
+                f0.result()
+                f1.result()
+
 
 if __name__ == "__main__":
     unittest.main()

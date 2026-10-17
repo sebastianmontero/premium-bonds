@@ -56,16 +56,33 @@ class TestRunner(unittest.TestCase):
         return p
 
     def test_herdr_runner_creates_tab_and_returns_handle(self):
-        # Fake herdr on PATH that outputs JSON
         log_file = self.root / "herdr.log"
         self._create_mock_bin(
             "herdr",
             f"""
             echo "$@" >> "{log_file}"
-            if [[ "$1" == "ping" ]]; then
+            if [[ "$1" == "status" && "$2" == "server" ]]; then
+                echo "status: running"
                 exit 0
             fi
-            echo '{{"tab_id": "tab-herdr-42"}}'
+            if [[ "$1" == "workspace" && "$2" == "list" ]]; then
+                echo '{{"result": {{"workspaces": [{{"label": "pipeline", "workspace_id": "ws-pipe"}}]}}}}'
+                exit 0
+            fi
+            if [[ "$1" == "tab" && "$2" == "create" ]]; then
+                echo '{{"result": {{"tab": {{"tab_id": "tab-herdr-42"}}, "root_pane": {{"pane_id": "pane-1"}}}}}}'
+                exit 0
+            fi
+            if [[ "$1" == "tab" && "$2" == "rename" ]]; then
+                exit 0
+            fi
+            if [[ "$1" == "pane" && "$2" == "run" ]]; then
+                exit 0
+            fi
+            if [[ "$1" == "tab" && "$2" == "close" ]]; then
+                exit 0
+            fi
+            echo '{{"result": {{}}}}'
             exit 0
             """,
         )
@@ -77,8 +94,64 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(handle.tab_id, "tab-herdr-42")
 
         logged = log_file.read_text(encoding="utf-8")
-        self.assertIn("new-tab", logged)
-        self.assertIn("--workspace pipeline", logged)
+        self.assertIn("status server", logged)
+        self.assertIn("workspace list", logged)
+        self.assertIn("tab create --workspace ws-pipe", logged)
+        self.assertIn("tab rename tab-herdr-42 #42 implement", logged)
+        self.assertIn("pane run pane-1", logged)
+
+    def test_herdr_failure_falls_back_to_headless(self):
+        # Fake herdr where tab create fails
+        self._create_mock_bin(
+            "herdr",
+            """
+            if [[ "$1" == "status" && "$2" == "server" ]]; then
+                echo "status: running"
+                exit 0
+            fi
+            exit 1
+            """,
+        )
+        runner = HerdrRunner(self.paths)
+        handle = runner.start(self.record)
+        self.assertIsInstance(handle, (HeadlessHandle, SystemdHandle))
+
+    def test_herdr_cleanup_stale_runs_closes_tabs_older_than_60_min(self):
+        log_file = self.root / "herdr_cleanup.log"
+        self._create_mock_bin(
+            "herdr",
+            f"""
+            echo "$@" >> "{log_file}"
+            exit 0
+            """,
+        )
+        runner = HerdrRunner(self.paths)
+        now = datetime(2026, 10, 17, 12, 0, 0, tzinfo=timezone.utc)
+        from pipeline.state import FinishedRun, Liveness, RunOutcome
+        finished = {
+            RunId("run-old"): FinishedRun(
+                record=self.record,
+                handle=HerdrHandle("tab-old"),
+                outcome=RunOutcome(
+                    exit_code=0,
+                    finished_at=datetime(2026, 10, 17, 10, 0, 0, tzinfo=timezone.utc),
+                    liveness=Liveness.EXITED,
+                ),
+            ),
+            RunId("run-new"): FinishedRun(
+                record=self.record,
+                handle=HerdrHandle("tab-new"),
+                outcome=RunOutcome(
+                    exit_code=0,
+                    finished_at=datetime(2026, 10, 17, 11, 30, 0, tzinfo=timezone.utc),
+                    liveness=Liveness.EXITED,
+                ),
+            ),
+        }
+        runner.cleanup_stale_runs(finished, now)
+        logged = log_file.read_text(encoding="utf-8")
+        self.assertIn("tab close tab-old", logged)
+        self.assertNotIn("tab close tab-new", logged)
 
     def test_headless_runner_picks_systemd_run_when_invocation_id_set(self):
         log_file = self.root / "systemd-run.log"

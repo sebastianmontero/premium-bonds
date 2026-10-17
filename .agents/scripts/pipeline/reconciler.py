@@ -93,7 +93,24 @@ def tick(
 
         # Execute reaped actions first (KillRunGroup, FinishRun, etc.)
         for act in reaped_actions:
-            executor.apply(act, now=now)
+            try:
+                executor.apply(act, now=now)
+            except Exception as e:
+                err_detail = str(e)[:300]
+                logger.error("Reaped action %s failed: %s", type(act).__name__, err_detail)
+                if hasattr(act, "on_failure") and getattr(act, "on_failure", None) is not None:
+                    on_fail = act.on_failure
+                    from .actions import RecordAttempt
+                    if isinstance(on_fail, RecordAttempt):
+                        on_fail = RecordAttempt(
+                            issue=on_fail.issue,
+                            fingerprint=on_fail.fingerprint,
+                            detail=err_detail,
+                        )
+                    try:
+                        executor.apply(on_fail, now=now)
+                    except Exception as inner_e:
+                        logger.error("Reaped on_failure action failed: %s", inner_e)
 
         # Execute issue plans in priority order
         for issue_plan in plan:

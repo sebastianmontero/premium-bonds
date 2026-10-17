@@ -191,11 +191,22 @@ def exec_run(
 
     argv = record.spec.build_argv(record.prompt, extra_args)
 
-    run_env = pipeline_env(
-        extra={
-            "PIPELINE_RUN_ID": str(rid),
-        }
-    )
+    extra_env: dict[str, str] = {
+        "PIPELINE_RUN_ID": str(rid),
+    }
+    trusted_author = os.environ.get("GH_TRUSTED_AUTHOR")
+    if not trusted_author:
+        import subprocess
+        try:
+            res = subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True, env=pipeline_env(), check=False)
+            if res.returncode == 0 and res.stdout.strip():
+                trusted_author = res.stdout.strip()
+        except Exception:
+            pass
+    if trusted_author:
+        extra_env["GH_TRUSTED_AUTHOR"] = trusted_author
+
+    run_env = pipeline_env(extra=extra_env)
 
     # 5. Spawn agent in new process group
     import subprocess

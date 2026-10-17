@@ -5,7 +5,7 @@ or non-interactive execution (systemd transient units / background processes).
 """
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
@@ -41,42 +41,83 @@ class HerdrRunner:
         if not shutil.which("herdr"):
             return False
         try:
-            res = subprocess.run(["herdr", "ping"], capture_output=True, text=True, check=False)
-            return res.returncode == 0
+            res = subprocess.run(["herdr", "status", "server"], capture_output=True, text=True, check=False)
+            return res.returncode == 0 and "status: running" in res.stdout
         except Exception:
             return False
 
     def start(self, record: RunRecord) -> RunnerHandle:
-        rid = str(record.run_id)
-        title = f"#{record.issue.number}-{record.target.step.value}"
-        control_pkg = self.paths.control / ".agents" / "scripts" / "pipeline"
+        try:
+            return self._start_herdr(record)
+        except Exception as e:
+            logger.warning("HerdrRunner failed (%s); falling back to HeadlessRunner", e)
+            return HeadlessRunner(self.paths).start(record)
 
-        exec_cmd = f"python3 {control_pkg} exec {rid}"
+    def _start_herdr(self, record: RunRecord) -> RunnerHandle:
+        control_dir = str(self.paths.control)
+        # 1. Find or create pipeline workspace
+        ws_list_proc = subprocess.run(["herdr", "workspace", "list"], capture_output=True, text=True, check=True)
+        ws_data = json.loads(ws_list_proc.stdout)
+        workspaces = ws_data.get("result", {}).get("workspaces", [])
+        workspace_id = None
+        for w in workspaces:
+            if w.get("label") == self.workspace_name:
+                workspace_id = w.get("workspace_id")
+                break
 
-        cmd = [
-            "herdr", "new-tab",
-            "--workspace", self.workspace_name,
-            "--title", title,
-            "--command", exec_cmd,
-            "--json",
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        tab_id = rid
-        if res.returncode == 0:
-            try:
-                data = json.loads(res.stdout)
-                tab_id = str(data.get("tab_id") or data.get("id") or rid)
-            except Exception:
-                pass
-        else:
-            logger.warning("herdr new-tab failed (%s): %s; using headless fallback", res.returncode, res.stderr)
-            # If herdr failed during tab creation, return HerdrHandle with rid
-            return HerdrHandle(tab_id=rid)
+        if not workspace_id:
+            ws_create_cmd = ["herdr", "workspace", "create", "--label", self.workspace_name, "--cwd", control_dir, "--no-focus"]
+            ws_create_proc = subprocess.run(ws_create_cmd, capture_output=True, text=True, check=True)
+            create_data = json.loads(ws_create_proc.stdout)
+            workspace_id = (
+                create_data.get("result", {}).get("workspace_id")
+                or create_data.get("result", {}).get("workspace", {}).get("workspace_id")
+                or create_data.get("workspace_id")
+            )
+            if not workspace_id:
+                ws_list_proc2 = subprocess.run(["herdr", "workspace", "list"], capture_output=True, text=True, check=True)
+                for w in json.loads(ws_list_proc2.stdout).get("result", {}).get("workspaces", []):
+                    if w.get("label") == self.workspace_name:
+                        workspace_id = w.get("workspace_id")
+                        break
+            if not workspace_id:
+                raise RuntimeError("Failed to resolve workspace_id for pipeline workspace")
 
-        return HerdrHandle(tab_id=tab_id)
+        # 2. Create tab
+        tab_cmd = ["herdr", "tab", "create", "--workspace", workspace_id, "--cwd", control_dir, "--no-focus"]
+        tab_proc = subprocess.run(tab_cmd, capture_output=True, text=True, check=True)
+        tab_data = json.loads(tab_proc.stdout)
+        tab_id = (
+            tab_data.get("result", {}).get("tab", {}).get("tab_id")
+            or tab_data.get("result", {}).get("tab_id")
+            or tab_data.get("tab_id")
+        )
+        pane_id = (
+            tab_data.get("result", {}).get("root_pane", {}).get("pane_id")
+            or tab_data.get("result", {}).get("pane_id")
+            or tab_data.get("pane_id")
+        )
+        if not tab_id or not pane_id:
+            raise RuntimeError(f"Failed to parse tab_id / pane_id from herdr tab create: {tab_proc.stdout}")
+
+        # 3. Rename tab "#<n> <step>"
+        tab_title = f"#{record.issue.number} {record.target.step.value}"
+        subprocess.run(["herdr", "tab", "rename", str(tab_id), tab_title], capture_output=True, check=False)
+
+        # 4. Run pane
+        exec_cmd = f"python3 {self.paths.control}/.agents/scripts/pipeline exec {record.run_id}"
+        subprocess.run(["herdr", "pane", "run", str(pane_id), exec_cmd], capture_output=True, check=True)
+
+        return HerdrHandle(tab_id=str(tab_id))
 
     def cleanup_stale_runs(self, finished: Mapping[RunId, FinishedRun], now: datetime) -> None:
-        pass
+        for rid, fin in finished.items():
+            if isinstance(fin.handle, HerdrHandle):
+                if (now - fin.outcome.finished_at) > timedelta(minutes=60):
+                    try:
+                        subprocess.run(["herdr", "tab", "close", str(fin.handle.tab_id)], capture_output=True, check=False)
+                    except Exception:
+                        pass
 
 
 class HeadlessRunner:

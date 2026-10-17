@@ -146,17 +146,26 @@ class ProcessControl:
             return True
         return leader_start_time == pgid_start_time
 
-    def terminate_group(self, pgid: int, grace: float = 30.0) -> None:
+    def terminate_group(
+        self,
+        pgid: int,
+        grace: float = 30.0,
+        *,
+        grace_period_seconds: float | None = None,
+        poll_interval_seconds: float = 0.25,
+    ) -> None:
         """Terminate process group pgid cleanly with SIGTERM then SIGKILL.
 
         1. If pgid <= 1, logs warning and returns without sending signals.
         2. Otherwise sends SIGTERM.
-        3. Polls killpg(pgid, 0) every 250ms, returning as soon as group is gone.
+        3. Polls killpg(pgid, 0) every poll_interval_seconds, returning as soon as group is gone.
         4. Sends SIGKILL if group is still alive after grace period.
         """
         if pgid <= 1:
             logger.warning("Attempted to terminate invalid or system process group %s; ignored.", pgid)
             return
+
+        effective_grace = grace_period_seconds if grace_period_seconds is not None else grace
 
         try:
             self._killpg(pgid, signal.SIGTERM)
@@ -167,8 +176,8 @@ class ProcessControl:
             return
 
         start = self._monotonic()
-        while self._monotonic() - start < grace:
-            self._sleep(0.25)
+        while self._monotonic() - start < effective_grace:
+            self._sleep(poll_interval_seconds)
             try:
                 self._killpg(pgid, 0)
             except ProcessLookupError:

@@ -273,7 +273,11 @@ class Executor:
 
         if not failed:
             for act in other_actions:
-                self.apply(act, now=now)
+                try:
+                    self.apply(act, now=now)
+                except Exception as e:
+                    logger.error("Action %s failed for issue #%s: %s", type(act).__name__, plan.issue.number, e)
+                    break
 
         # UpsertStatusComment runs last and is never skipped
         if status_action is not None:

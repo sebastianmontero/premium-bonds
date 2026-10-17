@@ -194,6 +194,10 @@ class TestSnapshot(unittest.TestCase):
                 }])
             if args[:3] == ["pr", "list", "--state"]:
                 return json.dumps([])
+            if args[:2] == ["api", "graphql"]:
+                return json.dumps({"data": {"repository": {"issue": {"editor": None}}}})
+            if args[:2] == ["api", "repos/owner/repo/issues/55"]:
+                return json.dumps({})
             return ""
 
         mock_gh.read.side_effect = fake_gh_read
@@ -222,6 +226,144 @@ class TestSnapshot(unittest.TestCase):
         self.assertIsInstance(snap, FailedSnapshot)
         self.assertEqual(snap.issue, IssueRef(55))
         self.assertIn("review helper exit 2", snap.error)
+
+    def test_editor_query_failure_yields_failed_snapshot(self):
+        mock_gh = MagicMock()
+        def fake_gh_read(args):
+            if args[:3] == ["api", "user", "-q"]:
+                return "pipeline-bot"
+            if args[:3] == ["repo", "view", "--json"]:
+                return json.dumps({"owner": {"login": "owner"}, "name": "repo"})
+            if args[:3] == ["issue", "list", "--label"]:
+                return json.dumps([{
+                    "number": 56,
+                    "title": "Issue",
+                    "body": "desc",
+                    "labels": [{"name": "agent:auto"}],
+                    "comments": [],
+                }])
+            if args[:3] == ["pr", "list", "--state"]:
+                return json.dumps([])
+            if args[:2] == ["api", "graphql"]:
+                raise RuntimeError("GraphQL editor query timeout")
+            return "{}"
+
+        mock_gh.read.side_effect = fake_gh_read
+        mock_helpers = MagicMock()
+        config = PipelineConfig(
+            eligible_label="agent:auto",
+            skip_review_label="agent:skip-review",
+            max_revision_cycles=3,
+            max_step_attempts=2,
+            runner="auto",
+            reviews=(),
+            integrator=MagicMock(),
+            implement=MagicMock(),
+            verify=MagicMock(),
+            revise=MagicMock(),
+            concurrency=ConcurrencyConfig(review=2),
+            timeouts={},
+        )
+
+        snapshotter = Snapshotter(mock_gh, mock_helpers)
+        snapshots = snapshotter.snapshot(config)
+        self.assertEqual(len(snapshots), 1)
+        self.assertIsInstance(snapshots[0], FailedSnapshot)
+        self.assertIn("GraphQL editor query timeout", snapshots[0].error)
+
+    def test_dependency_query_failure_yields_failed_snapshot(self):
+        mock_gh = MagicMock()
+        def fake_gh_read(args):
+            if args[:3] == ["api", "user", "-q"]:
+                return "pipeline-bot"
+            if args[:3] == ["repo", "view", "--json"]:
+                return json.dumps({"owner": {"login": "owner"}, "name": "repo"})
+            if args[:3] == ["issue", "list", "--label"]:
+                return json.dumps([{
+                    "number": 57,
+                    "title": "Issue",
+                    "body": "desc",
+                    "labels": [{"name": "agent:auto"}],
+                    "comments": [],
+                }])
+            if args[:3] == ["pr", "list", "--state"]:
+                return json.dumps([])
+            if args[:2] == ["api", "graphql"]:
+                return json.dumps({"data": {"repository": {"issue": {"editor": None}}}})
+            if args[:2] == ["api", "repos/owner/repo/issues/57"]:
+                raise RuntimeError("Dependency query HTTP 500")
+            return "{}"
+
+        mock_gh.read.side_effect = fake_gh_read
+        mock_helpers = MagicMock()
+        config = PipelineConfig(
+            eligible_label="agent:auto",
+            skip_review_label="agent:skip-review",
+            max_revision_cycles=3,
+            max_step_attempts=2,
+            runner="auto",
+            reviews=(),
+            integrator=MagicMock(),
+            implement=MagicMock(),
+            verify=MagicMock(),
+            revise=MagicMock(),
+            concurrency=ConcurrencyConfig(review=2),
+            timeouts={},
+        )
+
+        snapshotter = Snapshotter(mock_gh, mock_helpers)
+        snapshots = snapshotter.snapshot(config)
+        self.assertEqual(len(snapshots), 1)
+        self.assertIsInstance(snapshots[0], FailedSnapshot)
+        self.assertIn("Dependency query HTTP 500", snapshots[0].error)
+
+    def test_dependency_field_absent_yields_zero_blockers(self):
+        mock_gh = MagicMock()
+        def fake_gh_read(args):
+            if args[:3] == ["api", "user", "-q"]:
+                return "pipeline-bot"
+            if args[:3] == ["repo", "view", "--json"]:
+                return json.dumps({"owner": {"login": "owner"}, "name": "repo"})
+            if args[:3] == ["issue", "list", "--label"]:
+                return json.dumps([{
+                    "number": 58,
+                    "title": "Issue",
+                    "body": "desc",
+                    "labels": [{"name": "agent:auto"}],
+                    "comments": [],
+                }])
+            if args[:3] == ["pr", "list", "--state"]:
+                return json.dumps([])
+            if args[:2] == ["api", "graphql"]:
+                return json.dumps({"data": {"repository": {"issue": {"editor": None}}}})
+            if args[:2] == ["api", "repos/owner/repo/issues/58"]:
+                return json.dumps({"title": "Issue without dependency field"})
+            return "{}"
+
+        mock_gh.read.side_effect = fake_gh_read
+        mock_helpers = MagicMock()
+        mock_helpers.run_review_helper.return_value = '{"reviews": []}'
+        mock_helpers.run_lifecycle_helper.return_value = ""
+        config = PipelineConfig(
+            eligible_label="agent:auto",
+            skip_review_label="agent:skip-review",
+            max_revision_cycles=3,
+            max_step_attempts=2,
+            runner="auto",
+            reviews=(),
+            integrator=MagicMock(),
+            implement=MagicMock(),
+            verify=MagicMock(),
+            revise=MagicMock(),
+            concurrency=ConcurrencyConfig(review=2),
+            timeouts={},
+        )
+
+        snapshotter = Snapshotter(mock_gh, mock_helpers)
+        snapshots = snapshotter.snapshot(config)
+        self.assertEqual(len(snapshots), 1)
+        self.assertIsInstance(snapshots[0], IssueSnapshot)
+        self.assertEqual(snapshots[0].open_blocker_count, 0)
 
 
 if __name__ == "__main__":

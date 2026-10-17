@@ -19,6 +19,12 @@ import subprocess
 import sys
 import time
 
+if not __package__:
+    parent_dir = str(Path(__file__).resolve().parent.parent)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    __package__ = "pipeline"
+
 from .config import PipelineConfig, load_config
 from .env import pipeline_env
 from .executor import ExecDeps, LocalGitClient, LocalStoreClient
@@ -85,7 +91,9 @@ def run_preflight(install_timer: bool, repo_root: Path, config: PipelineConfig) 
         if flag not in claude_help.stdout:
             sys.stderr.write(f"Preflight error: claude CLI does not support {flag}\n")
             sys.exit(1)
-    if "auto" not in claude_help.stdout:
+    import re
+    mode_match = re.search(r"--permission-mode.*?\(choices:([^\)]+)\)", claude_help.stdout, re.DOTALL)
+    if not mode_match or '"auto"' not in mode_match.group(1):
         sys.stderr.write("Preflight error: claude CLI does not support permission mode 'auto'\n")
         sys.exit(1)
 
@@ -107,9 +115,19 @@ def run_preflight(install_timer: bool, repo_root: Path, config: PipelineConfig) 
         if spec.cli == "agy":
             required_slugs.add(spec.provenance_slug)
 
-    for slug in required_slugs:
-        if slug not in agy_models_out and not any(slug.startswith(line.strip()) for line in agy_models_out.splitlines()):
-            logger.warning("Configured agy model slug '%s' not explicitly listed in `agy models`", slug)
+    available_slugs = set()
+    for line in agy_models_out.splitlines():
+        line_s = line.strip()
+        if not line_s or line_s.startswith("⠋") or line_s.startswith("⠙") or line_s.startswith("⠹") or "Fetching" in line_s:
+            continue
+        parts = line_s.split()
+        if parts:
+            available_slugs.add(parts[0])
+
+    for slug in sorted(required_slugs):
+        if slug not in available_slugs:
+            sys.stderr.write(f"Preflight error: Configured agy model slug '{slug}' not found in `agy models`\n")
+            sys.exit(1)
 
     # 4. systemd-run if timer requested
     if install_timer:
@@ -118,10 +136,24 @@ def run_preflight(install_timer: bool, repo_root: Path, config: PipelineConfig) 
             sys.stderr.write("Preflight error: systemd-run --user not available for --install-timer\n")
             sys.exit(1)
 
-    # 5. .claude/settings.json check
-    settings_path = repo_root / ".claude" / "settings.json"
-    if not settings_path.exists():
-        sys.stderr.write(f"Preflight error: {settings_path} missing\n")
+    # 5. .claude/settings.json check in origin/dev
+    res = subprocess.run(
+        ["git", "show", "origin/dev:.claude/settings.json"],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    if res.returncode != 0:
+        sys.stderr.write("Preflight error: origin/dev:.claude/settings.json not found\n")
+        sys.exit(1)
+    try:
+        settings_data = json.loads(res.stdout)
+        allow_rules = settings_data.get("permissions", {}).get("allow", [])
+        if not allow_rules:
+            sys.stderr.write("Preflight error: No allow rules found in origin/dev:.claude/settings.json\n")
+            sys.exit(1)
+    except Exception as e:
+        sys.stderr.write(f"Preflight error: Failed to parse origin/dev:.claude/settings.json: {e}\n")
         sys.exit(1)
 
 
@@ -138,7 +170,7 @@ def cmd_setup(args: argparse.Namespace, paths: PipelinePaths, repo_root: Path) -
         # Handle --reset-store
         if args.reset_store:
             procs = ProcessControl()
-            active = probe(load_store(paths).runs, paths, procs)
+            active = probe({}, paths, procs)
             if any(ar.liveness is Liveness.ALIVE for ar in active.values()):
                 sys.stderr.write("Error: Cannot reset store while an agent run is active.\n")
                 sys.exit(1)
@@ -297,11 +329,14 @@ def cmd_tick(args: argparse.Namespace, paths: PipelinePaths, repo_root: Path) ->
         )
 
         if args.dry_run:
-            print(f"=== Dry-run completed: {len(report.plan.issues)} issue(s) planned ===")
-            for ip in report.plan.issues:
+            print(f"=== Dry-run completed: {len(report.plan)} issue(s) planned ===")
+            for ip in report.plan:
                 print(f"\n--- Issue #{ip.issue.number} Actions ({len(ip.actions)}) ---")
                 for act in ip.actions:
                     print(f"  {type(act).__name__}: {act}")
+                    from .actions import UpsertStatusComment
+                    if isinstance(act, UpsertStatusComment):
+                        print(f"    Status Body:\n{act.body}\n")
     finally:
         lock.release()
 

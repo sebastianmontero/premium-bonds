@@ -15,6 +15,7 @@ import tempfile
 from typing import Any, Protocol
 
 from .config import PipelineConfig
+from .env import pipeline_env
 from .gh import GhPort
 from .model import (
     Comment,
@@ -60,7 +61,7 @@ class HelperPort(Protocol):
 class LocalHelperClient:
     def __init__(self, repo_root: Path, base_env: dict[str, str] | None = None) -> None:
         self.repo_root = repo_root
-        self.base_env = base_env
+        self.base_env = pipeline_env(base_env)
 
     def run_review_helper(self, args: Sequence[str]) -> str:
         script = self.repo_root / ".agents" / "scripts" / "issue_review_helper.sh"
@@ -75,6 +76,8 @@ class LocalHelperClient:
         cmd = ["bash", str(script), *args]
         proc = subprocess.run(cmd, capture_output=True, text=True, env=self.base_env, check=False)
         if proc.returncode != 0:
+            if proc.returncode == 1 and "--get-linked-pr" in args:
+                return ""
             raise subprocess.CalledProcessError(proc.returncode, cmd, proc.stdout, proc.stderr)
         return proc.stdout
 
@@ -305,15 +308,20 @@ class Snapshotter:
 
         owner, repo = self.get_repo_owner_name()
 
-        # 2. Issues query
+        # 2. Issues query (limit 200)
         try:
             issues_out = self.gh.read([
                 "issue", "list",
                 "--label", config.eligible_label,
                 "--state", "open",
+                "--limit", "200",
                 "--json", "number,title,body,labels,assignees,comments,updatedAt",
             ])
             issues_data = json.loads(issues_out)
+            if len(issues_data) >= 200:
+                raise GlobalSnapshotError("Issue list returned 200 rows (limit reached). Aborting tick.")
+        except GlobalSnapshotError:
+            raise
         except Exception as e:
             raise GlobalSnapshotError(f"Failed to list issues with label {config.eligible_label}: {e}") from e
 
@@ -389,18 +397,15 @@ class Snapshotter:
 
         # Editor check
         editor_login: str | None = None
-        try:
-            editor_query = (
-                f'query {{ repository(owner: "{owner}", name: "{repo}") {{ '
-                f'issue(number: {num}) {{ editor {{ login }} }} }} }}'
-            )
-            ed_out = self.gh.read(["api", "graphql", "-f", f"query={editor_query}"])
-            ed_data = json.loads(ed_out)
-            ed_obj = ed_data.get("data", {}).get("repository", {}).get("issue", {}).get("editor")
-            if ed_obj:
-                editor_login = ed_obj.get("login")
-        except Exception:
-            editor_login = None
+        editor_query = (
+            f'query {{ repository(owner: "{owner}", name: "{repo}") {{ '
+            f'issue(number: {num}) {{ editor {{ login }} }} }} }}'
+        )
+        ed_out = self.gh.read(["api", "graphql", "-f", f"query={editor_query}"])
+        ed_data = json.loads(ed_out)
+        ed_obj = ed_data.get("data", {}).get("repository", {}).get("issue", {}).get("editor")
+        if ed_obj:
+            editor_login = ed_obj.get("login")
 
         editor = Editor(editor_login) if editor_login else None
         body_trusted = True
@@ -410,14 +415,11 @@ class Snapshotter:
 
         # Open blocker count
         blocker_count = 0
-        try:
-            dep_out = self.gh.read(["api", f"repos/{owner}/{repo}/issues/{num}"])
-            dep_data = json.loads(dep_out)
-            dep_summary = dep_data.get("issue_dependencies_summary")
-            if dep_summary and "blocked_by" in dep_summary:
-                blocker_count = int(dep_summary["blocked_by"])
-        except Exception:
-            blocker_count = 0
+        dep_out = self.gh.read(["api", f"repos/{owner}/{repo}/issues/{num}"])
+        dep_data = json.loads(dep_out)
+        dep_summary = dep_data.get("issue_dependencies_summary")
+        if dep_summary is not None and "blocked_by" in dep_summary:
+            blocker_count = int(dep_summary["blocked_by"])
 
         # Comments classification
         comments_raw = raw_issue.get("comments", [])
@@ -494,6 +496,11 @@ class Snapshotter:
                     r_data = json.loads(r_out)
 
                     linked_pr = open_pr_from_helper_json(pr_view, r_data, v_data)
+        except subprocess.CalledProcessError as e:
+            if e.returncode == 1 and "--get-linked-pr" in link_args:
+                linked_pr = None
+            else:
+                raise RuntimeError(f"Linked PR processing failed for #{num}: {e}") from e
         except Exception as e:
             # If helper fails with exit 2 or PR fetch fails, let caller wrap into FailedSnapshot
             raise RuntimeError(f"Linked PR processing failed for #{num}: {e}") from e

@@ -1,5 +1,6 @@
 """Unit tests for pipeline exec wrapper, StreamLogTee, and process supervisor."""
 
+from datetime import datetime, timezone
 import errno
 import io
 import os
@@ -124,13 +125,88 @@ class TestExecwrap(unittest.TestCase):
         self.assertIn("first chunk", logged)
         self.assertIn("second chunk", logged)
 
-    def test_log_file_mode_is_0600(self):
-        log_path = self.paths.log("run-mode-test")
-        log_fd = os.open(log_path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
-        os.close(log_fd)
+    def test_prep_failure_or_timeout_exits_97(self):
+        from datetime import timedelta, timezone
+        from pipeline.config import PipelineConfig
+        from pipeline.execwrap import exec_run
+        from pipeline.model import Effort, ImplementTarget, ImplAtDev, IssueRef, StepSpec
+        from pipeline.state import RunRecord, StoreState
+        from pipeline.store import save_store
 
-        mode = stat.S_IMODE(log_path.stat().st_mode)
-        self.assertEqual(mode, 0o600)
+        rid = RunId("run-prep-fail")
+        record = RunRecord(
+            run_id=rid,
+            issue=IssueRef(42),
+            target=ImplementTarget(),
+            spec=StepSpec(cli="claude", model="opus", effort=Effort.HIGH),
+            prompt="do something",
+            workspace=ImplAtDev(),
+            timeout=timedelta(minutes=10),
+            started_at=datetime.now(timezone.utc),
+        )
+        save_store(self.paths, StoreState(runs={rid: record}))
+
+        config = MagicMock(spec=PipelineConfig)
+        config.cli = {}
+
+        # 1. Prep failure raises exception -> exit 97
+        with patch("pipeline.execwrap.prepare_workspace", side_effect=RuntimeError("Disk full")):
+            code = exec_run(str(rid), self.paths, config, self.root)
+            self.assertEqual(code, 97)
+            self.assertEqual(self.paths.exit_file(rid).read_text().strip(), "97")
+
+        # 2. Prep exceeding deadline -> exit 97
+        with patch("pipeline.execwrap.prepare_workspace", return_value=self.root):
+            with patch("time.monotonic", side_effect=[0.0, 0.0, 1000.0, 1000.0]):
+                code = exec_run(str(rid), self.paths, config, self.root)
+                self.assertEqual(code, 97)
+
+    def test_agent_spawn_uses_stdin_devnull_and_kills_on_timeout(self):
+        from datetime import timedelta, timezone
+        from pipeline.config import PipelineConfig
+        from pipeline.execwrap import exec_run
+        from pipeline.model import Effort, ImplementTarget, ImplAtDev, IssueRef, StepSpec
+        from pipeline.state import RunRecord, StoreState
+        from pipeline.store import save_store
+
+        rid = RunId("run-spawn-test")
+        record = RunRecord(
+            run_id=rid,
+            issue=IssueRef(42),
+            target=ImplementTarget(),
+            spec=StepSpec(cli="claude", model="opus", effort=Effort.HIGH),
+            prompt="do something",
+            workspace=ImplAtDev(),
+            timeout=timedelta(seconds=5),
+            started_at=datetime.now(timezone.utc),
+        )
+        save_store(self.paths, StoreState(runs={rid: record}))
+
+        config = MagicMock(spec=PipelineConfig)
+        config.cli = {}
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 9999
+        mock_proc.poll.side_effect = [None, None, 0]
+
+        mock_procs = MagicMock()
+        mock_procs.current_boot_id.return_value = "boot-test"
+
+        captured_stdin = None
+        def fake_popen(*args, **kwargs):
+            nonlocal captured_stdin
+            captured_stdin = kwargs.get("stdin")
+            # Close pipe_w like real popen does via finally
+            return mock_proc
+
+        with patch("pipeline.execwrap.prepare_workspace", return_value=self.root), \
+             patch("subprocess.Popen", side_effect=fake_popen), \
+             patch("pipeline.execwrap.read_stat_start_time", return_value=123), \
+             patch("select.select", return_value=([], [], [])):
+            exec_run(str(rid), self.paths, config, self.root, procs=mock_procs)
+
+            import subprocess
+            self.assertEqual(captured_stdin, subprocess.DEVNULL)
 
 
 if __name__ == "__main__":
