@@ -1,0 +1,29 @@
+eligible_label = "agent:auto"
+skip_review_label = "agent:skip-review"   # stops NEW review rounds; posted rounds are still integrated or block on their DECs
+max_revision_cycles = 3                    # revisions allowed; the breaker trips when verification cycle N+1 fails
+max_step_attempts = 2                      # failed runs (or failed merges) of the same fingerprint before blocking
+runner = "auto"                            # "auto" | "herdr" | "headless"
+
+reviews = [          # ordered; round k = index k-1; length = number of required rounds
+  { cli = "agy",    model = "gemini-3.8-flash", effort = "high" },
+  { cli = "claude", model = "claude-opus-5-5",  effort = "high" },
+]
+integrator = { cli = "claude", model = "claude-opus-5-5",  effort = "high" }
+implement  = { cli = "agy",    model = "gemini-3.8-flash", effort = "medium" }
+verify     = { cli = "claude", model = "claude-opus-5-5",  effort = "high" }
+revise     = { cli = "agy",    model = "gemini-3.8-flash", effort = "medium" }
+
+[concurrency]
+review = 2          # issues concurrently in review/integration (the implementation lane is always 1, D12)
+
+[timeouts_minutes]
+review = 45
+integrate = 30
+implement = 120
+verify = 60
+revise = 90
+
+[cli.agy]
+extra_args = ["--mode", "auto"]
+[cli.claude]
+extra_args = ["--permission-mode", "auto"]

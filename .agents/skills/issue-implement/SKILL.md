@@ -20,7 +20,7 @@ The skill operates in one of two modes:
 2. **Deterministic Branch & Commit Naming**: Enforces `feat/issue-<id>-<slug>` topic branches and clean commit messages linking `Closes #<id>`.
 3. **Targeted Verification Gate**: Only runs Anchor/Rust tests (`NO_DNA=1 cargo test --manifest-path anchor/Cargo.toml`) if contract files were modified, and TypeScript/linter tests if frontend files were modified, eliminating unnecessary test latency per `GEMINI.md`.
 4. **Idempotency & Race Protection**: Checks commit timestamps against review submission timestamps to prevent duplicate revision runs.
-5. **Configurable Circuit Breaker Enforcement**: Respects `--max-cycles N` (default 2) and cycle resets via `issue_lifecycle_helper.sh --check-revision-readiness`.
+5. **Configurable Circuit Breaker Enforcement**: Respects `--max-cycles N` (revision cycles allowed, default 3) and cycle resets via `issue_lifecycle_helper.sh --check-revision-readiness`.
 6. **Maintainer Guidance Ingestion**: Extracts human guidance comments on PRs using a strict author and timestamp filter, allowing maintainer instructions to override verification findings.
 
 ---
@@ -62,7 +62,7 @@ In Revision Mode, human-input comments posted on the PR after the latest verific
 1. **Parse Target Issue Number & Flags**:
    - Extract numeric ID from argument: `#42`, `42`, or `https://github.com/<owner>/<repo>/issues/42` $\rightarrow$ `42`.
    - If omitted, prompt the user for the target issue number.
-   - Extract optional `--pr <pr_number>` and `--max-cycles <N>` (default 2).
+   - Extract optional `--pr <pr_number>` and `--max-cycles <N>` (revision cycles allowed, default 3).
    - Resolve active model slug:
      ```bash
      MODEL="$(bash .agents/scripts/issue_lifecycle_helper.sh --resolve-model ${MODEL_FLAG:-})"
@@ -200,7 +200,7 @@ AI-Model: $MODEL"
 1. **Inspect Readiness & Circuit Breaker**:
    - Check status and cycle count using the helper script with `--max-cycles`:
      ```bash
-     READINESS_JSON="$(bash .agents/scripts/issue_lifecycle_helper.sh --check-revision-readiness "$LINKED_PR" --max-cycles "${MAX_CYCLES:-2}")"
+     READINESS_JSON="$(bash .agents/scripts/issue_lifecycle_helper.sh --check-revision-readiness "$LINKED_PR" --max-cycles "${MAX_CYCLES:-3}")"
      STATUS="$(echo "$READINESS_JSON" | jq -r .status)"
      CYCLE="$(echo "$READINESS_JSON" | jq -r .cycle)"
      ```
@@ -212,7 +212,7 @@ AI-Model: $MODEL"
        gh issue edit <issue_number> --remove-label "in-progress" --add-label "ready-for-human" --remove-assignee "@me"
        gh pr edit "$LINKED_PR" --add-label "ready-for-human"
        gh pr comment "$LINKED_PR" --body "<!-- ai-pipeline-notice: {\"kind\":\"circuit_breaker\"} -->
-⚠️ Automated revision limit reached (${MAX_CYCLES:-2} cycles). Escalating to maintainer intervention."
+⚠️ Automated revision limit reached (${MAX_CYCLES:-3} cycles). Escalating to maintainer intervention."
      fi
      exit 1
      ```

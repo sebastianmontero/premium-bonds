@@ -16,7 +16,7 @@ Use this skill to audit an open Pull Request against the closed specification of
 2. **Self-Approval & Self-Review Restriction Handling**: If the verifying agent has the same GitHub identity as the PR author, detects the restriction and posts reviews via `gh pr review --comment` for all verdicts (`APPROVED` and `CHANGES_REQUESTED`), bypassing HTTP 422 errors while keeping metadata verdicts authoritative.
 3. **Closed-Specification Anti-Goalpost Rule**: Strictly evaluates the PR against the requirements agreed upon in the issue. Explicitly forbids failing verification over unrequested refactorings or stylistic bikeshedding.
 4. **Targeted Deterministic Test Gates**: Runs `NO_DNA=1 cargo test --manifest-path anchor/Cargo.toml` only if contract files changed, and `npm test` / linter only if UI/TS files changed.
-5. **Effective Cycle & Configurable Breaker**: Respects `--max-cycles N` (default 2), uses `effective_cycle` for human-facing headers, and tracks raw cycles for verification IDs.
+5. **Effective Cycle & Configurable Breaker**: Respects `--max-cycles N` (revision cycles allowed, default 3; the breaker trips when verification cycle N+1 requests changes), uses `effective_cycle` for human-facing headers, and tracks raw cycles for verification IDs.
 6. **Pipeline Mode Integration (D13)**: In pipeline mode, skips all merges and `verified` label edits, delegating merging exclusively to the pipeline reconciler.
 
 ---
@@ -39,7 +39,7 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
 
 1. **Parse Input Argument & Optional Flags**:
    - Extract numeric ID from argument: `#25`, `25`, or GitHub PR/Issue URL.
-   - Extract optional `--max-cycles <N>` (default 2) and `--not-auto-merge`.
+   - Extract optional `--max-cycles <N>` (revision cycles allowed, default 3) and `--not-auto-merge`.
    - Resolve active model slug:
      ```bash
      MODEL="$(bash .agents/scripts/issue_lifecycle_helper.sh --resolve-model ${MODEL_FLAG:-})"
@@ -65,7 +65,7 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
 2. **Parse Current Verification State & Implementing Model**:
    Retrieve existing review cycles, readiness, and implementing model:
    ```bash
-   STATE_JSON="$(bash .agents/scripts/issue_lifecycle_helper.sh --check-revision-readiness "$PR_NUMBER" --max-cycles "${MAX_CYCLES:-2}")"
+   STATE_JSON="$(bash .agents/scripts/issue_lifecycle_helper.sh --check-revision-readiness "$PR_NUMBER" --max-cycles "${MAX_CYCLES:-3}")"
    STATUS="$(echo "$STATE_JSON" | jq -r .status)"
    CYCLE="$(echo "$STATE_JSON" | jq -r .cycle)"
    EFFECTIVE_CYCLE="$(echo "$STATE_JSON" | jq -r .effective_cycle)"
@@ -169,7 +169,7 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
      --commit-sha "$COMMIT_SHA" \
      --cycle "$CYCLE" \
      --effective-cycle "$EFFECTIVE_CYCLE" \
-     --max-cycles "${MAX_CYCLES:-2}" \
+     --max-cycles "${MAX_CYCLES:-3}" \
      --verdict "$VERDICT" \
      --test-results '<TEST_RESULTS_JSON>' \
      --checklist '<CHECKLIST_JSON>' \
@@ -212,13 +212,13 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
      REVIEW_FLAG="--request-changes"
    fi
    ```
-   - **If `(( EFFECTIVE_CYCLE < ${MAX_CYCLES:-2} ))`**:
+   - **If `(( EFFECTIVE_CYCLE <= ${MAX_CYCLES:-3} ))`** (a revision is still allowed):
      Submit review requesting changes:
      ```bash
      gh pr review "$PR_NUMBER" $REVIEW_FLAG --body-file /tmp/pr_verification_review_${PR_NUMBER}.md
      ```
      Instruct user or agent to re-run `/issue-implement #$ISSUE_NUMBER --pr $PR_NUMBER` in Revision Mode.
-   - **If `(( EFFECTIVE_CYCLE >= ${MAX_CYCLES:-2} ))` (Early Circuit Breaker)**:
+   - **If `(( EFFECTIVE_CYCLE > ${MAX_CYCLES:-3} ))` (Circuit Breaker: all revisions used)**:
      Submit review and trip circuit breaker:
      ```bash
      gh pr review "$PR_NUMBER" $REVIEW_FLAG --body-file /tmp/pr_verification_review_${PR_NUMBER}.md
@@ -226,7 +226,7 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
        gh issue edit "$ISSUE_NUMBER" --remove-label "in-progress" --add-label "ready-for-human" --remove-assignee "@me"
        gh pr edit "$PR_NUMBER" --add-label "ready-for-human"
        gh pr comment "$PR_NUMBER" --body "<!-- ai-pipeline-notice: {\"kind\":\"circuit_breaker\"} -->
-⚠️ Verification failed after ${MAX_CYCLES:-2} revision cycles. Circuit breaker triggered; escalating to maintainer intervention."
+⚠️ Verification failed after ${MAX_CYCLES:-3} revision cycles. Circuit breaker triggered; escalating to maintainer intervention."
      fi
      ```
      *(In pipeline mode, label and assignee edits and breaker comments are skipped; the reconciler status comment surfaces the breaker per #23 D11).*

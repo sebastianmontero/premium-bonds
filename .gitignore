@@ -69,3 +69,7 @@ anchor/show_output.txt
 .claude/agent-memory-local/
 .claude/*.lock
 .claude/scheduled_tasks.json
+
+# Python
+__pycache__/
+*.py[cod]
