@@ -95,7 +95,7 @@ def load_config(toml_content: str | bytes) -> PipelineConfig:
 
     eligible_label = str(data.get("eligible_label", "agent:auto"))
     skip_review_label = str(data.get("skip_review_label", "agent:skip-review"))
-    max_revision_cycles = int(data.get("max_revision_cycles", 2))
+    max_revision_cycles = int(data.get("max_revision_cycles", 3))
     max_step_attempts = int(data.get("max_step_attempts", 2))
     runner = str(data.get("runner", "auto"))
 

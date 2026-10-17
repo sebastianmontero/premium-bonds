@@ -3,6 +3,10 @@
 # Shared helper utility for GitHub issue & PR lifecycle automation across agy & claude code.
 set -euo pipefail
 
+# Revision cycles allowed before the circuit breaker trips: a PR gets up to N
+# revisions, so the breaker trips when verification cycle N+1 requests changes.
+DEFAULT_MAX_CYCLES=3
+
 gh_live() {
   local out
   if ! out="$(gh "$@")"; then
@@ -54,6 +58,8 @@ Commands:
   --check-revision-readiness <pr_number> [--file <json_file>] [--max-cycles N] \
                              [--trusted-author <login>] [--trust-any-author]
       Determine whether PR is awaiting revision or ready for verification.
+      --max-cycles N is the number of revision cycles allowed (default 3): the
+      circuit breaker trips when verification cycle N+1 requests changes.
       Output cycle/effective_cycle: next cycle for READY_FOR_INITIAL_VERIFICATION/
       READY_FOR_RE_VERIFICATION, and last cycle otherwise.
 
@@ -763,7 +769,7 @@ print(json.dumps(result, indent=2))
 cmd_check_revision_readiness() {
   local pr=""
   local file=""
-  local max_cycles="2"
+  local max_cycles="$DEFAULT_MAX_CYCLES"
   local trusted_author=""
   local trust_any_author=false
 
@@ -872,12 +878,12 @@ if verdict == "APPROVED":
     sys.exit(0)
 
 if verdict == "CHANGES_REQUESTED":
-    if effective_cycle >= max_cycles and ahead == 0:
+    if effective_cycle > max_cycles and ahead == 0:
         res = {
             "status": "CIRCUIT_BREAKER_TRIPPED",
             "cycle": raw_cycle,
             "effective_cycle": effective_cycle,
-            "message": f"Cycle limit of {max_cycles} reached. Escalated to human review."
+            "message": f"Revision limit of {max_cycles} cycles reached. Escalated to human review."
         }
         res.update(common)
         print(json.dumps(res))
@@ -915,7 +921,7 @@ cmd_format_verification_review() {
   local commit_sha=""
   local cycle=""
   local effective_cycle_arg=""
-  local max_cycles="2"
+  local max_cycles="$DEFAULT_MAX_CYCLES"
   local verdict=""
   local test_results="{}"
   local checklist="[]"
@@ -1021,7 +1027,7 @@ output_file = sys.argv[12]
 model = sys.argv[13] if len(sys.argv) > 13 and sys.argv[13] else "unknown"
 implementing_model = sys.argv[14] if len(sys.argv) > 14 else ""
 
-max_cycles = int(max_cycles_arg) if max_cycles_arg.isdigit() else 2
+max_cycles = int(max_cycles_arg) if max_cycles_arg.isdigit() else 3
 if effective_cycle_arg and effective_cycle_arg.isdigit():
     effective_cycle = int(effective_cycle_arg)
 else:
@@ -1053,7 +1059,8 @@ lines.append(f"**Target Issue:** #{issue}")
 if implementing_model:
     lines.append(f"**Implementing Model:** `{implementing_model}`")
 lines.append(f"**Verified by Model:** `{model}`")
-lines.append(f"**Verdict:** `{verdict}` (Cycle {effective_cycle}/{max_cycles})")
+# Verification cycles available = revisions allowed + the initial verification.
+lines.append(f"**Verdict:** `{verdict}` (Cycle {effective_cycle}/{max_cycles + 1})")
 commit_label = commit_sha[:10] if commit_sha else "HEAD"
 lines.append(f"**Commit:** `{commit_label}`\n")
 

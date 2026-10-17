@@ -236,7 +236,7 @@ if [[ "$S_READY" != "READY_FOR_RE_VERIFICATION" ]]; then
   exit 1
 fi
 
-# 5e: Circuit breaker (Cycle 2 changes requested, 0 commits ahead)
+# 5e: Circuit breaker (Cycle 4 changes requested, 0 commits ahead, default limit 3)
 cat << 'EOF' > "$TMP_DIR/mock_cb.json"
 {
   "number": 12,
@@ -247,7 +247,7 @@ cat << 'EOF' > "$TMP_DIR/mock_cb.json"
   "reviews": [
     {
       "submittedAt": "2026-10-16T11:00:00Z",
-      "body": "<!-- ai-pr-verification: {\"commit_sha\":\"c1\",\"verdict\":\"CHANGES_REQUESTED\",\"cycle\":2} -->"
+      "body": "<!-- ai-pr-verification: {\"commit_sha\":\"c1\",\"verdict\":\"CHANGES_REQUESTED\",\"cycle\":4} -->"
     }
   ],
   "comments": []
@@ -256,6 +256,13 @@ EOF
 S_CB="$(jq -r .status <("$HELPER" --check-revision-readiness --trust-any-author --file "$TMP_DIR/mock_cb.json"))"
 if [[ "$S_CB" != "CIRCUIT_BREAKER_TRIPPED" ]]; then
   echo "FAILED: Expected CIRCUIT_BREAKER_TRIPPED, got '$S_CB'"
+  exit 1
+fi
+# The last allowed revision (cycle 3 with the default limit of 3) still awaits revision
+sed 's/\\"cycle\\":4/\\"cycle\\":3/' "$TMP_DIR/mock_cb.json" > "$TMP_DIR/mock_cb_last.json"
+S_CB_LAST="$(jq -r .status <("$HELPER" --check-revision-readiness --trust-any-author --file "$TMP_DIR/mock_cb_last.json"))"
+if [[ "$S_CB_LAST" != "AWAITING_REVISION" ]]; then
+  echo "FAILED: Expected AWAITING_REVISION at cycle 3 with default limit, got '$S_CB_LAST'"
   exit 1
 fi
 echo "PASSED"
@@ -747,8 +754,8 @@ FMT_OUT="$TMP_DIR/fmt_cycle_review.md"
   --verdict "CHANGES_REQUESTED" \
   --output-file "$FMT_OUT" >/dev/null
 
-if ! grep -q '\*\*Verdict:\*\* `CHANGES_REQUESTED` (Cycle 1/2)' "$FMT_OUT"; then
-  echo "FAILED: Header did not render (Cycle 1/2) with effective-cycle: $(grep 'Verdict' "$FMT_OUT")"
+if ! grep -q '\*\*Verdict:\*\* `CHANGES_REQUESTED` (Cycle 1/3)' "$FMT_OUT"; then
+  echo "FAILED: Header did not render (Cycle 1/3) with effective-cycle: $(grep 'Verdict' "$FMT_OUT")"
   exit 1
 fi
 if ! grep -q '"cycle": 3' "$FMT_OUT"; then
@@ -767,12 +774,12 @@ FMT_DEFAULT="$TMP_DIR/fmt_cycle_default.md"
   --verdict "CHANGES_REQUESTED" \
   --output-file "$FMT_DEFAULT" >/dev/null
 
-if ! grep -q '\*\*Verdict:\*\* `CHANGES_REQUESTED` (Cycle 3/2)' "$FMT_DEFAULT"; then
-  echo "FAILED: Header did not render (Cycle 3/2) by default: $(grep 'Verdict' "$FMT_DEFAULT")"
+if ! grep -q '\*\*Verdict:\*\* `CHANGES_REQUESTED` (Cycle 3/4)' "$FMT_DEFAULT"; then
+  echo "FAILED: Header did not render (Cycle 3/4) by default: $(grep 'Verdict' "$FMT_DEFAULT")"
   exit 1
 fi
 
-# 10e: VER-3 Circuit breaker with reset marker and --max-cycles (effective_cycle 2 with default vs --max-cycles 3)
+# 10e: VER-3 Circuit breaker with reset marker and --max-cycles (effective_cycle 2 with --max-cycles 1 vs default 3)
 cat << 'EOF' > "$TMP_DIR/breaker_fixture.json"
 {
   "number": 85,
@@ -799,23 +806,23 @@ cat << 'EOF' > "$TMP_DIR/breaker_fixture.json"
 }
 EOF
 
-# Default --max-cycles (2) -> CIRCUIT_BREAKER_TRIPPED (effective_cycle 2 >= max_cycles 2)
-CB_DEFAULT="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --check-revision-readiness --file "$TMP_DIR/breaker_fixture.json")"
+# --max-cycles 1 -> CIRCUIT_BREAKER_TRIPPED (effective_cycle 2 > max_cycles 1)
+CB_DEFAULT="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --check-revision-readiness --file "$TMP_DIR/breaker_fixture.json" --max-cycles 1)"
 CB_DEF_STATUS="$(echo "$CB_DEFAULT" | jq -r .status)"
 CB_DEF_EFF="$(echo "$CB_DEFAULT" | jq -r .effective_cycle)"
 
 if [[ "$CB_DEF_STATUS" != "CIRCUIT_BREAKER_TRIPPED" || "$CB_DEF_EFF" != "2" ]]; then
-  echo "FAILED: Expected CIRCUIT_BREAKER_TRIPPED at effective_cycle 2 with default max-cycles, got status=$CB_DEF_STATUS, eff=$CB_DEF_EFF"
+  echo "FAILED: Expected CIRCUIT_BREAKER_TRIPPED at effective_cycle 2 with --max-cycles 1, got status=$CB_DEF_STATUS, eff=$CB_DEF_EFF"
   exit 1
 fi
 
-# With --max-cycles 3 -> AWAITING_REVISION (effective_cycle 2 < max_cycles 3)
-CB_MAX3="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --check-revision-readiness --file "$TMP_DIR/breaker_fixture.json" --max-cycles 3)"
+# Default --max-cycles (3) -> AWAITING_REVISION (effective_cycle 2 <= max_cycles 3)
+CB_MAX3="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --check-revision-readiness --file "$TMP_DIR/breaker_fixture.json")"
 CB_MAX3_STATUS="$(echo "$CB_MAX3" | jq -r .status)"
 CB_MAX3_EFF="$(echo "$CB_MAX3" | jq -r .effective_cycle)"
 
 if [[ "$CB_MAX3_STATUS" != "AWAITING_REVISION" || "$CB_MAX3_EFF" != "2" ]]; then
-  echo "FAILED: Expected AWAITING_REVISION at effective_cycle 2 with --max-cycles 3, got status=$CB_MAX3_STATUS, eff=$CB_MAX3_EFF"
+  echo "FAILED: Expected AWAITING_REVISION at effective_cycle 2 with default max-cycles, got status=$CB_MAX3_STATUS, eff=$CB_MAX3_EFF"
   exit 1
 fi
 echo "PASSED"

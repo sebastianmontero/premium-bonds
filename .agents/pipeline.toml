@@ -1,6 +1,6 @@
 eligible_label = "agent:auto"
 skip_review_label = "agent:skip-review"   # stops NEW review rounds; posted rounds are still integrated or block on their DECs
-max_revision_cycles = 2                    # verification cycles before ready-for-human
+max_revision_cycles = 3                    # revisions allowed; the breaker trips when verification cycle N+1 fails
 max_step_attempts = 2                      # failed runs (or failed merges) of the same fingerprint before blocking
 runner = "auto"                            # "auto" | "herdr" | "headless"
 
