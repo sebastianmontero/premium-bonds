@@ -134,7 +134,7 @@ cat << 'EOF' > "$TMP_DIR/mock_pr_payload.json"
 EOF
 
 PARSE_PR_OUT="$TMP_DIR/parsed_pr.json"
-"$HELPER" --parse-verification --file "$TMP_DIR/mock_pr_payload.json" > "$PARSE_PR_OUT"
+"$HELPER" --parse-verification --trust-any-author --file "$TMP_DIR/mock_pr_payload.json" > "$PARSE_PR_OUT"
 
 VER_MODEL="$(jq -r .model "$PARSE_PR_OUT")"
 IMPL_MODEL="$(jq -r .implementing_model "$PARSE_PR_OUT")"
@@ -164,7 +164,7 @@ cat << 'EOF' > "$TMP_DIR/mock_unverified.json"
   "commits": []
 }
 EOF
-READINESS_INIT="$("$HELPER" --check-revision-readiness --file "$TMP_DIR/mock_unverified.json")"
+READINESS_INIT="$("$HELPER" --check-revision-readiness --trust-any-author --file "$TMP_DIR/mock_unverified.json")"
 S_INIT="$(echo "$READINESS_INIT" | jq -r .status)"
 if [[ "$S_INIT" != "READY_FOR_INITIAL_VERIFICATION" ]]; then
   echo "FAILED: Expected READY_FOR_INITIAL_VERIFICATION, got '$S_INIT'"
@@ -177,7 +177,7 @@ if [[ "$IMPL_INIT" != "claude-3-7-sonnet" ]]; then
 fi
 
 # 5b: Approved
-READINESS_APP="$("$HELPER" --check-revision-readiness --file "$TMP_DIR/mock_pr_payload.json")"
+READINESS_APP="$("$HELPER" --check-revision-readiness --trust-any-author --file "$TMP_DIR/mock_pr_payload.json")"
 S_APP="$(echo "$READINESS_APP" | jq -r .status)"
 if [[ "$S_APP" != "ALREADY_APPROVED" ]]; then
   echo "FAILED: Expected ALREADY_APPROVED, got '$S_APP'"
@@ -200,13 +200,13 @@ cat << 'EOF' > "$TMP_DIR/mock_cr_awaiting.json"
   "reviews": [
     {
       "submittedAt": "2026-10-16T11:00:00Z",
-      "body": "<!-- ai-pr-verification: {\"verdict\":\"CHANGES_REQUESTED\",\"cycle\":1} -->"
+      "body": "<!-- ai-pr-verification: {\"commit_sha\":\"c1\",\"verdict\":\"CHANGES_REQUESTED\",\"cycle\":1} -->"
     }
   ],
   "comments": []
 }
 EOF
-S_AWAIT="$(jq -r .status <("$HELPER" --check-revision-readiness --file "$TMP_DIR/mock_cr_awaiting.json"))"
+S_AWAIT="$(jq -r .status <("$HELPER" --check-revision-readiness --trust-any-author --file "$TMP_DIR/mock_cr_awaiting.json"))"
 if [[ "$S_AWAIT" != "AWAITING_REVISION" ]]; then
   echo "FAILED: Expected AWAITING_REVISION, got '$S_AWAIT'"
   exit 1
@@ -224,13 +224,13 @@ cat << 'EOF' > "$TMP_DIR/mock_cr_ready.json"
   "reviews": [
     {
       "submittedAt": "2026-10-16T11:00:00Z",
-      "body": "<!-- ai-pr-verification: {\"verdict\":\"CHANGES_REQUESTED\",\"cycle\":1} -->"
+      "body": "<!-- ai-pr-verification: {\"commit_sha\":\"c1\",\"verdict\":\"CHANGES_REQUESTED\",\"cycle\":1} -->"
     }
   ],
   "comments": []
 }
 EOF
-S_READY="$(jq -r .status <("$HELPER" --check-revision-readiness --file "$TMP_DIR/mock_cr_ready.json"))"
+S_READY="$(jq -r .status <("$HELPER" --check-revision-readiness --trust-any-author --file "$TMP_DIR/mock_cr_ready.json"))"
 if [[ "$S_READY" != "READY_FOR_RE_VERIFICATION" ]]; then
   echo "FAILED: Expected READY_FOR_RE_VERIFICATION, got '$S_READY'"
   exit 1
@@ -247,13 +247,13 @@ cat << 'EOF' > "$TMP_DIR/mock_cb.json"
   "reviews": [
     {
       "submittedAt": "2026-10-16T11:00:00Z",
-      "body": "<!-- ai-pr-verification: {\"verdict\":\"CHANGES_REQUESTED\",\"cycle\":2} -->"
+      "body": "<!-- ai-pr-verification: {\"commit_sha\":\"c1\",\"verdict\":\"CHANGES_REQUESTED\",\"cycle\":2} -->"
     }
   ],
   "comments": []
 }
 EOF
-S_CB="$(jq -r .status <("$HELPER" --check-revision-readiness --file "$TMP_DIR/mock_cb.json"))"
+S_CB="$(jq -r .status <("$HELPER" --check-revision-readiness --trust-any-author --file "$TMP_DIR/mock_cb.json"))"
 if [[ "$S_CB" != "CIRCUIT_BREAKER_TRIPPED" ]]; then
   echo "FAILED: Expected CIRCUIT_BREAKER_TRIPPED, got '$S_CB'"
   exit 1
@@ -281,6 +281,468 @@ fi
 TRAILER_VAL="$(git -C "$GIT_TEST_DIR" log -1 --format="%(trailers:key=AI-Model,valueonly)" | tr -d '\r\n ')"
 if [[ "$TRAILER_VAL" != "gemini-3.8-flash-high" ]]; then
   echo "FAILED: Expected valueonly 'gemini-3.8-flash-high', got '$TRAILER_VAL'"
+  exit 1
+fi
+echo "PASSED"
+
+# Test 7: --get-linked-pr --file preference order, bare int vs --json vs --pipeline, and --exclude
+echo -n "Test 7: --get-linked-pr --file preference order, formats, and exclude ... "
+cat << 'EOF' > "$TMP_DIR/prs_linked_fixture.json"
+[
+  {
+    "number": 101,
+    "state": "CLOSED",
+    "closedAt": "2026-10-15T10:00:00Z",
+    "headRefName": "feat/issue-42-first",
+    "title": "feat: first closed (Closes #42)",
+    "body": "Closes #42"
+  },
+  {
+    "number": 102,
+    "state": "OPEN",
+    "headRefName": "feat/issue-42-second",
+    "title": "feat: open attempt (Closes #42)",
+    "body": "Closes #42"
+  },
+  {
+    "number": 103,
+    "state": "MERGED",
+    "mergedAt": "2026-10-15T12:00:00Z",
+    "headRefName": "feat/issue-42-merged",
+    "title": "feat: merged attempt (Closes #42)",
+    "body": "Closes #42"
+  }
+]
+EOF
+
+# 7a: OPEN has priority over MERGED and CLOSED -> should link #102
+LINKED_7A="$("$HELPER" --get-linked-pr 42 --file "$TMP_DIR/prs_linked_fixture.json")"
+if [[ "$LINKED_7A" != "102" ]]; then
+  echo "FAILED: Expected open PR 102 to take precedence, got $LINKED_7A"
+  exit 1
+fi
+
+# 7b: Default is bare integer; --json and --pipeline emit JSON object
+LINKED_7B_JSON="$("$HELPER" --get-linked-pr 42 --file "$TMP_DIR/prs_linked_fixture.json" --json)"
+JSON_NUM="$(echo "$LINKED_7B_JSON" | jq -r .number)"
+JSON_STATE="$(echo "$LINKED_7B_JSON" | jq -r .state)"
+if [[ "$JSON_NUM" != "102" || "$JSON_STATE" != "OPEN" ]]; then
+  echo "FAILED: Expected JSON with number 102 and state OPEN, got $LINKED_7B_JSON"
+  exit 1
+fi
+
+LINKED_7B_PIPE="$("$HELPER" --get-linked-pr 42 --file "$TMP_DIR/prs_linked_fixture.json" --pipeline --trust-any-author)"
+PIPE_NUM="$(echo "$LINKED_7B_PIPE" | jq -r .number)"
+if [[ "$PIPE_NUM" != "102" ]]; then
+  echo "FAILED: Expected --pipeline to emit JSON object for 102, got $LINKED_7B_PIPE"
+  exit 1
+fi
+
+# 7c: Merged only -> MERGED; Merged #B + Closed #A -> Merged #B
+cat << 'EOF' > "$TMP_DIR/prs_merged_closed.json"
+[
+  {
+    "number": 201,
+    "state": "CLOSED",
+    "closedAt": "2026-10-14T10:00:00Z",
+    "headRefName": "feat/issue-50-a",
+    "title": "Closes #50"
+  },
+  {
+    "number": 202,
+    "state": "MERGED",
+    "mergedAt": "2026-10-15T10:00:00Z",
+    "headRefName": "feat/issue-50-b",
+    "title": "Closes #50"
+  }
+]
+EOF
+LINKED_7C="$("$HELPER" --get-linked-pr 50 --file "$TMP_DIR/prs_merged_closed.json")"
+if [[ "$LINKED_7C" != "202" ]]; then
+  echo "FAILED: Expected MERGED PR 202 over CLOSED PR 201, got $LINKED_7C"
+  exit 1
+fi
+
+# 7d: Closed #A + Open #B -> #B
+cat << 'EOF' > "$TMP_DIR/prs_closed_open.json"
+[
+  {
+    "number": 301,
+    "state": "CLOSED",
+    "closedAt": "2026-10-14T10:00:00Z",
+    "headRefName": "feat/issue-60-a",
+    "title": "Closes #60"
+  },
+  {
+    "number": 302,
+    "state": "OPEN",
+    "headRefName": "feat/issue-60-b",
+    "title": "Closes #60"
+  }
+]
+EOF
+LINKED_7D="$("$HELPER" --get-linked-pr 60 --file "$TMP_DIR/prs_closed_open.json")"
+if [[ "$LINKED_7D" != "302" ]]; then
+  echo "FAILED: Expected Open PR 302 over Closed PR 301, got $LINKED_7D"
+  exit 1
+fi
+
+# 7e: None found -> exit 1
+set +e
+"$HELPER" --get-linked-pr 9999 --file "$TMP_DIR/prs_closed_open.json" >/dev/null 2>&1
+NONE_EXIT=$?
+set -e
+if [[ "$NONE_EXIT" -ne 1 ]]; then
+  echo "FAILED: Expected exit 1 when no PR linked, got $NONE_EXIT"
+  exit 1
+fi
+
+# 7f: --exclude drops closed PR but NEVER open PR
+# Exclude 301 (CLOSED) -> 302 remains linked
+EXC_RES="$("$HELPER" --get-linked-pr 60 --file "$TMP_DIR/prs_closed_open.json" --exclude 301)"
+if [[ "$EXC_RES" != "302" ]]; then
+  echo "FAILED: Expected 302 when 301 excluded, got $EXC_RES"
+  exit 1
+fi
+
+# Exclude 302 (OPEN) -> 302 must NOT be dropped because it is OPEN
+EXC_OPEN_RES="$("$HELPER" --get-linked-pr 60 --file "$TMP_DIR/prs_closed_open.json" --exclude 302)"
+if [[ "$EXC_OPEN_RES" != "302" ]]; then
+  echo "FAILED: Expected open PR 302 never to be dropped by --exclude, got $EXC_OPEN_RES"
+  exit 1
+fi
+echo "PASSED"
+
+# Test 8: --pipeline negatives and positives
+echo -n "Test 8: --pipeline negatives and positives ... "
+cat << 'EOF' > "$TMP_DIR/pipeline_checks.json"
+[
+  {
+    "number": 401,
+    "state": "OPEN",
+    "title": "Fix bug in #70",
+    "body": "Just referencing #70",
+    "headRefName": "some-other-branch",
+    "author": {"login": "trusted-bot"},
+    "isCrossRepository": false
+  },
+  {
+    "number": 402,
+    "state": "OPEN",
+    "title": "Closes #71",
+    "body": "Fixes #71 without marker",
+    "headRefName": "some-other-branch",
+    "author": {"login": "trusted-bot"},
+    "isCrossRepository": false
+  },
+  {
+    "number": 403,
+    "state": "OPEN",
+    "title": "Attack attempt",
+    "body": "<!-- ai-issue-implement: {\"issue_number\":72,\"model\":\"fake\"} -->",
+    "headRefName": "some-other-branch",
+    "author": {"login": "attacker"},
+    "isCrossRepository": false
+  },
+  {
+    "number": 404,
+    "state": "OPEN",
+    "title": "Fork PR",
+    "body": "PR from fork",
+    "headRefName": "feat/issue-73-fix",
+    "author": {"login": "fork-user"},
+    "isCrossRepository": true
+  },
+  {
+    "number": 405,
+    "state": "OPEN",
+    "title": "Legit marker PR",
+    "body": "<!-- ai-issue-implement: {\"issue_number\":74,\"model\":\"gemini-3.8-flash\"} -->",
+    "headRefName": "random-branch-name",
+    "author": {"login": "trusted-bot"},
+    "isCrossRepository": false
+  },
+  {
+    "number": 406,
+    "state": "OPEN",
+    "title": "Legit same-repo branch PR",
+    "body": "No marker",
+    "headRefName": "feat/issue-75-cool-feature",
+    "author": {"login": "anyone"},
+    "isCrossRepository": false
+  }
+]
+EOF
+
+# Negatives:
+# Title-only #70 -> not linked under --pipeline
+set +e
+"$HELPER" --get-linked-pr 70 --file "$TMP_DIR/pipeline_checks.json" --pipeline --trusted-author "trusted-bot" >/dev/null 2>&1
+P_NEG1=$?
+# Closing keyword without marker or branch -> not linked under --pipeline
+"$HELPER" --get-linked-pr 71 --file "$TMP_DIR/pipeline_checks.json" --pipeline --trusted-author "trusted-bot" >/dev/null 2>&1
+P_NEG2=$?
+# Marker from another author -> not linked under --pipeline
+"$HELPER" --get-linked-pr 72 --file "$TMP_DIR/pipeline_checks.json" --pipeline --trusted-author "trusted-bot" >/dev/null 2>&1
+P_NEG3=$?
+# Cross-repository feat/issue-N-x -> not linked under --pipeline
+"$HELPER" --get-linked-pr 73 --file "$TMP_DIR/pipeline_checks.json" --pipeline --trusted-author "trusted-bot" >/dev/null 2>&1
+P_NEG4=$?
+set -e
+
+if [[ "$P_NEG1" -ne 1 || "$P_NEG2" -ne 1 || "$P_NEG3" -ne 1 || "$P_NEG4" -ne 1 ]]; then
+  echo "FAILED: Expected --pipeline negatives to exit 1: neg1=$P_NEG1, neg2=$P_NEG2, neg3=$P_NEG3, neg4=$P_NEG4"
+  exit 1
+fi
+
+# Positives:
+# 1. Marker from trusted author -> linked #405
+POS1="$("$HELPER" --get-linked-pr 74 --file "$TMP_DIR/pipeline_checks.json" --pipeline --trusted-author "trusted-bot" | jq -r .number)"
+if [[ "$POS1" != "405" ]]; then
+  echo "FAILED: Expected positive marker to link 405, got $POS1"
+  exit 1
+fi
+
+# 2. Same-repo branch feat/issue-75- -> linked #406
+POS2="$("$HELPER" --get-linked-pr 75 --file "$TMP_DIR/pipeline_checks.json" --pipeline --trusted-author "trusted-bot" | jq -r .number)"
+if [[ "$POS2" != "406" ]]; then
+  echo "FAILED: Expected positive branch to link 406, got $POS2"
+  exit 1
+fi
+echo "PASSED"
+
+# Test 9: Live gh failure exits 2
+echo -n "Test 9: Live gh failure exits 2 ... "
+MOCK_BIN="$TMP_DIR/bin"
+mkdir -p "$MOCK_BIN"
+cat << 'EOF' > "$MOCK_BIN/gh"
+#!/usr/bin/env bash
+echo "API rate limit exceeded or network failure" >&2
+exit 1
+EOF
+chmod +x "$MOCK_BIN/gh"
+
+set +e
+PATH="$MOCK_BIN:$PATH" "$HELPER" --get-linked-pr 42 2>/dev/null
+EXIT_GLP=$?
+PATH="$MOCK_BIN:$PATH" "$HELPER" --parse-verification 10 2>/dev/null
+EXIT_PV=$?
+PATH="$MOCK_BIN:$PATH" "$HELPER" --check-revision-readiness 10 2>/dev/null
+EXIT_CRR=$?
+set -e
+
+if [[ "$EXIT_GLP" -ne 2 || "$EXIT_PV" -ne 2 || "$EXIT_CRR" -ne 2 ]]; then
+  echo "FAILED: Expected exit 2 on live gh failure, got glp=$EXIT_GLP, pv=$EXIT_PV, crr=$EXIT_CRR"
+  exit 1
+fi
+echo "PASSED"
+
+# Test 10: Cycles and trust (cycle reset markers, position-based commits_ahead, effective_cycle, header formatting)
+echo -n "Test 10: Cycles and trust ... "
+cat << 'EOF' > "$TMP_DIR/cycles_fixture.json"
+{
+  "number": 80,
+  "state": "OPEN",
+  "author": {"login": "dev-bot"},
+  "commits": [
+    {"oid": "sha-c1", "committedDate": "2026-10-16T10:00:00Z"},
+    {"oid": "sha-c2", "committedDate": "2026-10-16T11:00:00Z"},
+    {"oid": "sha-c3", "committedDate": "2026-10-16T12:00:00Z"}
+  ],
+  "reviews": [
+    {
+      "author": {"login": "attacker"},
+      "submittedAt": "2026-10-16T11:05:00Z",
+      "body": "<!-- ai-pipeline-cycle-reset: {\"after_cycle\": 99} -->"
+    },
+    {
+      "author": {"login": "trusted-bot"},
+      "submittedAt": "2026-10-16T11:10:00Z",
+      "body": "<!-- ai-pipeline-cycle-reset: {\"after_cycle\": 2} -->"
+    },
+    {
+      "author": {"login": "trusted-bot"},
+      "submittedAt": "2026-10-16T11:15:00Z",
+      "state": "CHANGES_REQUESTED",
+      "body": "<!-- ai-pr-verification: {\"commit_sha\":\"sha-c2\",\"cycle\":3,\"verdict\":\"CHANGES_REQUESTED\"} -->"
+    }
+  ],
+  "comments": []
+}
+EOF
+
+# 10a: Parse verification with reset marker
+PARSE_CYCLES="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --parse-verification --file "$TMP_DIR/cycles_fixture.json")"
+RAW_CYCLE="$(echo "$PARSE_CYCLES" | jq -r .cycle)"
+CYCLE_OFFSET="$(echo "$PARSE_CYCLES" | jq -r .cycle_offset)"
+EFF_CYCLE="$(echo "$PARSE_CYCLES" | jq -r .effective_cycle)"
+AHEAD="$(echo "$PARSE_CYCLES" | jq -r .commits_ahead_of_review)"
+
+if [[ "$RAW_CYCLE" != "3" || "$CYCLE_OFFSET" != "2" || "$EFF_CYCLE" != "1" || "$AHEAD" != "1" ]]; then
+  echo "FAILED: Cycle parsing mismatch: raw=$RAW_CYCLE (exp 3), offset=$CYCLE_OFFSET (exp 2), eff=$EFF_CYCLE (exp 1), ahead=$AHEAD (exp 1)"
+  exit 1
+fi
+
+# 10b: Check revision readiness emits effective_cycle after reset
+READINESS_CYCLES="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --check-revision-readiness --file "$TMP_DIR/cycles_fixture.json")"
+R_STATUS="$(echo "$READINESS_CYCLES" | jq -r .status)"
+R_CYCLE="$(echo "$READINESS_CYCLES" | jq -r .cycle)"
+R_EFF="$(echo "$READINESS_CYCLES" | jq -r .effective_cycle)"
+
+if [[ "$R_STATUS" != "READY_FOR_RE_VERIFICATION" || "$R_CYCLE" != "4" || "$R_EFF" != "2" ]]; then
+  echo "FAILED: Readiness mismatch: status=$R_STATUS (exp READY_FOR_RE_VERIFICATION), cycle=$R_CYCLE (exp 4), eff=$R_EFF (exp 2)"
+  exit 1
+fi
+
+# 10c: ALREADY_APPROVED with ahead > 0 -> READY_FOR_RE_VERIFICATION
+cat << 'EOF' > "$TMP_DIR/approved_ahead.json"
+{
+  "number": 81,
+  "state": "OPEN",
+  "commits": [
+    {"oid": "sha-1", "committedDate": "2026-10-16T10:00:00Z"},
+    {"oid": "sha-2", "committedDate": "2026-10-16T11:00:00Z"}
+  ],
+  "reviews": [
+    {
+      "author": {"login": "trusted-bot"},
+      "submittedAt": "2026-10-16T10:30:00Z",
+      "state": "APPROVED",
+      "body": "<!-- ai-pr-verification: {\"commit_sha\":\"sha-1\",\"cycle\":1,\"verdict\":\"APPROVED\"} -->"
+    }
+  ],
+  "comments": []
+}
+EOF
+APP_AHEAD_STATUS="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --check-revision-readiness --file "$TMP_DIR/approved_ahead.json" | jq -r .status)"
+if [[ "$APP_AHEAD_STATUS" != "READY_FOR_RE_VERIFICATION" ]]; then
+  echo "FAILED: Expected ALREADY_APPROVED with ahead > 0 to be READY_FOR_RE_VERIFICATION, got $APP_AHEAD_STATUS"
+  exit 1
+fi
+
+# 10d: Format verification review with --effective-cycle and --max-cycles
+FMT_OUT="$TMP_DIR/fmt_cycle_review.md"
+"$HELPER" --format-verification-review \
+  --verification-id "ver-cycle-test" \
+  --issue 80 \
+  --pr 80 \
+  --commit-sha "sha-c3" \
+  --cycle 3 \
+  --effective-cycle 1 \
+  --max-cycles 2 \
+  --verdict "CHANGES_REQUESTED" \
+  --output-file "$FMT_OUT" >/dev/null
+
+if ! grep -q '\*\*Verdict:\*\* `CHANGES_REQUESTED` (Cycle 1/2)' "$FMT_OUT"; then
+  echo "FAILED: Header did not render (Cycle 1/2) with effective-cycle: $(grep 'Verdict' "$FMT_OUT")"
+  exit 1
+fi
+if ! grep -q '"cycle": 3' "$FMT_OUT"; then
+  echo "FAILED: Embedded metadata did not record raw cycle 3"
+  exit 1
+fi
+
+# Without --effective-cycle, uses --cycle
+FMT_DEFAULT="$TMP_DIR/fmt_cycle_default.md"
+"$HELPER" --format-verification-review \
+  --verification-id "ver-cycle-default" \
+  --issue 80 \
+  --pr 80 \
+  --commit-sha "sha-c3" \
+  --cycle 3 \
+  --verdict "CHANGES_REQUESTED" \
+  --output-file "$FMT_DEFAULT" >/dev/null
+
+if ! grep -q '\*\*Verdict:\*\* `CHANGES_REQUESTED` (Cycle 3/2)' "$FMT_DEFAULT"; then
+  echo "FAILED: Header did not render (Cycle 3/2) by default: $(grep 'Verdict' "$FMT_DEFAULT")"
+  exit 1
+fi
+echo "PASSED"
+
+# Test 11: Closing and merging (--close-merged-issue and --merge-pr -R)
+echo -n "Test 11: Closing and merging (--close-merged-issue and --merge-pr -R) ... "
+RECORD_LOG="$TMP_DIR/gh_calls.log"
+
+cat << EOF > "$MOCK_BIN/gh"
+#!/usr/bin/env bash
+echo "gh \$*" >> "$RECORD_LOG"
+
+if [[ "\$*" =~ repo\ view.*nameWithOwner ]]; then
+  echo "sebastianmontero/premium-bonds"
+  exit 0
+fi
+
+if [[ "\$*" =~ pr\ merge ]]; then
+  exit 0
+fi
+
+if [[ "\$*" =~ issue\ view.*labels ]]; then
+  # Returns issue state and labels
+  if [[ "\$*" =~ 888 ]]; then
+    # Already closed issue
+    echo '{"state":"CLOSED","labels":[]}'
+  else
+    echo '{"state":"OPEN","labels":[{"name":"in-progress"},{"name":"ready-for-agent"},{"name":"bug"}]}'
+  fi
+  exit 0
+fi
+
+if [[ "\$*" =~ issue\ close ]]; then
+  exit 0
+fi
+
+if [[ "\$*" =~ issue\ edit ]]; then
+  exit 0
+fi
+
+exit 0
+EOF
+
+# 11a: --close-merged-issue when PR is MERGED
+cat << 'EOF' > "$TMP_DIR/pr_merged.json"
+{"number": 901, "state": "MERGED"}
+EOF
+
+rm -f "$RECORD_LOG"
+PATH="$MOCK_BIN:$PATH" "$HELPER" --close-merged-issue --issue 777 --pr 901 --file "$TMP_DIR/pr_merged.json" >/dev/null
+
+if ! grep -q "issue close 777 --comment" "$RECORD_LOG"; then
+  echo "FAILED: Expected gh issue close 777 call"
+  cat "$RECORD_LOG"
+  exit 1
+fi
+
+if ! grep -q "issue edit 777.*--remove-label in-progress.*--remove-label ready-for-agent" "$RECORD_LOG"; then
+  echo "FAILED: Expected label removals for in-progress and ready-for-agent"
+  cat "$RECORD_LOG"
+  exit 1
+fi
+
+# 11b: --close-merged-issue when PR is OPEN (no-op)
+cat << 'EOF' > "$TMP_DIR/pr_open.json"
+{"number": 902, "state": "OPEN"}
+EOF
+rm -f "$RECORD_LOG"
+PATH="$MOCK_BIN:$PATH" "$HELPER" --close-merged-issue --issue 777 --pr 902 --file "$TMP_DIR/pr_open.json" >/dev/null
+if [[ -f "$RECORD_LOG" ]] && grep -q "issue close" "$RECORD_LOG"; then
+  echo "FAILED: Expected no issue close call for open PR"
+  exit 1
+fi
+
+# 11c: --close-merged-issue when issue is ALREADY CLOSED (exit 0, no gh calls)
+rm -f "$RECORD_LOG"
+PATH="$MOCK_BIN:$PATH" "$HELPER" --close-merged-issue --issue 888 --pr 901 --file "$TMP_DIR/pr_merged.json" >/dev/null
+if [[ -f "$RECORD_LOG" ]] && grep -q "issue close" "$RECORD_LOG"; then
+  echo "FAILED: Expected no issue close call for already closed issue"
+  exit 1
+fi
+
+# 11d: --merge-pr passes -R on both attempts
+rm -f "$RECORD_LOG"
+PATH="$MOCK_BIN:$PATH" "$HELPER" --merge-pr 950 >/dev/null
+if ! grep -q "pr merge 950 -R sebastianmontero/premium-bonds --squash --delete-branch --auto" "$RECORD_LOG"; then
+  echo "FAILED: Expected -R sebastianmontero/premium-bonds in merge-pr auto call"
+  cat "$RECORD_LOG"
   exit 1
 fi
 echo "PASSED"
