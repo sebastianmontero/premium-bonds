@@ -70,23 +70,59 @@ def run_git_with_lock_retry(
     return proc
 
 
-def remove_stale_index_lock(worktree_path: Path, repo_root: Path) -> None:
-    """Remove stale index.lock file for a worktree if it exists."""
-    worktree_name = worktree_path.name
-    # Git worktree admin dir is typically under <repo_root>/.git/worktrees/<name>/index.lock
-    admin_lock = repo_root / ".git" / "worktrees" / worktree_name / "index.lock"
-    if admin_lock.exists():
+def remove_stale_index_lock(worktree_path: Path, env: Mapping[str, str]) -> None:
+    """Remove a stale index.lock from the worktree's git dir, if any.
+
+    In a linked worktree `.git` is a gitlink file, so the index lives in the admin
+    dir that `rev-parse --absolute-git-dir` resolves (`<common>/worktrees/<name>`).
+    """
+    res = subprocess.run(
+        ["git", "-C", str(worktree_path), "rev-parse", "--absolute-git-dir"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    git_dir = res.stdout.strip()
+    if res.returncode != 0 or not git_dir:
+        return
+    lock = Path(git_dir) / "index.lock"
+    if lock.exists():
+        logger.warning("Removing stale %s", lock)
         try:
-            admin_lock.unlink()
+            lock.unlink()
         except OSError:
             pass
 
-    local_lock = worktree_path / ".git" / "index.lock"
-    if local_lock.exists():
-        try:
-            local_lock.unlink()
-        except OSError:
-            pass
+
+def create_pipeline_worktrees(
+    paths: PipelinePaths,
+    repo_root: Path,
+    review_slots: int,
+    env: Mapping[str, str] | None = None,
+) -> list[Path]:
+    """Create the bounded set of pipeline worktrees at origin/dev; returns those created.
+
+    The pool is fixed (control, impl, review-<slot> for slot in [0, review_slots)),
+    so `.git/worktrees` never grows per issue. Existing worktrees are left untouched.
+    """
+    paths.ensure_dirs()
+    targets = [paths.control, paths.impl, *(paths.review(slot) for slot in range(review_slots))]
+    created: list[Path] = []
+    for path in targets:
+        if path.exists():
+            continue
+        logger.info("Creating worktree at %s...", path)
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", str(path), "origin/dev"],
+            cwd=repo_root,
+            env=pipeline_env(env),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        created.append(path)
+    return created
 
 
 def check_and_run_npm_ci(worktree_path: Path, env: Mapping[str, str], timeout: float) -> None:
@@ -138,7 +174,6 @@ def resolve_workspace_path(workspace: Workspace, paths: PipelinePaths) -> Path:
 def prepare_workspace(
     workspace: Workspace,
     paths: PipelinePaths,
-    repo_root: Path,
     env: Mapping[str, str] | None = None,
     timeout: float = 300.0,
     sleep_fn: Callable[[float], None] = time.sleep,
@@ -148,7 +183,7 @@ def prepare_workspace(
     worktree_env = pipeline_env(env)
 
     # 1. Clear any stale index locks
-    remove_stale_index_lock(worktree_path, repo_root)
+    remove_stale_index_lock(worktree_path, worktree_env)
 
     match workspace:
         case ReviewSlot():

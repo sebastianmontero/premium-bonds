@@ -137,6 +137,8 @@ class HeadlessRunner:
                 "systemd-run",
                 "--user",
                 f"--unit={unit_name}",
+                f"--working-directory={self.paths.control}",
+                "--collect",
                 "--description", f"Pipeline run {rid} for issue #{record.issue.number}",
                 "python3", str(control_pkg), "exec", rid,
             ]
@@ -150,6 +152,7 @@ class HeadlessRunner:
         cmd = ["python3", str(control_pkg), "exec", rid]
         subprocess.Popen(
             cmd,
+            cwd=self.paths.control,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

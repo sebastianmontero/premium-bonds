@@ -151,14 +151,14 @@ class TestExecwrap(unittest.TestCase):
 
         # 1. Prep failure raises exception -> exit 97
         with patch("pipeline.execwrap.prepare_workspace", side_effect=RuntimeError("Disk full")):
-            code = exec_run(str(rid), self.paths, config, self.root)
+            code = exec_run(str(rid), self.paths, config)
             self.assertEqual(code, 97)
             self.assertEqual(self.paths.exit_file(rid).read_text().strip(), "97")
 
         # 2. Prep exceeding deadline -> exit 97
         with patch("pipeline.execwrap.prepare_workspace", return_value=self.root):
             with patch("time.monotonic", side_effect=[0.0, 0.0, 1000.0, 1000.0]):
-                code = exec_run(str(rid), self.paths, config, self.root)
+                code = exec_run(str(rid), self.paths, config)
                 self.assertEqual(code, 97)
 
     def test_agent_spawn_uses_stdin_devnull_and_kills_on_timeout(self):
@@ -203,7 +203,7 @@ class TestExecwrap(unittest.TestCase):
              patch("subprocess.Popen", side_effect=fake_popen), \
              patch("pipeline.execwrap.read_stat_start_time", return_value=123), \
              patch("select.select", return_value=([], [], [])):
-            exec_run(str(rid), self.paths, config, self.root, procs=mock_procs)
+            exec_run(str(rid), self.paths, config, procs=mock_procs)
 
             import subprocess
             self.assertEqual(captured_stdin, subprocess.DEVNULL)

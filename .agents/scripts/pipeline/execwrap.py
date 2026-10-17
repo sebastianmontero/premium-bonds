@@ -10,7 +10,6 @@ import errno
 import json
 import logging
 import os
-from pathlib import Path
 import select
 import sys
 import time
@@ -119,7 +118,6 @@ def exec_run(
     run_id_str: str,
     paths: PipelinePaths,
     config: PipelineConfig,
-    repo_root: Path,
     procs: ProcessControl | None = None,
 ) -> int:
     """Execute run wrapper for run_id."""
@@ -165,7 +163,6 @@ def exec_run(
         workspace_path = prepare_workspace(
             workspace=record.workspace,
             paths=paths,
-            repo_root=repo_root,
             env=os.environ,
             timeout=remaining_prep_time,
         )

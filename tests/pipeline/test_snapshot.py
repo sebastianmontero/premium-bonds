@@ -2,7 +2,9 @@
 
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock
 
@@ -27,6 +29,7 @@ from pipeline.model import (
 )
 from pipeline.snapshot import (
     GlobalSnapshotError,
+    LocalHelperClient,
     Snapshotter,
     classify_comments,
     open_pr_from_helper_json,
@@ -364,6 +367,79 @@ class TestSnapshot(unittest.TestCase):
         self.assertEqual(len(snapshots), 1)
         self.assertIsInstance(snapshots[0], IssueSnapshot)
         self.assertEqual(snapshots[0].open_blocker_count, 0)
+
+
+def _single_issue_gh(num: int, pr_view_error: Exception | None = None):
+    """Fake GhClient.read for one eligible issue with no editor and no blockers."""
+    def fake_gh_read(args):
+        if args[:3] == ["api", "user", "-q"]:
+            return "pipeline-bot"
+        if args[:3] == ["repo", "view", "--json"]:
+            return json.dumps({"owner": {"login": "owner"}, "name": "repo"})
+        if args[:3] == ["issue", "list", "--label"]:
+            return json.dumps([{
+                "number": num,
+                "title": "Issue",
+                "body": "desc",
+                "labels": [{"name": "agent:auto"}],
+                "comments": [],
+            }])
+        if args[:3] == ["pr", "list", "--state"]:
+            return json.dumps([])
+        if args[:2] == ["api", "graphql"]:
+            return json.dumps({"data": {"repository": {"issue": {"editor": None}}}})
+        if args[:2] == ["pr", "view"] and pr_view_error is not None:
+            raise pr_view_error
+        return "{}"
+
+    gh = MagicMock()
+    gh.read.side_effect = fake_gh_read
+    return gh
+
+
+def _minimal_config() -> PipelineConfig:
+    return PipelineConfig(
+        eligible_label="agent:auto",
+        skip_review_label="agent:skip-review",
+        max_revision_cycles=3,
+        max_step_attempts=2,
+        runner="auto",
+        reviews=(),
+        integrator=MagicMock(),
+        implement=MagicMock(),
+        verify=MagicMock(),
+        revise=MagicMock(),
+        concurrency=ConcurrencyConfig(review=2),
+        timeouts={},
+    )
+
+
+class TestLinkedPrContract(unittest.TestCase):
+    def test_no_linked_pr_helper_exit_1_yields_greenfield_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / ".agents" / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "issue_review_helper.sh").write_text('echo \'{"reviews": []}\'\n', encoding="utf-8")
+            (scripts / "issue_lifecycle_helper.sh").write_text("exit 1\n", encoding="utf-8")
+
+            snapshots = Snapshotter(_single_issue_gh(60), LocalHelperClient(root)).snapshot(_minimal_config())
+
+        self.assertEqual(len(snapshots), 1)
+        self.assertIsInstance(snapshots[0], IssueSnapshot)
+        self.assertIsNone(snapshots[0].linked_pr)
+
+    def test_open_pr_view_exit_1_yields_failed_snapshot(self):
+        helpers = MagicMock()
+        helpers.run_review_helper.return_value = '{"reviews": []}'
+        helpers.run_lifecycle_helper.return_value = json.dumps({"number": 500, "state": "OPEN"})
+        gh = _single_issue_gh(61, pr_view_error=subprocess.CalledProcessError(1, ["gh", "pr", "view"], "", "HTTP 502"))
+
+        snapshots = Snapshotter(gh, helpers).snapshot(_minimal_config())
+
+        self.assertEqual(len(snapshots), 1)
+        self.assertIsInstance(snapshots[0], FailedSnapshot)
+        self.assertEqual(snapshots[0].issue, IssueRef(61))
 
 
 if __name__ == "__main__":

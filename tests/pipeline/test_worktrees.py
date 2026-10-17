@@ -1,12 +1,11 @@
 """Unit tests for worktree preparation, ref-lock retries, and npm cache verification."""
 
-import hashlib
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".agents" / "scripts"))
 
@@ -14,9 +13,42 @@ from pipeline.model import ImplAtDev, ImplAtPrHead, ReviewSlot
 from pipeline.paths import PipelinePaths
 from pipeline.worktrees import (
     check_and_run_npm_ci,
+    create_pipeline_worktrees,
     prepare_workspace,
     run_git_with_lock_retry,
 )
+
+
+def git(*args: str, cwd: Path) -> str:
+    res = subprocess.run(
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return res.stdout.strip()
+
+
+class BareRemoteFixture:
+    """A local bare `origin` with a `dev` branch, plus a developer clone of it."""
+
+    def __init__(self, base: Path) -> None:
+        self.remote = base / "origin.git"
+        self.dev_clone = base / "developer"
+        git("init", "-q", "--bare", "-b", "dev", str(self.remote), cwd=base)
+        git("clone", "-q", str(self.remote), str(self.dev_clone), cwd=base)
+        git("checkout", "-q", "-b", "dev", cwd=self.dev_clone)
+        self.commit(self.dev_clone, "README.md", "init\n")
+        git("push", "-q", "origin", "dev", cwd=self.dev_clone)
+        git("fetch", "-q", "origin", cwd=self.dev_clone)
+
+    @staticmethod
+    def commit(repo: Path, name: str, content: str) -> str:
+        (repo / name).write_text(content, encoding="utf-8")
+        git("add", name, cwd=repo)
+        git("commit", "-q", "-m", f"update {name}", cwd=repo)
+        return git("rev-parse", "HEAD", cwd=repo)
 
 
 class TestWorktrees(unittest.TestCase):
@@ -25,8 +57,6 @@ class TestWorktrees(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.paths = PipelinePaths(root=self.root)
         self.paths.ensure_dirs()
-        self.repo_root = self.root / "repo"
-        self.repo_root.mkdir()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -77,30 +107,13 @@ class TestWorktrees(unittest.TestCase):
 
         with patch("subprocess.run", side_effect=fake_run):
             # 1. ReviewSlot
-            prepare_workspace(ReviewSlot(n=0), self.paths, self.repo_root)
+            prepare_workspace(ReviewSlot(n=0), self.paths)
             # 2. ImplAtDev
-            prepare_workspace(ImplAtDev(), self.paths, self.repo_root)
+            prepare_workspace(ImplAtDev(), self.paths)
 
         # Assert no call had 'fetch'
         for call in git_calls:
             self.assertNotIn("fetch", call)
-
-    def test_impl_at_pr_head_uses_ignore_other_worktrees(self):
-        git_calls = []
-
-        def fake_run(cmd, **kwargs):
-            git_calls.append(list(cmd))
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        with patch("subprocess.run", side_effect=fake_run):
-            prepare_workspace(ImplAtPrHead(head_ref="feat/issue-27-runtime"), self.paths, self.repo_root)
-
-        # Confirm fetch and checkout with --ignore-other-worktrees occurred
-        checkout_call = next(
-            (c for c in git_calls if "checkout" in c and "-B" in c), None
-        )
-        self.assertIsNotNone(checkout_call)
-        self.assertIn("--ignore-other-worktrees", checkout_call)
 
     def test_npm_ci_runs_when_stamp_missing_or_differs(self):
         worktree = self.paths.impl
@@ -131,18 +144,75 @@ class TestWorktrees(unittest.TestCase):
             check_and_run_npm_ci(worktree, {}, timeout=30.0)
             self.assertEqual(npm_runs, 2)
 
+
+
+
+class TestWorktreesRealGit(unittest.TestCase):
+    """Worktree behaviour against real git, using a local bare-remote fixture."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.fx = BareRemoteFixture(base)
+        self.paths = PipelinePaths(root=base / "state")
+        self.review_slots = 2
+        create_pipeline_worktrees(self.paths, self.fx.dev_clone, self.review_slots)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_setup_creates_bounded_pool_and_review_pool_never_exceeds_concurrency(self):
+        expected = {self.paths.control, self.paths.impl, *(self.paths.review(n) for n in range(self.review_slots))}
+        self.assertEqual(set(self.paths.worktrees_dir.iterdir()), expected)
+
+        # Re-running setup is idempotent: no new worktrees, so .git/worktrees stays bounded.
+        self.assertEqual(create_pipeline_worktrees(self.paths, self.fx.dev_clone, self.review_slots), [])
+        listed = git("worktree", "list", "--porcelain", cwd=self.fx.dev_clone)
+        self.assertEqual(listed.count("worktree "), 1 + len(expected))
+
     def test_concurrent_review_slots_prepared_concurrently_both_succeed(self):
         import concurrent.futures
 
-        def fake_run(cmd, **kwargs):
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+        dev_tip = git("rev-parse", "origin/dev", cwd=self.fx.dev_clone)
+        for n in range(self.review_slots):
+            (self.paths.review(n) / "untracked.txt").write_text("dirty", encoding="utf-8")
 
-        with patch("subprocess.run", side_effect=fake_run):
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-                f0 = ex.submit(prepare_workspace, ReviewSlot(0), self.paths, self.repo_root)
-                f1 = ex.submit(prepare_workspace, ReviewSlot(1), self.paths, self.repo_root)
-                f0.result()
-                f1.result()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.review_slots) as ex:
+            futures = [ex.submit(prepare_workspace, ReviewSlot(n), self.paths) for n in range(self.review_slots)]
+            prepared = [f.result() for f in futures]
+
+        for n, path in enumerate(prepared):
+            self.assertEqual(path, self.paths.review(n))
+            self.assertEqual(git("rev-parse", "HEAD", cwd=path), dev_tip)
+            self.assertFalse((path / "untracked.txt").exists())
+
+    def test_impl_at_pr_head_syncs_to_remote_while_developer_has_branch_checked_out(self):
+        branch = "feat/issue-27-runtime"
+        git("checkout", "-q", "-b", branch, cwd=self.fx.dev_clone)
+        self.fx.commit(self.fx.dev_clone, "feature.txt", "v1\n")
+        git("push", "-q", "origin", branch, cwd=self.fx.dev_clone)
+
+        # A maintainer pushes a further commit from another clone.
+        maintainer = Path(self.tmp.name) / "maintainer"
+        git("clone", "-q", "-b", branch, str(self.fx.remote), str(maintainer), cwd=Path(self.tmp.name))
+        remote_tip = self.fx.commit(maintainer, "feature.txt", "v2\n")
+        git("push", "-q", "origin", branch, cwd=maintainer)
+
+        path = prepare_workspace(ImplAtPrHead(head_ref=branch), self.paths)
+
+        self.assertEqual(git("rev-parse", "HEAD", cwd=path), remote_tip)
+        self.assertEqual(git("branch", "--show-current", cwd=path), branch)
+        self.assertEqual(git("branch", "--show-current", cwd=self.fx.dev_clone), branch)
+
+    def test_stale_index_lock_in_linked_worktree_is_removed(self):
+        git_dir = Path(git("rev-parse", "--absolute-git-dir", cwd=self.paths.impl))
+        self.assertTrue((self.paths.impl / ".git").is_file(), "linked worktree .git must be a gitlink file")
+        lock = git_dir / "index.lock"
+        lock.write_text("", encoding="utf-8")
+
+        prepare_workspace(ImplAtDev(), self.paths)
+
+        self.assertFalse(lock.exists())
 
 
 if __name__ == "__main__":

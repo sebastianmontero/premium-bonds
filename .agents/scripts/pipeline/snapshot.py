@@ -496,13 +496,10 @@ class Snapshotter:
                     r_data = json.loads(r_out)
 
                     linked_pr = open_pr_from_helper_json(pr_view, r_data, v_data)
-        except subprocess.CalledProcessError as e:
-            if e.returncode == 1 and "--get-linked-pr" in link_args:
-                linked_pr = None
-            else:
-                raise RuntimeError(f"Linked PR processing failed for #{num}: {e}") from e
         except Exception as e:
-            # If helper fails with exit 2 or PR fetch fails, let caller wrap into FailedSnapshot
+            # Any failure here (helper exit 2, gh HTTP error, bad JSON) must never look like
+            # "no PR"; the caller wraps it into FailedSnapshot. A genuine "no linked PR"
+            # (helper exit 1) is already mapped to "" by run_lifecycle_helper.
             raise RuntimeError(f"Linked PR processing failed for #{num}: {e}") from e
 
         return IssueSnapshot(

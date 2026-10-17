@@ -46,23 +46,36 @@ from .snapshot import LocalHelperClient
 from .state import Liveness, RunId, StoreState
 from .status_cli import format_status
 from .store import load_store, save_store
+from .worktrees import create_pipeline_worktrees
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("pipeline")
 
 
 def find_repo_root() -> Path:
-    """Resolve repository root from current file path or git rev-parse."""
-    try:
-        res = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
+    """Resolve the checkout that contains this package (independent of the cwd)."""
+    return Path(__file__).resolve().parents[3]
+
+
+def ensure_running_from_control(repo_root: Path, paths: PipelinePaths) -> None:
+    """Re-exec the control worktree's copy of the CLI unless this already is it.
+
+    The reconciler and exec wrapper must only ever run the code, config and helpers
+    checked out at worktrees/control (origin/dev), never a developer checkout.
+    """
+    control = paths.control
+    if repo_root.resolve() == control.resolve():
+        return
+    control_pkg = control / ".agents" / "scripts" / "pipeline"
+    if not control_pkg.is_dir():
+        sys.stderr.write(
+            f"Error: control worktree {control} not found. "
+            "Run `python3 .agents/scripts/pipeline setup` first.\n"
         )
-        return Path(res.stdout.strip())
-    except Exception:
-        return Path(__file__).resolve().parents[4]
+        sys.exit(1)
+    logger.info("Redirecting to control worktree %s", control)
+    os.chdir(control)
+    os.execv(sys.executable, [sys.executable, str(control_pkg), *sys.argv[1:]])
 
 
 def load_pipeline_config(repo_root: Path) -> PipelineConfig:
@@ -73,6 +86,39 @@ def load_pipeline_config(repo_root: Path) -> PipelineConfig:
 
 
 # --- Setup & Preflight ---
+
+# .claude/settings.json rules the headless (`claude -p --permission-mode auto`) lifecycle
+# skills depend on (#25). A missing allow rule makes the agent give up and exit 0.
+REQUIRED_ALLOW_RULES: tuple[str, ...] = (
+    "Bash(gh issue *)",
+    "Bash(gh pr *)",
+    "Bash(gh api *)",
+    "Bash(git checkout *)",
+    "Bash(git fetch *)",
+    "Bash(git rev-parse *)",
+    "Bash(git ls-remote *)",
+    "Bash(bash .agents/scripts/*)",
+    "Bash(jq *)",
+    "Bash(date *)",
+    "Bash(tr *)",
+    "Bash(sed *)",
+    "Bash(cut *)",
+    "Bash(sha256sum *)",
+    "Bash(echo *)",
+    "Bash(printf *)",
+    "Bash(diff *)",
+)
+REQUIRED_DENY_RULES: tuple[str, ...] = ("Bash(git push --force*)",)
+
+
+def missing_settings_rules(settings: dict) -> list[str]:
+    """Return the required allow/deny rules absent from a parsed .claude/settings.json."""
+    perms = settings.get("permissions", {})
+    allow = set(perms.get("allow", []))
+    deny = set(perms.get("deny", []))
+    return [f"allow {r}" for r in REQUIRED_ALLOW_RULES if r not in allow] + [
+        f"deny {r}" for r in REQUIRED_DENY_RULES if r not in deny
+    ]
 
 
 def run_preflight(install_timer: bool, repo_root: Path, config: PipelineConfig) -> None:
@@ -148,12 +194,15 @@ def run_preflight(install_timer: bool, repo_root: Path, config: PipelineConfig) 
         sys.exit(1)
     try:
         settings_data = json.loads(res.stdout)
-        allow_rules = settings_data.get("permissions", {}).get("allow", [])
-        if not allow_rules:
-            sys.stderr.write("Preflight error: No allow rules found in origin/dev:.claude/settings.json\n")
-            sys.exit(1)
     except Exception as e:
         sys.stderr.write(f"Preflight error: Failed to parse origin/dev:.claude/settings.json: {e}\n")
+        sys.exit(1)
+    missing = missing_settings_rules(settings_data)
+    if missing:
+        sys.stderr.write(
+            "Preflight error: origin/dev:.claude/settings.json is missing rules required by headless skills:\n"
+            + "".join(f"  - {m}\n" for m in missing)
+        )
         sys.exit(1)
 
 
@@ -198,24 +247,8 @@ def cmd_setup(args: argparse.Namespace, paths: PipelinePaths, repo_root: Path) -
                 env=pipeline_env(),
             )
 
-        # Create worktrees
-        paths.ensure_dirs()
-        worktrees_to_create = [
-            (paths.control, "origin/dev"),
-            (paths.impl, "origin/dev"),
-        ]
-        for slot in range(config.concurrency.review):
-            worktrees_to_create.append((paths.review(slot), "origin/dev"))
-
-        for path, branch in worktrees_to_create:
-            if not path.exists():
-                print(f"Creating worktree at {path}...")
-                subprocess.run(
-                    ["git", "worktree", "add", "--detach", str(path), branch],
-                    cwd=repo_root,
-                    env=pipeline_env(),
-                    check=True,
-                )
+        for path in create_pipeline_worktrees(paths, repo_root, config.concurrency.review):
+            print(f"Created worktree at {path}")
 
         if args.install_timer:
             print("Installing and enabling systemd units...")
@@ -299,6 +332,7 @@ def cmd_tick(args: argparse.Namespace, paths: PipelinePaths, repo_root: Path) ->
             except Exception as e:
                 logger.warning("Control bootstrap check failed: %s", e)
 
+        logger.info("Reconciler running from %s", repo_root)
         config = load_pipeline_config(repo_root)
 
         gh = GhClient(dry_run=args.dry_run)
@@ -415,6 +449,8 @@ def main() -> None:
 
     repo_root = find_repo_root()
     paths = PipelinePaths.from_env()
+    if args.subcommand in ("tick", "exec"):
+        ensure_running_from_control(repo_root, paths)
 
     if args.subcommand == "setup":
         cmd_setup(args, paths, repo_root)
@@ -424,7 +460,7 @@ def main() -> None:
         format_status(paths, json_output=args.json)
     elif args.subcommand == "exec":
         config = load_pipeline_config(repo_root)
-        code = exec_run(args.run_id, paths, config, repo_root)
+        code = exec_run(args.run_id, paths, config)
         sys.exit(code)
     elif args.subcommand == "logs":
         cmd_logs(args, paths)

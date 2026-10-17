@@ -113,8 +113,13 @@ class TestRunner(unittest.TestCase):
             """,
         )
         runner = HerdrRunner(self.paths)
-        handle = runner.start(self.record)
-        self.assertIsInstance(handle, (HeadlessHandle, SystemdHandle))
+        # Stub the headless fallback so the test never starts a real transient unit
+        # (INVOCATION_ID set on the host) or a detached exec; its launch behaviour is
+        # covered by the HeadlessRunner tests below.
+        with patch.object(HeadlessRunner, "start", return_value=HeadlessHandle()) as mock_headless:
+            handle = runner.start(self.record)
+        self.assertIsInstance(handle, HeadlessHandle)
+        mock_headless.assert_called_once_with(self.record)
 
     def test_herdr_cleanup_stale_runs_closes_tabs_older_than_60_min(self):
         log_file = self.root / "herdr_cleanup.log"
@@ -171,6 +176,8 @@ class TestRunner(unittest.TestCase):
 
         logged = log_file.read_text(encoding="utf-8")
         self.assertIn(f"--unit=pb-pipeline-{self.record.run_id}", logged)
+        self.assertIn(f"--working-directory={self.paths.control}", logged)
+        self.assertIn("--collect", logged)
 
     def test_headless_runner_falls_back_to_background_when_no_invocation_id(self):
         runner = HeadlessRunner(self.paths)
@@ -178,6 +185,7 @@ class TestRunner(unittest.TestCase):
             handle = runner.start(self.record)
             self.assertIsInstance(handle, HeadlessHandle)
             mock_popen.assert_called_once()
+            self.assertEqual(mock_popen.call_args.kwargs["cwd"], self.paths.control)
 
 
 if __name__ == "__main__":

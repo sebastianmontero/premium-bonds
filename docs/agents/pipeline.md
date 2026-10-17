@@ -166,6 +166,8 @@ If verification fails repeatedly (`max_revision_cycles` exhausted), merge confli
 ## 7. CLI Usage & Diagnostics
 
 ### Reconciler Commands
+`tick` and `exec` always run the control worktree's code, config and helpers (`worktrees/control` at `origin/dev`). Invoked from any other checkout, they re-exec `<control>/.agents/scripts/pipeline` with the same arguments; if the control worktree does not exist yet, they exit 1 and ask you to run `setup` first.
+
 ```bash
 # Execute a single reconcile cycle
 python3 .agents/scripts/pipeline tick
