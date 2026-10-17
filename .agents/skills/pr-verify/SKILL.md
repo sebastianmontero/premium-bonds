@@ -14,10 +14,11 @@ Use this skill to audit an open Pull Request against the closed specification of
 
 1. **Native GitHub PR Reviews**: Submits authoritative reviews via `gh pr review --approve` or `gh pr review --request-changes`.
 2. **Self-Approval & Self-Review Restriction Handling**: If the verifying agent has the same GitHub identity as the PR author, detects the restriction and posts reviews via `gh pr review --comment` for all verdicts (`APPROVED` and `CHANGES_REQUESTED`), bypassing HTTP 422 errors while keeping metadata verdicts authoritative.
-3. **Closed-Specification Anti-Goalpost Rule**: Strictly evaluates the PR against the requirements agreed upon in the issue. Explicitly forbids failing verification over unrequested refactorings or stylistic bikeshedding.
-4. **Targeted Deterministic Test Gates**: Runs `NO_DNA=1 cargo test --manifest-path anchor/Cargo.toml` only if contract files changed, and `npm test` / linter only if UI/TS files changed.
-5. **Effective Cycle & Configurable Breaker**: Respects `--max-cycles N` (revision cycles allowed, default 3; the breaker trips when verification cycle N+1 requests changes), uses `effective_cycle` for human-facing headers, and tracks raw cycles for verification IDs.
-6. **Pipeline Mode Integration (D13)**: In pipeline mode, skips all merges and `verified` label edits, delegating merging exclusively to the pipeline reconciler.
+3. **Closed-Specification Anti-Goalpost Rule**: Strictly evaluates the PR against the requirements agreed upon in the issue. Every finding is triaged into exactly one of three classes (spec violation, spec ambiguity, improvement). Any deviation from explicit issue text blocks, however low its risk. Unrequested refactorings and stylistic preferences never block.
+4. **Human-Gated Follow-up Issues**: When a PR is approved with non-blocking improvement notes, files them as one follow-up issue labelled `needs-triage` and never `agent:auto`. The pipeline ignores the issue until a maintainer reviews it and opts it in.
+5. **Targeted Deterministic Test Gates**: Runs `NO_DNA=1 cargo test --manifest-path anchor/Cargo.toml` only if contract files changed, and `npm test` / linter only if UI/TS files changed.
+6. **Effective Cycle & Configurable Breaker**: Respects `--max-cycles N` (revision cycles allowed, default 3; the breaker trips when verification cycle N+1 requests changes), uses `effective_cycle` for human-facing headers, and tracks raw cycles for verification IDs.
+7. **Pipeline Mode Integration (D13)**: In pipeline mode, skips all merges and `verified` label edits, delegating merging exclusively to the pipeline reconciler.
 
 ---
 
@@ -27,6 +28,7 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
 - **Lifecycle labels & assignees**: The reconciler owns all lifecycle label transitions (`ready-for-agent`, `in-progress`, `needs-info`, `ready-for-human`, `verified`) and assignees. Skills make **no** edits to these labels or assignees in pipeline mode.
 - **Sole merger**: The reconciler is the only merger in pipeline mode (D13). `/pr-verify` skips Step 7 entirely in pipeline mode (no merge and no `verified` label).
 - **Self-authored approvals**: In Step 6, the `--comment` review is submitted, but the `verified` label edit is skipped; metadata verdict is the authoritative approval signal.
+- **Follow-up issues**: Step 5's follow-up issue is still filed in pipeline mode. It is a new issue labelled only `needs-triage`, which is not one of the lifecycle labels above. No skill ever adds `agent:auto`: opting an issue into the pipeline is reserved for a human.
 - **Halts**: Circuit breaker conditions still halt the skill, but without performing label side effects or posting circuit-breaker comments (which the reconciler surfaces via status comments per #23 D11).
 - **Markers**: Every comment posted by a skill carries an `<!-- ai-` marker in both modes.
 - **Helper exits**: An exit code of 2 from any helper script indicates a GitHub/API failure and must halt the skill immediately.
@@ -90,8 +92,18 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
    > You are auditing strictly against the requirements documented in Issue `#<ISSUE_NUMBER>`.
    > - You MUST NOT invent new requirements or demand architectural overhauls not present in the issue.
    > - You MUST NOT request changes for stylistic preferences, premature micro-optimizations, or out-of-scope features.
-   > - If you spot potential future improvements, record them as non-blocking informational notes, but DO NOT block approval.
-   > - Mark an acceptance item `VIOLATED` only if the PR demonstrably breaks an issue requirement or violates a repository invariant from `GEMINI.md`.
+   > - You MUST NOT downgrade a deviation from explicit issue text because its practical risk looks low. Risk only shapes the wording of the finding, never its class.
+
+3. **Finding Triage (exactly one class per finding)**:
+   Quote the issue text (section heading plus the sentence) that each finding is judged against. A finding that cannot quote a requirement is never class 1.
+
+   | Class | Test | Outcome |
+   |---|---|---|
+   | **1. Spec violation** | The PR contradicts explicit issue text (Scope, file list, a numbered or bulleted requirement, `[DEC-N]`, an acceptance criterion), or a repository invariant from `GEMINI.md`. | Blocking. Marks its checklist item `VIOLATED` with a `VER-N` finding. |
+   | **2. Spec ambiguity** | The issue is silent, ambiguous or self-contradictory on the point, **and** at least one reasonable reading makes the PR violate an acceptance criterion or invariant. | Blocking, and the fix needs a maintainer decision. It gets a `VER-N` finding whose description starts with `[NEEDS-DECISION]` and quotes the conflicting passages. It is listed under *Maintainer Decisions Needed*, because a revision cannot settle it until the issue is amended. |
+   | **3. Improvement** | Every reasonable reading of the issue is satisfied, and the point is about robustness beyond the spec, error messages, naming, docs polish or future-proofing. | Non-blocking note. On an `APPROVED` verdict it goes into the human-gated follow-up issue (Step 5). |
+
+   If the issue is ambiguous but every reasonable reading is satisfied, the finding is class 3, not class 2.
 
 ---
 
@@ -133,19 +145,23 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
 ### Step 4: Audit Acceptance Criteria & Formulate Findings
 
 1. **Evaluate Acceptance Checklist**:
-   Audit each item from the issue's requirements:
+   Audit each item from the issue's requirements, including the requirements stated in the body sections and not only the *Acceptance criteria* list:
    - Does the implementation satisfy the requirement? $\rightarrow$ `SATISFIED`
-   - Does it violate the requirement? $\rightarrow$ `VIOLATED`, assign `finding_id: "VER-N"`
+   - Is there a class 1 or class 2 finding against it (Step 2)? $\rightarrow$ `VIOLATED`, assign `finding_id: "VER-N"`
 
 2. **Evaluate Invariants**:
    - Check error handling, account layout, and CPI safety per `GEMINI.md`.
    - Verify negative test vectors exist in `anchor/tests/` or client tests.
 
-3. **Determine Verdict**:
-   - If ALL tests pass and ALL acceptance criteria are satisfied:
+3. **Re-triage Carried-over Notes**:
+   On a re-verification, re-classify every note from previous verification reports from scratch against the current issue text. The issue may have been amended since. A note is never kept as non-blocking just because an earlier cycle classified it that way.
+
+4. **Determine Verdict**:
+   - If ALL tests pass and there are no class 1 or class 2 findings:
      `VERDICT="APPROVED"`
-   - If any test fails or any requirement is violated:
+   - If any test fails, or there is any class 1 or class 2 finding:
      `VERDICT="CHANGES_REQUESTED"`
+   - Class 3 notes never affect the verdict.
 
 ---
 
@@ -176,6 +192,64 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
      --findings '<FINDINGS_JSON>' \
      --output-file /tmp/pr_verification_review_${PR_NUMBER}.md
    ```
+
+3. **File the Human-Gated Follow-up Issue (`APPROVED` with class 3 notes only)**:
+   Skip this sub-step when the verdict is `CHANGES_REQUESTED`: the notes stay in the review and are re-triaged next cycle (Step 4.3). Also skip it when there are no class 3 notes. The issue is filed in both manual and pipeline mode.
+
+   a. **Idempotency**: reuse an existing follow-up for this PR instead of filing a second one:
+      ```bash
+      FOLLOWUP_MARKER="<!-- ai-pr-followup: {\"pr\": ${PR_NUMBER},"
+      if ! EXISTING_JSON="$(gh issue list --state all --search "\"PR #${PR_NUMBER}\" in:title" --limit 50 --json number,body)"; then
+        echo "Error: GitHub API failure while checking for a follow-up issue." >&2
+        exit 2
+      fi
+      FOLLOWUP_ISSUE="$(echo "$EXISTING_JSON" | jq -r --arg m "$FOLLOWUP_MARKER" '[.[] | select(.body | contains($m))][0].number // empty')"
+      ```
+   b. **Write the body** to `/tmp/pr_followup_${PR_NUMBER}.md` (only when `FOLLOWUP_ISSUE` is empty). Write it as a self-contained spec, so it can go through `/issue-review` or `/issue-implement` unchanged once a human opts it in:
+      ```markdown
+      > [!IMPORTANT]
+      > **Human review required before pipeline intake.** Filed by `/pr-verify` from verification `<VERIFICATION_ID>` of PR #<PR_NUMBER> (issue #<ISSUE_NUMBER>). These notes did not block that PR. The pipeline ignores this issue until a maintainer reviews it and adds `agent:auto`.
+
+      ## Context
+      <One paragraph: what #<ISSUE_NUMBER> / PR #<PR_NUMBER> delivered, and why these points were judged improvements rather than spec violations.>
+
+      ## Scope
+      ### NOTE-1: <short title>
+      - **Where:** `<path>:<line>`
+      - **Observation:** <what the code does today>
+      - **Why non-blocking:** <the issue text it was judged against, and why every reading of it is satisfied>
+      - **Suggested change:** <concrete change, including the test that proves it>
+
+      ## Acceptance criteria
+      - [ ] NOTE-1: <verifiable outcome>
+      - [ ] The targeted test gates for the touched files pass.
+
+      ## Maintainer review checklist
+      - [ ] Delete any note that is not worth doing; edit the rest as needed.
+      - [ ] Scope and acceptance criteria are complete.
+      - [ ] Opt in: add `agent:auto` (plus `agent:skip-review` if no AI spec-review rounds are needed), or label `ready-for-agent` for a manual `/issue-implement`.
+
+      <!-- ai-pr-followup: {"pr": <PR_NUMBER>, "issue": <ISSUE_NUMBER>, "verification_id": "<VERIFICATION_ID>"} -->
+      ```
+   c. **Create it**, labelled `needs-triage` only. Never add `agent:auto`, `agent:skip-review` or `ready-for-agent`, and assign nobody:
+      ```bash
+      if [[ -z "$FOLLOWUP_ISSUE" ]]; then
+        if ! FOLLOWUP_URL="$(gh issue create \
+            --title "Follow-up: non-blocking notes from PR #${PR_NUMBER} verification (#${ISSUE_NUMBER})" \
+            --label "needs-triage" \
+            --body-file /tmp/pr_followup_${PR_NUMBER}.md)"; then
+          echo "Error: GitHub API failure while creating the follow-up issue." >&2
+          exit 2
+        fi
+        FOLLOWUP_ISSUE="${FOLLOWUP_URL##*/}"
+      fi
+      ```
+
+4. **Append Review Sections**:
+   Insert these sections, when non-empty, into `/tmp/pr_verification_review_${PR_NUMBER}.md` immediately before the closing `---` footer line written by the helper:
+   - `### ✅ Resolved Since Cycle <N>`: on re-verification, the previous findings that are now fixed, one line each.
+   - `### ⚠️ Maintainer Decisions Needed`: every class 2 finding, with the conflicting issue passages and the options.
+   - `### ℹ️ Non-blocking Notes`: every class 3 note, one line each. On `APPROVED`, the first line is `Filed as #${FOLLOWUP_ISSUE} for maintainer review; the pipeline ignores it until a maintainer adds \`agent:auto\`.`
 
 ---
 
@@ -262,9 +336,10 @@ In manual mode, if `VERDICT == "APPROVED"`:
 
 ## Completion Criteria
 
-1. PR diff audited strictly against closed issue specification without goalpost shifts.
-2. Targeted automated test gates executed and recorded with manifest paths.
-3. Machine-readable review metadata (`<!-- ai-pr-verification: ... -->`) submitted to GitHub.
-4. Self-approval and self-review restrictions handled gracefully via `--comment` reviews.
-5. In pipeline mode, all label edits and merge actions are skipped (reconciler-owned).
-6. In manual mode, approved PR merged and issue closed via `--close-merged-issue`, or labeled `verified` if hold requested.
+1. PR diff audited strictly against closed issue specification without goalpost shifts. Every finding is triaged into exactly one class (spec violation, spec ambiguity, improvement), and carried-over notes are re-triaged each cycle.
+2. On an `APPROVED` verdict with class 3 notes, exactly one follow-up issue per PR exists, labelled `needs-triage` and never `agent:auto`, and the review links it.
+3. Targeted automated test gates executed and recorded with manifest paths.
+4. Machine-readable review metadata (`<!-- ai-pr-verification: ... -->`) submitted to GitHub.
+5. Self-approval and self-review restrictions handled gracefully via `--comment` reviews.
+6. In pipeline mode, all lifecycle label edits and merge actions are skipped (reconciler-owned).
+7. In manual mode, approved PR merged and issue closed via `--close-merged-issue`, or labeled `verified` if hold requested.
