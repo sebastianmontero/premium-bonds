@@ -103,10 +103,38 @@ def create_pipeline_worktrees(
 ) -> list[Path]:
     """Create the bounded set of pipeline worktrees at origin/dev; returns those created.
 
-    The pool is fixed (control, impl, review-<slot> for slot in [0, review_slots)),
-    so `.git/worktrees` never grows per issue. Existing worktrees are left untouched.
+    Ref isolation ([DEC-2]): Every pipeline worktree is a linked worktree of the
+    pipeline-owned clone <state>/repo, never of the developer's checkout.
     """
     paths.ensure_dirs()
+    penv = pipeline_env(env)
+
+    if not paths.repo.exists():
+        logger.info("Cloning pipeline-owned repo to %s...", paths.repo)
+        url_res = subprocess.run(
+            ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
+            env=penv,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        origin_url = url_res.stdout.strip()
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                "--reference",
+                str(repo_root),
+                "--dissociate",
+                origin_url,
+                str(paths.repo),
+            ],
+            env=penv,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
     targets = [paths.control, paths.impl, *(paths.review(slot) for slot in range(review_slots))]
     created: list[Path] = []
     for path in targets:
@@ -114,9 +142,8 @@ def create_pipeline_worktrees(
             continue
         logger.info("Creating worktree at %s...", path)
         subprocess.run(
-            ["git", "worktree", "add", "--detach", str(path), "origin/dev"],
-            cwd=repo_root,
-            env=pipeline_env(env),
+            ["git", "-C", str(paths.repo), "worktree", "add", "--detach", str(path), "origin/dev"],
+            env=penv,
             capture_output=True,
             text=True,
             check=True,

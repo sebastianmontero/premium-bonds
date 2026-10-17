@@ -167,8 +167,21 @@ class TestWorktreesRealGit(unittest.TestCase):
 
         # Re-running setup is idempotent: no new worktrees, so .git/worktrees stays bounded.
         self.assertEqual(create_pipeline_worktrees(self.paths, self.fx.dev_clone, self.review_slots), [])
-        listed = git("worktree", "list", "--porcelain", cwd=self.fx.dev_clone)
-        self.assertEqual(listed.count("worktree "), 1 + len(expected))
+
+        # DEC-2: setup creates <state>/repo as a dissociated clone with no alternates
+        self.assertTrue(self.paths.repo.exists())
+        alternates = self.paths.repo / ".git" / "objects" / "info" / "alternates"
+        self.assertFalse(alternates.exists(), "Clone must be dissociated (no alternates file)")
+
+        # DEC-2: Registers no entry in the developer's .git/worktrees
+        dev_worktrees = self.fx.dev_clone / ".git" / "worktrees"
+        self.assertFalse(dev_worktrees.exists(), "Developer checkout must have no worktrees entry")
+        dev_listed = git("worktree", "list", "--porcelain", cwd=self.fx.dev_clone)
+        self.assertEqual(dev_listed.count("worktree "), 1)
+
+        # Worktrees are registered in <state>/repo and bounded
+        repo_listed = git("worktree", "list", "--porcelain", cwd=self.paths.repo)
+        self.assertEqual(repo_listed.count("worktree "), 1 + len(expected))
 
     def test_concurrent_review_slots_prepared_concurrently_both_succeed(self):
         import concurrent.futures
@@ -192,6 +205,9 @@ class TestWorktreesRealGit(unittest.TestCase):
         self.fx.commit(self.fx.dev_clone, "feature.txt", "v1\n")
         git("push", "-q", "origin", branch, cwd=self.fx.dev_clone)
 
+        # The developer has branch checked out with an unpushed commit on it.
+        dev_unpushed_commit = self.fx.commit(self.fx.dev_clone, "unpushed.txt", "unpushed\n")
+
         # A maintainer pushes a further commit from another clone.
         maintainer = Path(self.tmp.name) / "maintainer"
         git("clone", "-q", "-b", branch, str(self.fx.remote), str(maintainer), cwd=Path(self.tmp.name))
@@ -203,6 +219,12 @@ class TestWorktreesRealGit(unittest.TestCase):
         self.assertEqual(git("rev-parse", "HEAD", cwd=path), remote_tip)
         self.assertEqual(git("branch", "--show-current", cwd=path), branch)
         self.assertEqual(git("branch", "--show-current", cwd=self.fx.dev_clone), branch)
+
+        # DEC-2: Assert that the developer's git rev-parse <head_ref> is unchanged,
+        # the unpushed commit is still on the branch, and git status --porcelain is empty.
+        self.assertEqual(git("rev-parse", branch, cwd=self.fx.dev_clone), dev_unpushed_commit)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=self.fx.dev_clone), dev_unpushed_commit)
+        self.assertEqual(git("status", "--porcelain", cwd=self.fx.dev_clone), "")
 
     def test_stale_index_lock_in_linked_worktree_is_removed(self):
         git_dir = Path(git("rev-parse", "--absolute-git-dir", cwd=self.paths.impl))

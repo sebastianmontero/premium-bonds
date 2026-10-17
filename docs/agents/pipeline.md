@@ -15,7 +15,13 @@ ${XDG_STATE_HOME:-~/.local/state}/premium-bonds-pipeline/worktrees/control
 - **Automatic Re-exec:** If `HEAD` has advanced on `origin/dev`, the tick process re-executes itself via `--lock-fd <fd>`, preserving the file descriptor lock.
 - **Rule of Thumb:** All reconciler code, skill definitions, and `pipeline.toml` changes ship through `dev`. Changes made in a feature branch or local working directory do **not** affect active reconciler runs until merged into `dev`.
 
-### Worktree Pool & Lane Concurrency
+### Worktree Pool & Ref Isolation ([DEC-2])
+All pipeline worktrees are linked worktrees of a dedicated, pipeline-owned clone located at:
+```
+${XDG_STATE_HOME:-~/.local/state}/premium-bonds-pipeline/repo
+```
+Initialized during `setup` via `git clone --reference <checkout> --dissociate <origin-url> <state>/repo`, this clone guarantees complete ref isolation. Linked worktrees share `refs/heads/*` with `<state>/repo`, never with the developer's checkout. No pipeline branch checkout, reset, or `checkout -B` can move branches or orphan unpushed commits in the developer's working tree, even when the developer has the PR branch checked out.
+
 The pipeline maintains isolated worktrees under `${XDG_STATE_HOME:-~/.local/state}/premium-bonds-pipeline/worktrees/`:
 - `control/`: Reconciler code and configuration at `origin/dev`.
 - `impl/`: Dedicated worktree for implementation (`implement` and `revise` steps). Concurrency is strictly 1 (D12).

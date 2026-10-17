@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".agents" / "scripts"))
+
 from pipeline.__main__ import REQUIRED_ALLOW_RULES, missing_settings_rules
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

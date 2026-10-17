@@ -44,6 +44,10 @@ class PipelinePaths:
         return self.root / "runs"
 
     @property
+    def repo(self) -> Path:
+        return self.root / "repo"
+
+    @property
     def worktrees_dir(self) -> Path:
         return self.root / "worktrees"
 
