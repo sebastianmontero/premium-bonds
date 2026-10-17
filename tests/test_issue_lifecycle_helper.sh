@@ -411,6 +411,101 @@ if [[ "$EXC_OPEN_RES" != "302" ]]; then
   echo "FAILED: Expected open PR 302 never to be dropped by --exclude, got $EXC_OPEN_RES"
   exit 1
 fi
+
+# 7g: VER-2 tie-break fixture test (Pass priority & state tier ranking)
+# Open #28 with body 'Closes #24' (Pass 2) vs Open #30 titled 'chore: follow-up to #24' (Pass 4)
+cat << 'EOF' > "$TMP_DIR/prs_tiebreak.json"
+[
+  {
+    "number": 28,
+    "state": "OPEN",
+    "title": "feat: implementation",
+    "body": "Closes #24",
+    "headRefName": "feat/other-branch"
+  },
+  {
+    "number": 30,
+    "state": "OPEN",
+    "title": "chore: follow-up to #24",
+    "body": "Unrelated description",
+    "headRefName": "chore/branch"
+  }
+]
+EOF
+TIEBREAK_WINNER="$("$HELPER" --get-linked-pr 24 --file "$TMP_DIR/prs_tiebreak.json")"
+if [[ "$TIEBREAK_WINNER" != "28" ]]; then
+  echo "FAILED: Expected Pass 2 PR 28 to beat Pass 4 PR 30, got $TIEBREAK_WINNER"
+  exit 1
+fi
+
+# Same pass (both Pass 2): highest PR number wins
+cat << 'EOF' > "$TMP_DIR/prs_same_pass.json"
+[
+  {
+    "number": 28,
+    "state": "OPEN",
+    "title": "feat: first try",
+    "body": "Closes #24"
+  },
+  {
+    "number": 31,
+    "state": "OPEN",
+    "title": "feat: second try",
+    "body": "Closes #24"
+  }
+]
+EOF
+SAME_PASS_WINNER="$("$HELPER" --get-linked-pr 24 --file "$TMP_DIR/prs_same_pass.json")"
+if [[ "$SAME_PASS_WINNER" != "31" ]]; then
+  echo "FAILED: Expected higher PR number 31 on same pass, got $SAME_PASS_WINNER"
+  exit 1
+fi
+
+# State tier beats pass rank: Open (Pass 4) beats Merged (Pass 1)
+cat << 'EOF' > "$TMP_DIR/prs_state_tier_priority.json"
+[
+  {
+    "number": 20,
+    "state": "MERGED",
+    "mergedAt": "2026-10-15T10:00:00Z",
+    "closingIssuesReferences": [{"number": 24}]
+  },
+  {
+    "number": 30,
+    "state": "OPEN",
+    "title": "chore: follow-up to #24"
+  }
+]
+EOF
+STATE_TIER_WINNER="$("$HELPER" --get-linked-pr 24 --file "$TMP_DIR/prs_state_tier_priority.json")"
+if [[ "$STATE_TIER_WINNER" != "30" ]]; then
+  echo "FAILED: Expected OPEN PR 30 to beat MERGED PR 20, got $STATE_TIER_WINNER"
+  exit 1
+fi
+
+# 7h: VER-1 payload >128 KiB regression test (>MAX_ARG_STRLEN on Linux)
+python3 -c '
+import json
+prs = []
+for i in range(1, 201):
+    body = "x" * 1200
+    if i == 100:
+        body += " Closes #99"
+    prs.append({
+        "number": i,
+        "state": "OPEN",
+        "title": f"PR {i}",
+        "body": body,
+        "headRefName": f"branch-{i}"
+    })
+with open("'"$TMP_DIR"'/prs_large_payload.json", "w") as f:
+    json.dump(prs, f)
+'
+LARGE_PAYLOAD_WINNER="$("$HELPER" --get-linked-pr 99 --file "$TMP_DIR/prs_large_payload.json")"
+if [[ "$LARGE_PAYLOAD_WINNER" != "100" ]]; then
+  echo "FAILED: Expected large fixture to link PR 100 without Argument list too long, got $LARGE_PAYLOAD_WINNER"
+  exit 1
+fi
 echo "PASSED"
 
 # Test 8: --pipeline negatives and positives
@@ -655,6 +750,53 @@ FMT_DEFAULT="$TMP_DIR/fmt_cycle_default.md"
 
 if ! grep -q '\*\*Verdict:\*\* `CHANGES_REQUESTED` (Cycle 3/2)' "$FMT_DEFAULT"; then
   echo "FAILED: Header did not render (Cycle 3/2) by default: $(grep 'Verdict' "$FMT_DEFAULT")"
+  exit 1
+fi
+
+# 10e: VER-3 Circuit breaker with reset marker and --max-cycles (effective_cycle 2 with default vs --max-cycles 3)
+cat << 'EOF' > "$TMP_DIR/breaker_fixture.json"
+{
+  "number": 85,
+  "state": "OPEN",
+  "commits": [
+    {"oid": "sha-c1", "committedDate": "2026-10-16T10:00:00Z"},
+    {"oid": "sha-c2", "committedDate": "2026-10-16T11:00:00Z"},
+    {"oid": "sha-c3", "committedDate": "2026-10-16T12:00:00Z"}
+  ],
+  "reviews": [
+    {
+      "author": {"login": "trusted-bot"},
+      "submittedAt": "2026-10-16T11:00:00Z",
+      "body": "<!-- ai-pipeline-cycle-reset: {\"after_cycle\": 1} -->"
+    },
+    {
+      "author": {"login": "trusted-bot"},
+      "submittedAt": "2026-10-16T12:00:00Z",
+      "state": "CHANGES_REQUESTED",
+      "body": "<!-- ai-pr-verification: {\"commit_sha\":\"sha-c3\",\"cycle\":3,\"verdict\":\"CHANGES_REQUESTED\"} -->"
+    }
+  ],
+  "comments": []
+}
+EOF
+
+# Default --max-cycles (2) -> CIRCUIT_BREAKER_TRIPPED (effective_cycle 2 >= max_cycles 2)
+CB_DEFAULT="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --check-revision-readiness --file "$TMP_DIR/breaker_fixture.json")"
+CB_DEF_STATUS="$(echo "$CB_DEFAULT" | jq -r .status)"
+CB_DEF_EFF="$(echo "$CB_DEFAULT" | jq -r .effective_cycle)"
+
+if [[ "$CB_DEF_STATUS" != "CIRCUIT_BREAKER_TRIPPED" || "$CB_DEF_EFF" != "2" ]]; then
+  echo "FAILED: Expected CIRCUIT_BREAKER_TRIPPED at effective_cycle 2 with default max-cycles, got status=$CB_DEF_STATUS, eff=$CB_DEF_EFF"
+  exit 1
+fi
+
+# With --max-cycles 3 -> AWAITING_REVISION (effective_cycle 2 < max_cycles 3)
+CB_MAX3="$(GH_TRUSTED_AUTHOR="trusted-bot" "$HELPER" --check-revision-readiness --file "$TMP_DIR/breaker_fixture.json" --max-cycles 3)"
+CB_MAX3_STATUS="$(echo "$CB_MAX3" | jq -r .status)"
+CB_MAX3_EFF="$(echo "$CB_MAX3" | jq -r .effective_cycle)"
+
+if [[ "$CB_MAX3_STATUS" != "AWAITING_REVISION" || "$CB_MAX3_EFF" != "2" ]]; then
+  echo "FAILED: Expected AWAITING_REVISION at effective_cycle 2 with --max-cycles 3, got status=$CB_MAX3_STATUS, eff=$CB_MAX3_EFF"
   exit 1
 fi
 echo "PASSED"

@@ -331,7 +331,7 @@ trusted_author = sys.argv[5]
 trust_any_author = (sys.argv[6] == "true")
 
 try:
-    prs = json.loads(sys.argv[7])
+    prs = json.loads(sys.stdin.read())
 except Exception:
     sys.exit(1)
 
@@ -341,6 +341,12 @@ if exclude_csv.strip():
         part = part.strip().lstrip("#")
         if part.isdigit():
             excluded_numbers.add(int(part))
+
+closing_pattern = re.compile(r"(?i)\b(?:closes|closed|fixes|fixed|resolves|resolved)\s+#?" + re.escape(issue_num) + r"\b")
+branch_pattern = re.compile(r"(?i)(?:^|/)(?:feat/)?issue-" + re.escape(issue_num) + r"(?:-.*)?$")
+ref_pattern = re.compile(r"#\b" + re.escape(issue_num) + r"\b")
+branch_pipeline_pattern = re.compile(r"^feat/issue-" + re.escape(issue_num) + r"-")
+implement_pattern = re.compile(r"<!--\s*ai-issue-implement:\s*(\{.*?\})\s*-->", re.DOTALL)
 
 candidates = []
 
@@ -352,8 +358,6 @@ for pr in prs:
     if pr_num in excluded_numbers and pr_state == "CLOSED":
         continue
 
-    is_linked = False
-
     if is_pipeline:
         # Strict pipeline linking:
         # 1. Body carries <!-- ai-issue-implement: {..."issue_number":<n>...} --> AND author is trusted author
@@ -363,7 +367,8 @@ for pr in prs:
         head_ref = pr.get("headRefName", "") or ""
         is_cross_repo = bool(pr.get("isCrossRepository", False))
 
-        m_impl = re.search(r"<!--\s*ai-issue-implement:\s*(\{.*?\})\s*-->", body, re.DOTALL)
+        is_linked = False
+        m_impl = implement_pattern.search(body)
         if m_impl:
             try:
                 impl_meta = json.loads(m_impl.group(1))
@@ -373,72 +378,72 @@ for pr in prs:
             except Exception:
                 pass
 
-        branch_pipeline_pattern = re.compile(r"^feat/issue-" + re.escape(issue_num) + r"-")
         if branch_pipeline_pattern.search(head_ref) and not is_cross_repo:
             is_linked = True
+
+        if is_linked:
+            candidates.append((pr, 1))
     else:
-        # Unified 5-pass linking
+        # Without --pipeline, keep ONLY the original four passes in priority order:
+        # Pass 1: GitHub Native closingIssuesReferences (GraphQL)
+        # Pass 2: Closing keywords in body and title
+        # Pass 3: Branch naming
+        # Pass 4: Generic reference #N in title
+        match_prio = 0
+
         # Pass 1: native closingIssuesReferences
         closing_refs = pr.get("closingIssuesReferences") or []
         for ref in closing_refs:
             if str(ref.get("number")) == issue_num:
-                is_linked = True
+                match_prio = 4
                 break
 
-        # Pass 2: body carries ai-issue-implement
-        if not is_linked:
-            body = pr.get("body", "") or ""
-            m_impl = re.search(r"<!--\s*ai-issue-implement:\s*(\{.*?\})\s*-->", body, re.DOTALL)
-            if m_impl:
-                try:
-                    impl_meta = json.loads(m_impl.group(1))
-                    if str(impl_meta.get("issue_number")) == issue_num:
-                        is_linked = True
-                except Exception:
-                    pass
-
-        # Pass 3: closing keywords in body and title
-        if not is_linked:
-            closing_pattern = re.compile(r"(?i)\b(?:closes|closed|fixes|fixed|resolves|resolved)\s+#?" + re.escape(issue_num) + r"\b")
+        # Pass 2: closing keywords in body and title
+        if match_prio == 0:
             title = pr.get("title", "") or ""
             body = pr.get("body", "") or ""
             if closing_pattern.search(title) or closing_pattern.search(body):
-                is_linked = True
+                match_prio = 3
 
-        # Pass 4: branch naming
-        if not is_linked:
-            branch_pattern = re.compile(r"(?i)(?:^|/)(?:feat/)?issue-" + re.escape(issue_num) + r"(?:-.*)?$")
+        # Pass 3: branch naming
+        if match_prio == 0:
             head_ref = pr.get("headRefName", "") or ""
             if branch_pattern.search(head_ref):
-                is_linked = True
+                match_prio = 2
 
-        # Pass 5: generic reference #N in title
-        if not is_linked:
-            ref_pattern = re.compile(r"#\b" + re.escape(issue_num) + r"\b")
+        # Pass 4: generic reference #N in title
+        if match_prio == 0:
             title = pr.get("title", "") or ""
             if ref_pattern.search(title):
-                is_linked = True
+                match_prio = 1
 
-    if is_linked:
-        candidates.append(pr)
+        if match_prio > 0:
+            candidates.append((pr, match_prio))
 
 if not candidates:
     sys.exit(1)
 
-# Preference order: OPEN > MERGED (latest mergedAt) > CLOSED (latest closedAt)
-def pr_sort_key(p):
+# Preference order:
+# Primary: state tier (OPEN > MERGED > CLOSED)
+# Secondary: strongest pass index (match_prio: 4 > 3 > 2 > 1)
+# Tertiary:
+#   For OPEN: number (highest PR number)
+#   For MERGED: latest mergedAt
+#   For CLOSED: latest closedAt
+def pr_sort_key(item):
+    p, match_prio = item
     st = (p.get("state") or "").upper()
     if st == "OPEN":
-        return (3, p.get("number", 0))
+        return (3, match_prio, p.get("number", 0), "")
     elif st == "MERGED":
-        return (2, p.get("mergedAt") or "")
+        return (2, match_prio, 0, p.get("mergedAt") or "")
     elif st == "CLOSED":
-        return (1, p.get("closedAt") or "")
+        return (1, match_prio, 0, p.get("closedAt") or "")
     else:
-        return (0, "")
+        return (0, match_prio, 0, "")
 
 candidates.sort(key=pr_sort_key, reverse=True)
-winner = candidates[0]
+winner = candidates[0][0]
 
 if is_json or is_pipeline:
     out_obj = {
@@ -453,7 +458,7 @@ if is_json or is_pipeline:
 else:
     print(winner.get("number"))
     sys.exit(0)
-' "$issue" "$exclude" "$is_pipeline" "$is_json" "$trusted_author" "$trust_any_author" "$prs_json"
+' "$issue" "$exclude" "$is_pipeline" "$is_json" "$trusted_author" "$trust_any_author" <<< "$prs_json"
 }
 
 # --- Command: --get-pr-issue ---
@@ -474,7 +479,7 @@ import json
 import re
 
 try:
-    data = json.loads(sys.argv[1])
+    data = json.loads(sys.stdin.read())
 except Exception:
     sys.exit(1)
 
@@ -510,7 +515,7 @@ if m:
     sys.exit(0)
 
 sys.exit(1)
-' "$pr_json"
+' <<< "$pr_json"
 }
 
 # --- Command: --parse-verification ---

@@ -685,7 +685,7 @@ import hashlib
 issue_num = sys.argv[1]
 expected_sha = sys.argv[2]
 try:
-    data = json.loads(sys.argv[3])
+    data = json.loads(sys.stdin.read())
 except Exception as e:
     sys.stderr.write(f"Error parsing issue JSON: {e}\n")
     sys.exit(2)
@@ -699,7 +699,7 @@ if actual_sha == expected_sha:
 else:
     sys.stderr.write(f"Remote drift detected: issue #{issue_num} expected body SHA-256 \"{expected_sha}\", got \"{actual_sha}\"\n")
     sys.exit(1)
-' "$issue" "$expected_sha" "$issue_json"
+' "$issue" "$expected_sha" <<< "$issue_json"
 }
 
 # --- Command: --patch-comment ---
