@@ -14,6 +14,7 @@ from pipeline.paths import PipelinePaths
 from pipeline.worktrees import (
     check_and_run_npm_ci,
     create_pipeline_worktrees,
+    ensure_pipeline_repo,
     prepare_workspace,
     run_git_with_lock_retry,
 )
@@ -98,6 +99,39 @@ class TestWorktrees(unittest.TestCase):
             self.assertEqual(proc.returncode, 128)
             self.assertEqual(attempts, 1)
 
+    def test_worktree_add_retries_on_lock_contention(self):
+        add_calls = 0
+        delays = []
+
+        def fake_run(cmd, **kwargs):
+            nonlocal add_calls
+            add_calls += 1
+            if add_calls == 1:
+                return subprocess.CompletedProcess(
+                    cmd, returncode=128, stdout="", stderr="fatal: Unable to create '/x/.git/worktrees/control/index.lock': File exists"
+                )
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            created = create_pipeline_worktrees(self.paths, 1, sleep_fn=delays.append)
+
+        self.assertEqual(created, [self.paths.control, self.paths.impl, self.paths.review(0)])
+        self.assertEqual(add_calls, 4)
+        self.assertEqual(delays, [1.0])
+
+    def test_worktree_add_failure_raises_without_retry(self):
+        add_calls = 0
+
+        def fake_run(cmd, **kwargs):
+            nonlocal add_calls
+            add_calls += 1
+            return subprocess.CompletedProcess(cmd, returncode=128, stdout="", stderr="fatal: invalid reference: origin/dev")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            with self.assertRaisesRegex(RuntimeError, "invalid reference"):
+                create_pipeline_worktrees(self.paths, 1, sleep_fn=lambda _d: self.fail("must not retry"))
+        self.assertEqual(add_calls, 1)
+
     def test_review_slot_and_impl_at_dev_run_no_fetch(self):
         git_calls = []
 
@@ -156,7 +190,8 @@ class TestWorktreesRealGit(unittest.TestCase):
         self.fx = BareRemoteFixture(base)
         self.paths = PipelinePaths(root=base / "state")
         self.review_slots = 2
-        create_pipeline_worktrees(self.paths, self.fx.dev_clone, self.review_slots)
+        ensure_pipeline_repo(self.paths, self.fx.dev_clone)
+        create_pipeline_worktrees(self.paths, self.review_slots)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -166,7 +201,7 @@ class TestWorktreesRealGit(unittest.TestCase):
         self.assertEqual(set(self.paths.worktrees_dir.iterdir()), expected)
 
         # Re-running setup is idempotent: no new worktrees, so .git/worktrees stays bounded.
-        self.assertEqual(create_pipeline_worktrees(self.paths, self.fx.dev_clone, self.review_slots), [])
+        self.assertEqual(create_pipeline_worktrees(self.paths, self.review_slots), [])
 
         # DEC-2: setup creates <state>/repo as a dissociated clone with no alternates
         self.assertTrue(self.paths.repo.exists())
@@ -182,6 +217,15 @@ class TestWorktreesRealGit(unittest.TestCase):
         # Worktrees are registered in <state>/repo and bounded
         repo_listed = git("worktree", "list", "--porcelain", cwd=self.paths.repo)
         self.assertEqual(repo_listed.count("worktree "), 1 + len(expected))
+
+    def test_rerun_setup_refreshes_existing_clone_origin_dev(self):
+        new_tip = self.fx.commit(self.fx.dev_clone, "README.md", "v2\n")
+        git("push", "-q", "origin", "dev", cwd=self.fx.dev_clone)
+        self.assertNotEqual(git("rev-parse", "origin/dev", cwd=self.paths.repo), new_tip)
+
+        self.assertEqual(ensure_pipeline_repo(self.paths, self.fx.dev_clone), self.paths.repo)
+
+        self.assertEqual(git("rev-parse", "origin/dev", cwd=self.paths.repo), new_tip)
 
     def test_concurrent_review_slots_prepared_concurrently_both_succeed(self):
         import concurrent.futures

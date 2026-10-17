@@ -54,7 +54,7 @@ Before executing mutations, `setup` verifies your environment:
 2. `claude --help`: Ensures the Anthropic Claude CLI is installed and supports `--effort`, `--output-format`, and `--permission-mode auto`.
 3. `agy --help` & `agy models`: Ensures Google Antigravity CLI is installed, supports `-p`, `--mode auto`, and `--output-format stream-json`, and lists the models specified in `pipeline.toml`.
 4. `systemd-run --user --version`: Verified when `--install-timer` is passed.
-5. `.claude/settings.json`: Verifies auto-approval permissions are present.
+5. `.claude/settings.json`: Verifies the headless allow/deny rules are present in `origin/dev`, read from the pipeline-owned clone (`<state>/repo`), which `setup` clones or refreshes with `fetch origin dev` first.
 
 ### Setup Flags
 - `--install-timer`: Renders and writes user unit files to `~/.config/systemd/user/premium-bonds-pipeline.{service,timer}`, reloads systemd daemon, and enables the timer immediately.
@@ -178,7 +178,8 @@ If verification fails repeatedly (`max_revision_cycles` exhausted), merge confli
 # Execute a single reconcile cycle
 python3 .agents/scripts/pipeline tick
 
-# Dry-run: plan actions without mutating state, GitHub, or git
+# Dry-run: plan actions without mutating state, GitHub, or git.
+# It skips the control worktree fetch, so it plans at the control worktree's current HEAD.
 python3 .agents/scripts/pipeline tick --dry-run
 
 # Trigger reconcile for a specific issue only

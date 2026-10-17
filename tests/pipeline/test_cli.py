@@ -1,5 +1,7 @@
 """Subprocess CLI tests for the pipeline entry point."""
 
+from contextlib import redirect_stderr
+import io
 import json
 import os
 from pathlib import Path
@@ -12,7 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".agents" / "scripts"))
 
-from pipeline.__main__ import REQUIRED_ALLOW_RULES, missing_settings_rules
+from pipeline.__main__ import REQUIRED_ALLOW_RULES, check_dev_settings, missing_settings_rules
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -96,9 +98,17 @@ class TestPipelineCli(unittest.TestCase):
         issues_json.write_text(ISSUES_WITH_STATUS_COMMENT, encoding="utf-8")
         self.env["GH_ISSUES_JSON"] = str(issues_json)
         self._create_mock_bin("gh", READ_ONLY_GH_STUB)
+        git_log = self.root / "git_calls.log"
+        self._create_mock_bin("git", f'printf "%s\\n" "$*" >> "{git_log}"\nexec {shutil.which("git")} "$@"')
 
         res = self._run("tick", "--dry-run")
         self.assertEqual(res.returncode, 0, f"Dry-run failed: {res.stderr}\n{res.stdout}")
+        self.assertIn("Dry run: skipping control worktree fetch", res.stderr)
+        git_calls = git_log.read_text(encoding="utf-8").splitlines() if git_log.exists() else []
+        self.assertFalse(
+            [c for c in git_calls if c.startswith(f"-C {self.control} ")],
+            f"dry-run ran git in the control worktree: {git_calls}",
+        )
         self.assertIn("Dry-run completed", res.stdout)
         self.assertIn("UpsertStatusComment", res.stdout)
         self.assertIn("IC_status1", res.stdout)
@@ -120,6 +130,13 @@ class TestPipelineCli(unittest.TestCase):
         self.assertIn(f"Reconciler running from {self.control}", res.stderr)
 
     def test_tick_without_control_worktree_requires_setup(self):
+        res = self._run("tick", "--dry-run")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Run `python3 .agents/scripts/pipeline setup` first", res.stderr)
+
+    def test_control_without_main_module_requires_setup(self):
+        (self.control / ".agents" / "scripts" / "pipeline").mkdir(parents=True)
+
         res = self._run("tick", "--dry-run")
         self.assertEqual(res.returncode, 1)
         self.assertIn("Run `python3 .agents/scripts/pipeline setup` first", res.stderr)
@@ -147,6 +164,33 @@ class TestPreflightSettings(unittest.TestCase):
             missing,
             ["allow Bash(jq *)", "allow Bash(sha256sum *)", "deny Bash(git push --force*)"],
         )
+
+    def _repo_with_dev_settings(self, settings: dict) -> Path:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name)
+        (repo / ".claude").mkdir()
+        (repo / ".claude" / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+        for args in (
+            ["init", "-q"],
+            ["add", ".claude/settings.json"],
+            ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "settings"],
+            ["update-ref", "refs/remotes/origin/dev", "HEAD"],
+        ):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+        return repo
+
+    def test_dev_settings_read_from_pipeline_repo_origin_dev(self):
+        settings = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        check_dev_settings(self._repo_with_dev_settings(settings))
+
+    def test_dev_settings_missing_rules_exit_with_list(self):
+        repo = self._repo_with_dev_settings({"permissions": {"allow": [], "deny": []}})
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), self.assertRaises(SystemExit) as ctx:
+            check_dev_settings(repo)
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("allow Bash(jq *)", stderr.getvalue())
 
 
 if __name__ == "__main__":

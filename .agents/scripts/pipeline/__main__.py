@@ -46,7 +46,7 @@ from .snapshot import LocalHelperClient
 from .state import Liveness, RunId, StoreState
 from .status_cli import format_status
 from .store import load_store, save_store
-from .worktrees import create_pipeline_worktrees
+from .worktrees import create_pipeline_worktrees, ensure_pipeline_repo
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("pipeline")
@@ -67,7 +67,7 @@ def ensure_running_from_control(repo_root: Path, paths: PipelinePaths) -> None:
     if repo_root.resolve() == control.resolve():
         return
     control_pkg = control / ".agents" / "scripts" / "pipeline"
-    if not control_pkg.is_dir():
+    if not (control_pkg / "__main__.py").is_file():
         sys.stderr.write(
             f"Error: control worktree {control} not found. "
             "Run `python3 .agents/scripts/pipeline setup` first.\n"
@@ -121,7 +121,7 @@ def missing_settings_rules(settings: dict) -> list[str]:
     ]
 
 
-def run_preflight(install_timer: bool, repo_root: Path, config: PipelineConfig) -> None:
+def run_preflight(install_timer: bool, config: PipelineConfig) -> None:
     # 1. gh auth status
     gh_res = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True)
     if gh_res.returncode != 0:
@@ -182,12 +182,17 @@ def run_preflight(install_timer: bool, repo_root: Path, config: PipelineConfig) 
             sys.stderr.write("Preflight error: systemd-run --user not available for --install-timer\n")
             sys.exit(1)
 
-    # 5. .claude/settings.json check in origin/dev
+
+def check_dev_settings(pipeline_repo: Path) -> None:
+    """Preflight: the #25 headless allow/deny rules are present in origin/dev.
+
+    Reads the pipeline-owned clone, freshly fetched by `ensure_pipeline_repo`, so a
+    stale origin/dev in the developer's checkout cannot mask a missing rule.
+    """
     res = subprocess.run(
-        ["git", "show", "origin/dev:.claude/settings.json"],
+        ["git", "-C", str(pipeline_repo), "show", "origin/dev:.claude/settings.json"],
         capture_output=True,
         text=True,
-        cwd=repo_root,
     )
     if res.returncode != 0:
         sys.stderr.write("Preflight error: origin/dev:.claude/settings.json not found\n")
@@ -227,7 +232,13 @@ def cmd_setup(args: argparse.Namespace, paths: PipelinePaths, repo_root: Path) -
             print("Store state reset to empty version 1.")
 
         print("Running preflight checks...")
-        run_preflight(args.install_timer, repo_root, config)
+        run_preflight(args.install_timer, config)
+        try:
+            pipeline_repo = ensure_pipeline_repo(paths, repo_root)
+        except RuntimeError as e:
+            sys.stderr.write(f"Error: {e}\n")
+            sys.exit(1)
+        check_dev_settings(pipeline_repo)
         print("Preflight checks passed.")
 
         # Create labels idempotently
@@ -247,7 +258,12 @@ def cmd_setup(args: argparse.Namespace, paths: PipelinePaths, repo_root: Path) -
                 env=pipeline_env(),
             )
 
-        for path in create_pipeline_worktrees(paths, repo_root, config.concurrency.review):
+        try:
+            created = create_pipeline_worktrees(paths, config.concurrency.review)
+        except RuntimeError as e:
+            sys.stderr.write(f"Error: {e}\n")
+            sys.exit(1)
+        for path in created:
             print(f"Created worktree at {path}")
 
         if args.install_timer:
@@ -288,9 +304,12 @@ def cmd_tick(args: argparse.Namespace, paths: PipelinePaths, repo_root: Path) ->
             handle_tick_lock_contention()
 
     try:
-        # Control worktree bootstrap: fetch and re-exec if HEAD changed
+        # Control worktree bootstrap: fetch and re-exec if HEAD changed. A dry run
+        # writes no git state, so it plans with the control worktree as checked out.
         control_path = paths.control
-        if control_path.exists() and (repo_root.resolve() == control_path.resolve()):
+        if args.dry_run:
+            logger.info("Dry run: skipping control worktree fetch; planning at its current HEAD")
+        elif control_path.exists() and (repo_root.resolve() == control_path.resolve()):
             # Running inside control worktree: fetch latest origin/dev
             try:
                 old_head = subprocess.run(

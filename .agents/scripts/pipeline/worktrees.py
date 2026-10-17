@@ -95,59 +95,75 @@ def remove_stale_index_lock(worktree_path: Path, env: Mapping[str, str]) -> None
             pass
 
 
-def create_pipeline_worktrees(
+def ensure_pipeline_repo(
     paths: PipelinePaths,
-    repo_root: Path,
-    review_slots: int,
+    checkout: Path,
     env: Mapping[str, str] | None = None,
-) -> list[Path]:
-    """Create the bounded set of pipeline worktrees at origin/dev; returns those created.
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> Path:
+    """Clone the pipeline-owned repo ([DEC-2]) if absent, else refresh its origin/dev.
 
-    Ref isolation ([DEC-2]): Every pipeline worktree is a linked worktree of the
-    pipeline-owned clone <state>/repo, never of the developer's checkout.
+    The clone borrows the developer checkout's objects (`--reference`) but copies
+    them (`--dissociate`), so it never depends on the developer's object store.
     """
     paths.ensure_dirs()
     penv = pipeline_env(env)
 
-    if not paths.repo.exists():
-        logger.info("Cloning pipeline-owned repo to %s...", paths.repo)
-        url_res = subprocess.run(
-            ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
-            env=penv,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        origin_url = url_res.stdout.strip()
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "--reference",
-                str(repo_root),
-                "--dissociate",
-                origin_url,
-                str(paths.repo),
-            ],
-            env=penv,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+    if paths.repo.exists():
+        res = run_git_with_lock_retry(["git", "-C", str(paths.repo), "fetch", "-q", "origin", "dev"], env=penv, sleep_fn=sleep_fn)
+        if res.returncode != 0:
+            raise RuntimeError(f"Fetch of origin/dev into {paths.repo} failed: {res.stderr}")
+        return paths.repo
 
+    url_res = subprocess.run(
+        ["git", "-C", str(checkout), "remote", "get-url", "origin"],
+        env=penv,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if url_res.returncode != 0:
+        raise RuntimeError(f"Cannot resolve origin URL of {checkout}: {url_res.stderr}")
+
+    logger.info("Cloning pipeline-owned repo to %s...", paths.repo)
+    clone_res = subprocess.run(
+        ["git", "clone", "--reference", str(checkout), "--dissociate", url_res.stdout.strip(), str(paths.repo)],
+        env=penv,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if clone_res.returncode != 0:
+        raise RuntimeError(f"Clone into {paths.repo} failed: {clone_res.stderr}")
+    return paths.repo
+
+
+def create_pipeline_worktrees(
+    paths: PipelinePaths,
+    review_slots: int,
+    env: Mapping[str, str] | None = None,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> list[Path]:
+    """Create the bounded set of pipeline worktrees at origin/dev; returns those created.
+
+    Ref isolation ([DEC-2]): every pipeline worktree is a linked worktree of the
+    pipeline-owned clone <state>/repo (see `ensure_pipeline_repo`), never of the
+    developer's checkout. The pool is fixed, so `.git/worktrees` never grows per issue.
+    """
+    penv = pipeline_env(env)
     targets = [paths.control, paths.impl, *(paths.review(slot) for slot in range(review_slots))]
     created: list[Path] = []
     for path in targets:
         if path.exists():
             continue
         logger.info("Creating worktree at %s...", path)
-        subprocess.run(
+        res = run_git_with_lock_retry(
             ["git", "-C", str(paths.repo), "worktree", "add", "--detach", str(path), "origin/dev"],
             env=penv,
-            capture_output=True,
-            text=True,
-            check=True,
+            sleep_fn=sleep_fn,
         )
+        if res.returncode != 0:
+            raise RuntimeError(f"Worktree add {path} failed: {res.stderr}")
         created.append(path)
     return created
 
