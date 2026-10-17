@@ -1,0 +1,9 @@
+[Unit]
+Description=Premium Bonds Pipeline Reconciler
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={CONTROL_PATH}
+ExecStart=/usr/bin/python3 {CONTROL_PATH}/.agents/scripts/pipeline tick
+Environment=PATH={PATH}

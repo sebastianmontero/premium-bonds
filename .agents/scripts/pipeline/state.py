@@ -250,7 +250,7 @@ class ActiveRun:
     record: RunRecord
     liveness: Liveness
     group_alive: bool
-    pgid: int = 0
+    pgid: int | None = None
 
 
 @dataclass(frozen=True)

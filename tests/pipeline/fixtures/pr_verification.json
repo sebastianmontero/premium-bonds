@@ -1,0 +1,20 @@
+{
+  "pr_number": 101,
+  "issue_number": 42,
+  "pr_author": "bot-user",
+  "pr_state": "OPEN",
+  "head_ref": "feat/issue-42-fix",
+  "base_ref": "dev",
+  "has_verification": true,
+  "verification_id": "ver-20261017-42-pr101-1",
+  "verdict": "CHANGES_REQUESTED",
+  "cycle": 1,
+  "cycle_offset": 0,
+  "effective_cycle": 1,
+  "model": "claude-opus-5-5-high",
+  "implementing_model": "gemini-3.8-flash-medium",
+  "latest_review_submitted_at": "2026-10-17T12:30:00Z",
+  "latest_commit_sha": "abc1234",
+  "commits_ahead_of_review": 1,
+  "findings": [{"id": "VER-1", "severity": "HIGH", "description": "Missing test assertion"}]
+}

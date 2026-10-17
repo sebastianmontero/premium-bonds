@@ -412,6 +412,14 @@ def reap(
         if run.liveness is Liveness.ALIVE:
             continue
 
+        if (run.liveness is Liveness.TIMED_OUT or (run.liveness is Liveness.EXITED and run.group_alive)) and run.pgid is not None:
+            actions.append(KillRunGroup(run_id, run.pgid))
+
+        issue = run.record.issue
+        view = views.get(issue)
+        if view is not None and isinstance(view.gh, FailedSnapshot):
+            continue
+
         outcome = RunOutcome(
             exit_code=None,
             finished_at=run.record.started_at + run.record.timeout,
@@ -419,42 +427,36 @@ def reap(
         )
         actions.append(FinishRun(run_id, outcome))
 
-        if run.liveness is Liveness.TIMED_OUT or (run.liveness is Liveness.EXITED and run.group_alive):
-            actions.append(KillRunGroup(run_id, run.pgid))
+        if view is not None:
+            pf = pending_fingerprint(view, config)
+            if pf == run.record.target.fingerprint:
+                # Integrator question check
+                is_integrator_question = False
+                if (
+                    run.record.target.step is Step.INTEGRATE
+                    and isinstance(run.record.target, IntegrateTarget)
+                ):
+                    cutoff = run.record.started_at - timedelta(minutes=5)
+                    for notice in view.gh.pipeline_notices:
+                        if (
+                            notice.kind == "needs_input"
+                            and notice.review_id == run.record.target.review_id
+                            and notice.created_at >= cutoff
+                        ):
+                            is_integrator_question = True
+                            break
 
-        issue = run.record.issue
-        if issue in views:
-            view = views[issue]
-            if not isinstance(view.gh, FailedSnapshot):
-                pf = pending_fingerprint(view, config)
-                if pf == run.record.target.fingerprint:
-                    # Integrator question check
-                    is_integrator_question = False
-                    if (
-                        run.record.target.step is Step.INTEGRATE
-                        and isinstance(run.record.target, IntegrateTarget)
-                    ):
-                        cutoff = run.record.started_at - timedelta(minutes=5)
-                        for notice in view.gh.pipeline_notices:
-                            if (
-                                notice.kind == "needs_input"
-                                and notice.review_id == run.record.target.review_id
-                                and notice.created_at >= cutoff
-                            ):
-                                is_integrator_question = True
-                                break
-
-                    if is_integrator_question:
-                        assert isinstance(run.record.target, IntegrateTarget)
-                        actions.extend(
-                            block(
-                                view.gh.issue,
-                                IntegratorQuestion(run.record.target.review_id),
-                                notice=False,
-                            )
+                if is_integrator_question:
+                    assert isinstance(run.record.target, IntegrateTarget)
+                    actions.extend(
+                        block(
+                            view.gh.issue,
+                            IntegratorQuestion(run.record.target.review_id),
+                            notice=False,
                         )
-                    else:
-                        actions.append(RecordAttempt(view.gh.issue, run.record.target.fingerprint))
+                    )
+                else:
+                    actions.append(RecordAttempt(view.gh.issue, run.record.target.fingerprint))
 
     return tuple(actions)
 
