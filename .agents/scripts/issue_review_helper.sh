@@ -3,6 +3,17 @@
 # Shared helper utility for GitHub issue review & integration workflows across agy & claude code.
 set -euo pipefail
 
+# Shared Python routine, prepended to every inline script that hashes an issue body
+# (--parse-reviews body_sha256 and --check-drift), so both always agree.
+# Pass the `body` string decoded from the issue JSON. Never hash a value that went
+# through `$(...)` (strips trailing newlines) or `gh -q` (appends one).
+PY_ISSUE_BODY_SHA256='
+import hashlib
+
+def issue_body_sha256(body):
+    return hashlib.sha256((body or "").encode("utf-8")).hexdigest()
+'
+
 gh_live() {
   local out
   if ! out="$(gh "$@")"; then
@@ -142,11 +153,10 @@ cmd_parse_reviews() {
     fi
   fi
 
-  python3 -c '
+  python3 -c "$PY_ISSUE_BODY_SHA256"'
 import sys
 import json
 import re
-import hashlib
 
 trusted_author = sys.argv[1]
 trust_any_author = (sys.argv[2] == "true")
@@ -168,7 +178,7 @@ body = data.get("body", "") or ""
 updated_at = data.get("updatedAt", "")
 comments = data.get("comments", []) or []
 
-body_sha256 = hashlib.sha256(body.encode("utf-8")).hexdigest()
+body_sha256 = issue_body_sha256(body)
 
 # 1. Parse ledger from issue body
 ledger = []
@@ -677,10 +687,9 @@ cmd_check_drift() {
   local issue_json=""
   issue_json="$(gh_live issue view "$issue" --json body)" || exit 2
 
-  python3 -c '
+  python3 -c "$PY_ISSUE_BODY_SHA256"'
 import sys
 import json
-import hashlib
 
 issue_num = sys.argv[1]
 expected_sha = sys.argv[2]
@@ -690,8 +699,7 @@ except Exception as e:
     sys.stderr.write(f"Error parsing issue JSON: {e}\n")
     sys.exit(2)
 
-body = data.get("body", "") or ""
-actual_sha = hashlib.sha256(body.encode("utf-8")).hexdigest()
+actual_sha = issue_body_sha256(data.get("body"))
 
 if actual_sha == expected_sha:
     print(f"No drift detected: issue #{issue_num} body_sha256 matches ({expected_sha})")

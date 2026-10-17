@@ -506,6 +506,25 @@ if [[ "$LARGE_PAYLOAD_WINNER" != "100" ]]; then
   echo "FAILED: Expected large fixture to link PR 100 without Argument list too long, got $LARGE_PAYLOAD_WINNER"
   exit 1
 fi
+
+# Same >128 KiB payload in live mode: a mock `gh pr list` returns the fixture
+LARGE_MOCK_BIN="$TMP_DIR/bin_large_payload"
+mkdir -p "$LARGE_MOCK_BIN"
+cat << EOF > "$LARGE_MOCK_BIN/gh"
+#!/usr/bin/env bash
+if [[ "\$1" == "pr" && "\$2" == "list" ]]; then
+  cat "$TMP_DIR/prs_large_payload.json"
+  exit 0
+fi
+echo "unexpected gh call: \$*" >&2
+exit 1
+EOF
+chmod +x "$LARGE_MOCK_BIN/gh"
+LARGE_LIVE_WINNER="$(PATH="$LARGE_MOCK_BIN:$PATH" "$HELPER" --get-linked-pr 99)"
+if [[ "$LARGE_LIVE_WINNER" != "100" ]]; then
+  echo "FAILED: Expected large live gh payload to link PR 100 without Argument list too long, got $LARGE_LIVE_WINNER"
+  exit 1
+fi
 echo "PASSED"
 
 # Test 8: --pipeline negatives and positives
