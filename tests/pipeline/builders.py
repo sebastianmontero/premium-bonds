@@ -42,6 +42,7 @@ from pipeline.model import (
     VerificationId,
     Workspace,
 )
+from pipeline.actions import Action, StoreAction
 from pipeline.state import (
     ActiveRun,
     FinishedRun,
@@ -50,6 +51,8 @@ from pipeline.state import (
     IssueView,
     RunOutcome,
     RunRecord,
+    StoreState,
+    apply_store_action,
 )
 
 EPOCH = datetime(2026, 10, 17, 0, 0, 0, tzinfo=timezone.utc)
@@ -295,3 +298,11 @@ def view(
             last_finished=last_finished,
         ),
     )
+
+
+def fold_store(state: StoreState, actions: Sequence[Action]) -> StoreState:
+    for act in actions:
+        if isinstance(act, StoreAction):
+            state = apply_store_action(state, act)
+    return state
+

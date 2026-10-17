@@ -5,6 +5,7 @@ It NEVER imports stages.py.
 """
 
 from datetime import datetime
+from typing import assert_never
 
 from .config import PipelineConfig
 from .model import (
@@ -16,6 +17,7 @@ from .model import (
     LaneConflict,
     MergedPr,
     OpenPr,
+    Phase,
     PipelineBlock,
     QueueReason,
     ReviewCapReached,
@@ -30,13 +32,15 @@ from .model import (
 def _format_queued(queued: QueueReason | None) -> str:
     if queued is None:
         return ""
-    if isinstance(queued, LaneBusy):
-        return f"lane busy: {queued.holder}"
-    elif isinstance(queued, LaneConflict):
-        return f"lane conflict: {queued.holder}"
-    elif isinstance(queued, ReviewCapReached):
-        return f"review cap reached: {queued.cap}"
-    return str(queued)
+    match queued:
+        case LaneBusy(holder=holder):
+            return f"lane busy: {holder}"
+        case LaneConflict(holder=holder):
+            return f"lane conflict: {holder}"
+        case ReviewCapReached(cap=cap):
+            return f"review cap reached: {cap}"
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def render(
@@ -77,6 +81,8 @@ def render(
                     lines.append(f"| ⏳ Review round {k} | {slug} · review posted ({rev.review_id.value}) |")
                 case ReviewStatus.MALFORMED:
                     lines.append(f"| 🛑 Review round {k} | {slug} · malformed |")
+                case _ as unreachable:
+                    assert_never(unreachable)
         else:
             is_active_review_round = (
                 stage is Stage.REVIEW
@@ -128,7 +134,10 @@ def render(
                 lines.append("| ⏳ Implementation | ready for implementation |")
             else:
                 lines.append("| ⏳ Implementation | implementing |")
-        elif stage in (Stage.REVIEW, Stage.INTEGRATE, Stage.DECISIONS_UNRESOLVED):
+        elif (
+            stage in (Stage.REVIEW, Stage.INTEGRATE, Stage.DECISIONS_UNRESOLVED)
+            or (block is not None and block.reason.phase is Phase.SPEC)
+        ):
             lines.append("| ⏳ Implementation | pending specification |")
         else:
             lines.append("| ⏳ Implementation | pending |")

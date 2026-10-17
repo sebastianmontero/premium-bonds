@@ -7,6 +7,7 @@ status_comment.py, and standard library.
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import assert_never
 
 from .actions import (
     Action,
@@ -20,6 +21,7 @@ from .actions import (
     MergePr,
     PostComment,
     RecordAttempt,
+    RecordPipelineBlock,
     UpsertStatusComment,
     block,
 )
@@ -144,85 +146,91 @@ def plan_issue(view: IssueView, config: PipelineConfig, now: datetime) -> IssueP
         actions = block(gh.issue, UntrustedEdit(gh.editor or Editor("unknown")))
         return IssuePlan(gh.issue, Stage.UNTRUSTED_EDIT, None, actions)
 
-    # 8. BREAKER_TRIP
-    if isinstance(gh.linked_pr, OpenPr) and gh.linked_pr.readiness is Readiness.CIRCUIT_BREAKER_TRIPPED:
-        actions = block(
-            gh.issue,
-            CircuitBreaker(
-                gh.linked_pr.pr,
-                gh.linked_pr.verification_id or VerificationId("unknown"),
-            ),
-        )
-        return IssuePlan(gh.issue, Stage.BREAKER_TRIP, None, actions)
-
-    # 9. AWAITING_MERGE
-    if isinstance(gh.linked_pr, OpenPr) and gh.linked_pr.readiness is Readiness.ALREADY_APPROVED:
-        pr = gh.linked_pr.pr
-        fp = Fingerprint(AttemptKind.MERGE, str(pr.number))
-        attempts = view.run.local.attempts.get(fp, 0)
-        if attempts >= config.max_step_attempts:
-            actions = block(gh.issue, MergeFailed(pr, view.run.local.last_detail.get(fp, "")))
-        elif gh.linked_pr.mergeable is Mergeable.MERGEABLE and not gh.linked_pr.auto_merge_enabled:
-            actions = (MergePr(gh.issue, pr, on_failure=RecordAttempt(gh.issue, fp)),)
-        elif gh.linked_pr.mergeable is Mergeable.CONFLICTING:
-            actions = block(gh.issue, MergeConflict(pr))
-        else:
-            actions = ()
-        return IssuePlan(gh.issue, Stage.AWAITING_MERGE, None, actions)
-
-    # 10. VERIFY
-    if isinstance(gh.linked_pr, OpenPr) and gh.linked_pr.readiness in (
-        Readiness.READY_FOR_INITIAL_VERIFICATION,
-        Readiness.READY_FOR_RE_VERIFICATION,
-    ):
-        v_target: StepTarget | None = VerifyTarget(
-            gh.linked_pr.pr,
-            gh.linked_pr.last_verification_cycle,
-        )
-        attempts = view.run.local.attempts.get(v_target.fingerprint, 0)
-        if attempts >= config.max_step_attempts:
-            slug = config.spec_for(v_target).provenance_slug
-            rid = (
-                view.run.last_finished.record.run_id
-                if (
-                    view.run.last_finished
-                    and view.run.last_finished.record.target.fingerprint == v_target.fingerprint
-                )
-                else None
-            )
-            v_actions = block(gh.issue, RetriesExhausted(v_target.fingerprint, slug, attempts, rid))
-            v_target = None
-        else:
-            v_actions = ()
-        return IssuePlan(gh.issue, Stage.VERIFY, v_target, v_actions)
-
-    # 11. REVISE
-    if isinstance(gh.linked_pr, OpenPr) and gh.linked_pr.readiness is Readiness.AWAITING_REVISION:
-        r_target: StepTarget | None = ReviseTarget(
-            gh.linked_pr.pr,
-            gh.linked_pr.last_verification_cycle,
-        )
-        attempts = view.run.local.attempts.get(r_target.fingerprint, 0)
-        if attempts >= config.max_step_attempts:
-            slug = config.spec_for(r_target).provenance_slug
-            rid = (
-                view.run.last_finished.record.run_id
-                if (
-                    view.run.last_finished
-                    and view.run.last_finished.record.target.fingerprint == r_target.fingerprint
-                )
-                else None
-            )
-            r_actions = block(gh.issue, RetriesExhausted(r_target.fingerprint, slug, attempts, rid))
-            r_target = None
-        else:
-            r_actions = ()
-        return IssuePlan(gh.issue, Stage.REVISE, r_target, r_actions)
-
-    # 12. PR_UNRECOGNIZED
+    # OpenPr handling (rows 8-12)
     if isinstance(gh.linked_pr, OpenPr):
-        actions = block(gh.issue, PrUnrecognized(gh.linked_pr.pr, gh.linked_pr.raw_verdict))
-        return IssuePlan(gh.issue, Stage.PR_UNRECOGNIZED, None, actions)
+        open_pr = gh.linked_pr
+        match open_pr.readiness:
+            case Readiness.CIRCUIT_BREAKER_TRIPPED:
+                actions = block(
+                    gh.issue,
+                    CircuitBreaker(
+                        open_pr.pr,
+                        open_pr.verification_id or VerificationId("unknown"),
+                    ),
+                )
+                return IssuePlan(gh.issue, Stage.BREAKER_TRIP, None, actions)
+
+            case Readiness.ALREADY_APPROVED:
+                pr = open_pr.pr
+                fp = Fingerprint(AttemptKind.MERGE, str(pr.number))
+                attempts = view.run.local.attempts.get(fp, 0)
+                if attempts >= config.max_step_attempts:
+                    actions = block(gh.issue, MergeFailed(pr, view.run.local.last_detail.get(fp, "")))
+                else:
+                    match open_pr.mergeable:
+                        case Mergeable.MERGEABLE:
+                            if not open_pr.auto_merge_enabled:
+                                actions = (MergePr(gh.issue, pr, on_failure=RecordAttempt(gh.issue, fp)),)
+                            else:
+                                actions = ()
+                        case Mergeable.CONFLICTING:
+                            actions = block(gh.issue, MergeConflict(pr))
+                        case Mergeable.UNKNOWN:
+                            actions = ()
+                        case _ as unreachable:
+                            assert_never(unreachable)
+                return IssuePlan(gh.issue, Stage.AWAITING_MERGE, None, actions)
+
+            case Readiness.READY_FOR_INITIAL_VERIFICATION | Readiness.READY_FOR_RE_VERIFICATION:
+                v_target: StepTarget | None = VerifyTarget(
+                    open_pr.pr,
+                    open_pr.last_verification_cycle,
+                )
+                attempts = view.run.local.attempts.get(v_target.fingerprint, 0)
+                if attempts >= config.max_step_attempts:
+                    slug = config.spec_for(v_target).provenance_slug
+                    rid = (
+                        view.run.last_finished.record.run_id
+                        if (
+                            view.run.last_finished
+                            and view.run.last_finished.record.target.fingerprint == v_target.fingerprint
+                        )
+                        else None
+                    )
+                    v_actions = block(gh.issue, RetriesExhausted(v_target.fingerprint, slug, attempts, rid))
+                    v_target = None
+                else:
+                    v_actions = ()
+                return IssuePlan(gh.issue, Stage.VERIFY, v_target, v_actions)
+
+            case Readiness.AWAITING_REVISION:
+                r_target: StepTarget | None = ReviseTarget(
+                    open_pr.pr,
+                    open_pr.last_verification_cycle,
+                )
+                attempts = view.run.local.attempts.get(r_target.fingerprint, 0)
+                if attempts >= config.max_step_attempts:
+                    slug = config.spec_for(r_target).provenance_slug
+                    rid = (
+                        view.run.last_finished.record.run_id
+                        if (
+                            view.run.last_finished
+                            and view.run.last_finished.record.target.fingerprint == r_target.fingerprint
+                        )
+                        else None
+                    )
+                    r_actions = block(gh.issue, RetriesExhausted(r_target.fingerprint, slug, attempts, rid))
+                    r_target = None
+                else:
+                    r_actions = ()
+                return IssuePlan(gh.issue, Stage.REVISE, r_target, r_actions)
+
+            case Readiness.UNKNOWN:
+                actions = block(gh.issue, PrUnrecognized(open_pr.pr, open_pr.raw_verdict))
+                return IssuePlan(gh.issue, Stage.PR_UNRECOGNIZED, None, actions)
+
+            case _ as unreachable:
+                assert_never(unreachable)
 
     assert not isinstance(gh.linked_pr, OpenPr), "OpenPr must never reach spec stages"
 
@@ -525,11 +533,19 @@ def plan_tick(
         issue = view.gh.issue
         plan = plan_issue(view, config, now)
 
+        recorded_block = next((a.block for a in plan.actions if isinstance(a, RecordPipelineBlock)), None)
+        if recorded_block is not None:
+            block_to_render = recorded_block
+        elif any(isinstance(a, ClearPipelineBlock) for a in plan.actions):
+            block_to_render = None
+        else:
+            block_to_render = view.run.local.block
+
         if plan.target is None:
             # No dispatch
             plan_actions = list(plan.actions)
             if isinstance(view.gh, IssueSnapshot) and config.eligible_label in view.gh.labels:
-                body = render(view.gh, plan.stage, None, None, view.run.local.block, config, now)
+                body = render(view.gh, plan.stage, None, None, block_to_render, config, now)
                 if needs_patch(view.gh.status_comment, body):
                     plan_actions.append(
                         UpsertStatusComment(
@@ -621,7 +637,7 @@ def plan_tick(
 
         # Status comment patching
         if isinstance(view.gh, IssueSnapshot) and config.eligible_label in view.gh.labels:
-            body = render(view.gh, plan.stage, target, queued, view.run.local.block, config, now)
+            body = render(view.gh, plan.stage, target, queued, block_to_render, config, now)
             if needs_patch(view.gh.status_comment, body):
                 plan_actions.append(
                     UpsertStatusComment(
