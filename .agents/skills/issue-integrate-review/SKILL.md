@@ -108,10 +108,17 @@ When reconciling issues, maintainer input posted after reviews provides authorit
    Extract human guidance comments posted after the latest pipeline notice or review comment:
    ```bash
    TRUSTED="${GH_TRUSTED_AUTHOR:-$(gh api user -q .login)}"
-   CUTOFF="$(jq -r --arg rid "$REVIEW_ID" '
-     [.comments[] | select((.body // "") | test("<!--\\s*ai-pipeline-notice:")) | .createdAt] | last //
-     (.reviews[] | select(.review_id == $rid) | .metadata.timestamp) // ""
-   ' /tmp/issue_<number>_parsed.json)"
+   COMMENT_ID="$(jq -r --arg rid "$REVIEW_ID" '.reviews[] | select(.review_id == $rid) | .comment_id' /tmp/issue_<number>_parsed.json)"
+
+   CUTOFF="$(jq -r --arg trusted "$TRUSTED" --arg cid "$COMMENT_ID" '
+     ([.comments[] | select(.author.login == $trusted and ((.body // "") | test("<!--\\s*ai-pipeline-notice:"))) | .createdAt] | last) //
+     ([.comments[] | select(.id == $cid) | .createdAt] | first) // ""
+   ' /tmp/issue_<number>_full.json)"
+
+   if [[ -z "$CUTOFF" ]]; then
+     echo "Error: Could not determine guidance cutoff timestamp for review $REVIEW_ID (comment $COMMENT_ID)." >&2
+     exit 1
+   fi
 
    GUIDANCE_COMMENTS="$(jq --arg trusted "$TRUSTED" --arg after "$CUTOFF" '[.comments[]
      | select(.createdAt > $after)

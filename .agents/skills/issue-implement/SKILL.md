@@ -105,8 +105,8 @@ In Revision Mode, human-input comments posted on the PR after the latest verific
    - In manual mode, verify the issue contains `ready-for-agent`:
      ```bash
      if [[ -z "${PIPELINE_RUN_ID:-}" ]]; then
-       LABELS="$(gh issue view <issue_number> --json labels -q '.labels[].name')"
-       if ! echo "$LABELS" | grep -q "^ready-for-agent$"; then
+       IS_READY="$(gh issue view <issue_number> --json labels -q '[.labels[].name] | index("ready-for-agent") != null')"
+       if [[ "$IS_READY" != "true" ]]; then
          echo "Error: Issue <issue_number> is not labeled 'ready-for-agent'. Run /issue-review and /issue-integrate-review first." >&2
          exit 1
        fi

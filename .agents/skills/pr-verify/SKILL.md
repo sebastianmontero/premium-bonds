@@ -212,13 +212,13 @@ When running inside the autonomous issue pipeline (`[[ -n "${PIPELINE_RUN_ID:-}"
      REVIEW_FLAG="--request-changes"
    fi
    ```
-   - **If `STATUS != "CIRCUIT_BREAKER_TRIPPED"`**:
+   - **If `(( EFFECTIVE_CYCLE < ${MAX_CYCLES:-2} ))`**:
      Submit review requesting changes:
      ```bash
      gh pr review "$PR_NUMBER" $REVIEW_FLAG --body-file /tmp/pr_verification_review_${PR_NUMBER}.md
      ```
      Instruct user or agent to re-run `/issue-implement #$ISSUE_NUMBER --pr $PR_NUMBER` in Revision Mode.
-   - **If `STATUS == "CIRCUIT_BREAKER_TRIPPED"` (Early Circuit Breaker)**:
+   - **If `(( EFFECTIVE_CYCLE >= ${MAX_CYCLES:-2} ))` (Early Circuit Breaker)**:
      Submit review and trip circuit breaker:
      ```bash
      gh pr review "$PR_NUMBER" $REVIEW_FLAG --body-file /tmp/pr_verification_review_${PR_NUMBER}.md
