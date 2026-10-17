@@ -1,0 +1,37 @@
+{
+  "issue_number": 42,
+  "title": "Sample Issue",
+  "body_sha256": "abc123sha",
+  "updated_at": "2026-10-17T12:00:00Z",
+  "ledger": [],
+  "applied_keys": [],
+  "declined_keys": [],
+  "declined_items": [],
+  "reviews": [
+    {
+      "review_id": "rev-20261017-42-a1b2",
+      "comment_id": "IC_kwDO123456",
+      "author": "bot-user",
+      "model": "claude-opus-5-5-high",
+      "status": "awaiting_decision",
+      "round": 1,
+      "checklist": [
+        {"key": "ARCH-1", "status": "pending"},
+        {"key": "SEC-1", "status": "pending"}
+      ],
+      "decisions": [
+        {
+          "id": "DEC-1",
+          "question": "Which architecture pattern?",
+          "options": ["A", "B"],
+          "selected": "A",
+          "custom_answer": null,
+          "resolved": true,
+          "unresolved_reason": null
+        }
+      ]
+    }
+  ],
+  "pending_items": [],
+  "unresolved_decisions": []
+}
