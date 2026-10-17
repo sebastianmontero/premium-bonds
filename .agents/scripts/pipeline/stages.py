@@ -541,11 +541,13 @@ def plan_tick(
         else:
             block_to_render = view.run.local.block
 
+        stage_to_render = Stage.BLOCKED_HUMAN if recorded_block is not None else plan.stage
+
         if plan.target is None:
             # No dispatch
             plan_actions = list(plan.actions)
             if isinstance(view.gh, IssueSnapshot) and config.eligible_label in view.gh.labels:
-                body = render(view.gh, plan.stage, None, None, block_to_render, config, now)
+                body = render(view.gh, stage_to_render, None, None, block_to_render, config, now)
                 if needs_patch(view.gh.status_comment, body):
                     plan_actions.append(
                         UpsertStatusComment(
@@ -637,7 +639,7 @@ def plan_tick(
 
         # Status comment patching
         if isinstance(view.gh, IssueSnapshot) and config.eligible_label in view.gh.labels:
-            body = render(view.gh, plan.stage, target, queued, block_to_render, config, now)
+            body = render(view.gh, stage_to_render, target, queued, block_to_render, config, now)
             if needs_patch(view.gh.status_comment, body):
                 plan_actions.append(
                     UpsertStatusComment(

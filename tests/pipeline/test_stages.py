@@ -1,3 +1,4 @@
+import dataclasses
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -539,25 +540,19 @@ class TestTickDataFlowPureFold(unittest.TestCase):
         self.assertEqual(plan.stage, Stage.BLOCKED_HUMAN)
         self.assertFalse(any(isinstance(a, ClearPipelineBlock) for a in plan.actions))
 
-    def test_plan_tick_blocking_tick_and_later_blocked_human_tick_render_identical_bodies_breaker(self):
-        # Tick 1: Open PR with CIRCUIT_BREAKER_TRIPPED, local.block is None
-        pr = open_pr(101, readiness=Readiness.CIRCUIT_BREAKER_TRIPPED, verification_id="ver-1")
-        snap1 = issue(number=1, pr=pr, labels=["agent:auto"])
-        v1 = view(gh=snap1, local=IssueLocalState(block=None))
-        state0 = StoreState(issues={IssueRef(1): IssueLocalState(block=None)})
+    def _assert_blocking_and_blocked_human_identical(self, v1: IssueView, expected_stage: Stage):
+        state0 = StoreState(issues={IssueRef(1): v1.run.local})
 
         tick1_plan = plan_tick({IssueRef(1): v1}, [], self.config, NOW)[0]
-        self.assertEqual(tick1_plan.stage, Stage.BREAKER_TRIP)
+        self.assertEqual(tick1_plan.stage, expected_stage)
         upsert1 = next(a for a in tick1_plan.actions if isinstance(a, UpsertStatusComment))
         self.assertIn("**🛑 Action required:**", upsert1.body)
 
         # Tick 2: Fold store actions and apply label overlay
         state1 = fold_store(state0, tick1_plan.actions)
         views1 = overlay_labels({IssueRef(1): v1}, tick1_plan.actions)
-        gh2 = issue(
-            number=1,
-            pr=views1[IssueRef(1)].gh.linked_pr,
-            labels=list(views1[IssueRef(1)].gh.labels),
+        gh2 = dataclasses.replace(
+            views1[IssueRef(1)].gh,
             status_comment=ExistingComment(ref=CommentRef("IC_1"), body=upsert1.body),
         )
         v2 = view(gh=gh2, local=state1.issues[IssueRef(1)])
@@ -566,34 +561,40 @@ class TestTickDataFlowPureFold(unittest.TestCase):
         # No UpsertStatusComment because bodies are identical!
         self.assertFalse(any(isinstance(a, UpsertStatusComment) for a in tick2_plan.actions))
 
+    def test_plan_tick_blocking_tick_and_later_blocked_human_tick_render_identical_bodies_breaker(self):
+        pr = open_pr(101, readiness=Readiness.CIRCUIT_BREAKER_TRIPPED, verification_id="ver-1")
+        snap1 = issue(number=1, pr=pr, labels=["agent:auto"])
+        v1 = view(gh=snap1, local=IssueLocalState(block=None))
+        self._assert_blocking_and_blocked_human_identical(v1, Stage.BREAKER_TRIP)
+
     def test_plan_tick_blocking_tick_and_later_blocked_human_tick_render_identical_bodies_dec(self):
-        # Tick 1: Review with unresolved decision, local.block is None
         dec_unres = decision(id="DEC-1", resolution=Unresolved(UnresolvedReason.NO_SELECTION))
         r_dec = review(review_id="rev-1", round=1, status=ReviewStatus.AWAITING_DECISION, decisions=[dec_unres])
         snap1 = issue(number=1, reviews=[r_dec], labels=["agent:auto"])
         v1 = view(gh=snap1, local=IssueLocalState(block=None))
-        state0 = StoreState(issues={IssueRef(1): IssueLocalState(block=None)})
+        self._assert_blocking_and_blocked_human_identical(v1, Stage.DECISIONS_UNRESOLVED)
 
-        tick1_plan = plan_tick({IssueRef(1): v1}, [], self.config, NOW)[0]
-        self.assertEqual(tick1_plan.stage, Stage.DECISIONS_UNRESOLVED)
-        upsert1 = next(a for a in tick1_plan.actions if isinstance(a, UpsertStatusComment))
-        self.assertIn("**🛑 Action required:**", upsert1.body)
-        self.assertIn("DEC-1", upsert1.body)
+    def test_plan_tick_blocking_tick_and_later_blocked_human_tick_render_identical_bodies_all_paths(self):
+        cases = [
+            ("breaker", issue(number=1, pr=open_pr(101, readiness=Readiness.CIRCUIT_BREAKER_TRIPPED, verification_id="ver-1"), labels=["agent:auto"]), {}, Stage.BREAKER_TRIP),
+            ("dec", issue(number=1, reviews=[review(review_id="rev-1", round=1, status=ReviewStatus.AWAITING_DECISION, decisions=[decision(id="DEC-1", resolution=Unresolved(UnresolvedReason.NO_SELECTION))])], labels=["agent:auto"]), {}, Stage.DECISIONS_UNRESOLVED),
+            ("untrusted_edit", issue(number=1, body_trusted=False, editor="evil_user", labels=["agent:auto"]), {}, Stage.UNTRUSTED_EDIT),
+            ("pr_unrecognized", issue(number=1, pr=open_pr(101, readiness=Readiness.UNKNOWN, raw_verdict="SOMETHING_WEIRD"), labels=["agent:auto"]), {}, Stage.PR_UNRECOGNIZED),
+            ("pr_closed_unmerged", issue(number=1, pr=closed_pr(101), labels=["agent:auto", "in-progress"]), {}, Stage.PR_CLOSED_UNMERGED),
+            ("merge_conflict", issue(number=1, pr=open_pr(101, readiness=Readiness.ALREADY_APPROVED, mergeable=Mergeable.CONFLICTING), labels=["agent:auto"]), {}, Stage.AWAITING_MERGE),
+            ("merge_failed", issue(number=1, pr=open_pr(101, readiness=Readiness.ALREADY_APPROVED, mergeable=Mergeable.MERGEABLE), labels=["agent:auto"]), {Fingerprint(AttemptKind.MERGE, "101"): 2}, Stage.AWAITING_MERGE),
+            ("retries_review", issue(number=1, labels=["agent:auto"]), {ReviewTarget(1).fingerprint: 2}, Stage.REVIEW),
+            ("retries_integrate", issue(number=1, reviews=[review(review_id="rev-1", round=1, status=ReviewStatus.AWAITING_DECISION, decisions=[decision()])], labels=["agent:auto"]), {Fingerprint(AttemptKind.INTEGRATE, "rev-1"): 2}, Stage.INTEGRATE),
+            ("retries_verify", issue(number=1, pr=open_pr(101, readiness=Readiness.READY_FOR_INITIAL_VERIFICATION, last_verification_cycle=0), labels=["agent:auto"]), {VerifyTarget(PrRef(101), 0).fingerprint: 2}, Stage.VERIFY),
+            ("retries_revise", issue(number=1, pr=open_pr(101, readiness=Readiness.AWAITING_REVISION, last_verification_cycle=1), labels=["agent:auto"]), {ReviseTarget(PrRef(101), 1).fingerprint: 2}, Stage.REVISE),
+            ("retries_implement_orphan", issue(number=1, labels=["agent:auto", "agent:skip-review", "in-progress"]), {ImplementTarget().fingerprint: 2}, Stage.IMPLEMENTING_ORPHAN),
+            ("retries_implement_ready", issue(number=1, labels=["agent:auto", "agent:skip-review"]), {ImplementTarget().fingerprint: 2}, Stage.READY),
+        ]
 
-        # Tick 2: Fold store actions and apply label overlay
-        state1 = fold_store(state0, tick1_plan.actions)
-        views1 = overlay_labels({IssueRef(1): v1}, tick1_plan.actions)
-        gh2 = issue(
-            number=1,
-            reviews=[r_dec],
-            labels=list(views1[IssueRef(1)].gh.labels),
-            status_comment=ExistingComment(ref=CommentRef("IC_1"), body=upsert1.body),
-        )
-        v2 = view(gh=gh2, local=state1.issues[IssueRef(1)])
-        tick2_plan = plan_tick({IssueRef(1): v2}, [], self.config, NOW)[0]
-        self.assertEqual(tick2_plan.stage, Stage.BLOCKED_HUMAN)
-        # No UpsertStatusComment because bodies are identical!
-        self.assertFalse(any(isinstance(a, UpsertStatusComment) for a in tick2_plan.actions))
+        for name, snap, attempts, expected_stage in cases:
+            with self.subTest(path=name):
+                v = view(gh=snap, local=IssueLocalState(block=None, attempts=attempts))
+                self._assert_blocking_and_blocked_human_identical(v, expected_stage)
 
 
 class TestImplementingAndMerging(unittest.TestCase):
